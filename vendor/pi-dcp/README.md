@@ -385,4 +385,5 @@ pi-dcp/
 
 Concept and prompt design ported from [@tarquinen/opencode-dcp](https://github.com/Opencode-DCP/opencode-dynamic-context-pruning) by tarquinen. Pi adaptation and tests by [@Davidcreador](https://github.com/Davidcreador).
 
+
 License: AGPL-3.0-or-later — inherits from upstream. See `LICENSE`.

@@ -160,4 +160,5 @@ First formal release. Full opencode-dcp feature parity, installable via `pi inst
 Concept and prompt design ported from [`@tarquinen/opencode-dcp`](https://github.com/Opencode-DCP/opencode-dynamic-context-pruning) by tarquinen.
 
 [Unreleased]: https://github.com/Davidcreador/pi-dcp/compare/v0.1.2...HEAD
+
 [0.1.0]: https://github.com/Davidcreador/pi-dcp/releases/tag/v0.1.0

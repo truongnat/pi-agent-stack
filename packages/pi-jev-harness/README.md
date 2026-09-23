@@ -8,7 +8,7 @@ Jev is a System One model: it never writes text, it only answers typed questions
 
 ```
 pi install git:github.com/MoonTory/pi-jev-harness
-export JEV_API_KEY=...         # or TYPESAFE_API_KEY; https://console.typesafe.ai/keys
+export JEV_API_KEY=...         # https://console.typesafe.ai/keys
 ```
 
 No runtime dependencies. Node 22.18 or newer. `rg` (ripgrep) on the path for context pre-fetch.
@@ -19,7 +19,7 @@ Six things, each switchable in config.
 
 **1. Route the turn** (`before_agent_start`). Jev reads the prompt and active tool list, then decides which tools to keep. Hidden schemas are applied only when both the tool-count and estimated-schema savings gates pass, preserving Pi's prompt cache on small tool sets. Hidden tools are restored at `agent_end`.
 
-**2. Pre-fetch context** (`before_agent_start`, when pre-fetch is enabled). Code pulls terms from a vague prompt and sends matching lines from up to forty files to Jev. If the prompt names a file and `rg --files` finds it, pre-fetch stops: the model can make a cheaper targeted read itself. Otherwise Jev ranks the candidates. The tuned default allows one file when Jev's `first` confidence or file score reaches 0.6. The harness injects 15-line windows around matching lines, merges overlapping windows, and caps the total at 80 lines per file. It never injects a file twice in one session. The injected message stays out of the transcript; the footer lists its file ranges.
+**2. Pre-fetch context** (`before_agent_start`, when pre-fetch is enabled). Code pulls terms from a vague prompt and sends matching lines from up to forty files to Jev. If the prompt names a file and `rg --files` finds it, pre-fetch stops: the model can make a cheaper targeted read itself. Otherwise Jev ranks the candidates. At most two files qualify when Jev's `first` confidence or file score reaches 0.6. The harness injects 15-line windows around matching lines, merges overlapping windows, and caps the total at 120 lines per file. It never injects a file twice in one session. The injected message stays out of the transcript; the footer lists its file ranges.
 
 **3. Trim results** (`tool_result`, for bash, grep, find, ls output over 6,000 chars; file reads are never judged, the model asked for exactly that). Jev sees the head and tail of the output with the task and answers: did it succeed, is it relevant, and how much should the model see (all, head, drop). Irrelevant output is replaced by a one-line note with the relevance score and how to get it back; repetitive output is cut to its first 2,000 chars. The model never pays for output it did not need. The judgement waits on Jev before the model sees the result, so the floor is high on purpose: only long test logs, wide greps and big listings are worth the round trip.
 

@@ -142,4 +142,5 @@ export function createCompressRangeTool(
 			return storeCompression(ctx, ids, params.topic, params.summary);
 		},
 	});
+
 }

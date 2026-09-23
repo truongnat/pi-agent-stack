@@ -31,7 +31,7 @@ model:    gpt-5.6-luna
 thinking: high
 ```
 
-JEV is active only when `JEV_API_KEY` or `TYPESAFE_API_KEY` is available. Keep the key outside the repo:
+JEV is active only when `JEV_API_KEY` is available. Keep the key outside the repo:
 
 ```bash
 mkdir -p ~/.keys
@@ -73,5 +73,6 @@ The JEV log is local at `~/.jev-harness/log.jsonl`. The subscription status cach
 cd packages/pi-jev-harness && npm ci && npm run check && npm test
 cd ../pi-subscription-providers && npm ci && npm run check
 ```
+
 
 The vendored DCP source is third-party code under its original AGPL-3.0-or-later license. This stack uses the npm package rather than treating that code as our own.

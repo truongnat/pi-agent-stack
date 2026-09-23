@@ -17,4 +17,5 @@ Pi
     └── model-callable compress tool
 ```
 
+
 JEV reads the provider readiness cache; it does not spawn subscription CLIs on every turn. Subscription probes run in the provider extension's background refresh path. DCP's `compress` tool is explicitly kept in JEV's always-keep tool set so the two optimizers do not disable each other.

@@ -37,4 +37,5 @@ done
 
 echo
 pi list
+
 exit "$fail"

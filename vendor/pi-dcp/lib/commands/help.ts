@@ -18,4 +18,5 @@ const HELP = [
 
 export async function handleHelp(_args: string, ctx: ExtensionCommandContext): Promise<void> {
 	void toast(ctx, HELP, "info");
+
 }

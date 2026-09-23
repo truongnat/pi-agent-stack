@@ -4,7 +4,7 @@ const PATTERNS: RegExp[] = [
 	/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,
 	/\bsk-[A-Za-z0-9_-]{8,}\b/g,
 	/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi,
-	/\b(Authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|CURSOR_API_KEY|JEV_API_KEY|TYPESAFE_API_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY)\s*[=:]\s*\S+/gi,
+	/\b(Authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|CURSOR_API_KEY|JEV_API_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY)\s*[=:]\s*\S+/gi,
 	/\b[a-f0-9]{40,}\b/gi
 ]
 

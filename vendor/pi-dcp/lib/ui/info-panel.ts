@@ -259,4 +259,5 @@ function flattenForToast(options: ShowInfoPanelOptions): string {
 		out.push("");
 	}
 	return out.join("\n").trimEnd();
+
 }

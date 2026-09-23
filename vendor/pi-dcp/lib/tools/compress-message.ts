@@ -104,4 +104,5 @@ export function createCompressMessageTool(
 			return storeCompression(ctx, ids, params.topic, params.summary);
 		},
 	});
+
 }

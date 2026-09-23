@@ -76,4 +76,5 @@ export function makeRecompressCommand(state: SessionState) {
 }
 
 // Re-exported for unit tests.
+
 export const _internal = { parseStrictId };

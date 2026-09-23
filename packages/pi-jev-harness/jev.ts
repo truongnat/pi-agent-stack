@@ -46,8 +46,8 @@ export async function ask(
 	questions: Record<string, Question>,
 	options: AskOptions = {}
 ): Promise<Result> {
-	const apiKey = options.apiKey ?? process.env.JEV_API_KEY ?? process.env.TYPESAFE_API_KEY
-	if (!apiKey) throw new Error('JEV_API_KEY or TYPESAFE_API_KEY is not set')
+	const apiKey = options.apiKey ?? process.env.JEV_API_KEY
+	if (!apiKey) throw new Error('JEV_API_KEY is not set')
 	const started = performance.now()
 	const controller = new AbortController()
 	const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 3000)

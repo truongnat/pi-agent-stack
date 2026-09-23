@@ -21,4 +21,5 @@
 	"subscriptionRouting": true,
 	"subscriptionMaxLatencyMs": 20000,
 	"subscriptionStatusTtlMs": 300000
+
 }

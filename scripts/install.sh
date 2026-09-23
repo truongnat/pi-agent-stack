@@ -40,4 +40,5 @@ if [[ -f "$HOME/.keys/jev.env" ]]; then
 else
 	echo "  JEV key file: missing; copy config/jev.env.example to ~/.keys/jev.env"
 fi
+
 echo "Run: pi list"

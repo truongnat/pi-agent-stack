@@ -116,4 +116,5 @@ export function makeContextCommand(state: SessionState) {
 			sections,
 		});
 	};
+
 }

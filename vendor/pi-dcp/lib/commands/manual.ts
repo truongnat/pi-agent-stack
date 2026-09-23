@@ -35,4 +35,5 @@ export function makeManualCommand(state: SessionState) {
 			"info",
 		);
 	};
+
 }

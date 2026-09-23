@@ -61,4 +61,5 @@ const next = {
 }
 
 writeFileSync(settingsPath, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 })
+
 console.log(`Synced ${settingsPath}`)

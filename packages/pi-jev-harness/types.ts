@@ -83,8 +83,7 @@ export const THRESHOLD_ALWAYS_KEEP = ['read', 'compress'] // never hide these, w
 
 export const READ_TOOLS = ['read', 'grep', 'find', 'ls']
 
-export const active = (h: Harness): boolean =>
-	h.config.mode !== 'off' && !!(process.env.JEV_API_KEY ?? process.env.TYPESAFE_API_KEY)
+export const active = (h: Harness): boolean => h.config.mode !== 'off' && !!process.env.JEV_API_KEY
 
 export const short = (value: unknown, max = 300): string => {
 	const text = typeof value === 'string' ? value : JSON.stringify(value)

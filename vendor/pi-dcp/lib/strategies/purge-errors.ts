@@ -99,4 +99,5 @@ export function applyPurgeErrors(
 	state.stats.errorInputsPurged += purgedCount;
 	state.stats.tokensSaved += tokensSaved;
 	return { purgedCount, tokensSaved };
+
 }

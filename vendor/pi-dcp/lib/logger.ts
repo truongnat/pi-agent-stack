@@ -40,4 +40,5 @@ export class Logger {
 			// Swallow logging failures — we never want logging to break the agent.
 		}
 	}
+
 }

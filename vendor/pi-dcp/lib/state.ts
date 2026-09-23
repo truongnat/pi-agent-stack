@@ -82,4 +82,5 @@ export function createSessionState(): SessionState {
 		nudgeFetchCount: 0,
 		lastIterationNudgeAt: 0,
 	};
+
 }

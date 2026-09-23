@@ -67,4 +67,5 @@ export function bumpLifetime(delta: Partial<LifetimeStats>): void {
 	} catch {
 		// Best effort.
 	}
+
 }

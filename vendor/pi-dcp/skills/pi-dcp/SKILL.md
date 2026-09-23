@@ -54,4 +54,5 @@ Notable knobs:
 
 ## Guardrails (always on)
 
+
 `compress`, `write`, `edit`, `todo`, `task`, and `skill` are *never* deduplicated or purged. Their outputs are also appended verbatim when included in a compression range.
