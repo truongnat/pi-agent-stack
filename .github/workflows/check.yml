@@ -1,0 +1,26 @@
+name: check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  packages:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - packages/pi-jev-harness
+          - packages/pi-subscription-providers
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ matrix.package }}/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: ${{ matrix.package }}
+      - run: npm run check && npm test
+        working-directory: ${{ matrix.package }}

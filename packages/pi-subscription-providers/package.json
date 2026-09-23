@@ -1,0 +1,42 @@
+{
+	"name": "pi-subscription-providers",
+	"version": "0.1.0",
+	"description": "Pi custom providers for Cursor Agent CLI and Google Antigravity (agy), with JEV-friendly readiness metadata.",
+	"keywords": [
+		"pi-package",
+		"cursor",
+		"antigravity",
+		"subscription"
+	],
+	"license": "MIT",
+	"type": "module",
+	"engines": {
+		"node": ">=22.18"
+	},
+	"scripts": {
+		"lint": "oxlint --type-aware",
+		"format": "prettier --write .",
+		"format:check": "prettier --check .",
+		"typecheck": "tsc --noEmit",
+		"test": "node --experimental-strip-types --test test/*.test.ts",
+		"check": "npm run typecheck && npm run lint && npm run format:check && npm test"
+	},
+	"pi": {
+		"extensions": [
+			"./src/extension.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-coding-agent": "*"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-coding-agent": "0.87.1",
+		"@ianvs/prettier-plugin-sort-imports": "4.7.1",
+		"@types/node": "^24.0.0",
+		"oxlint": "1.78.0",
+		"oxlint-tsgolint": "7.0.2001",
+		"prettier": "3.9.6",
+		"typescript": "^5.9.0"
+	}
+}

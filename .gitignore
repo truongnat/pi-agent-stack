@@ -1,0 +1,17 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+node_modules/
+*.log
+**/node_modules/
+**/.pi/
+runtime/
+tmp/
+
+# Local Pi state and credentials must never enter this repository.
+auth.json
+trust.json
+models-store.json
+subscription-providers-status.json
+jev.env

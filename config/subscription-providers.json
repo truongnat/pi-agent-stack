@@ -1,0 +1,22 @@
+{
+	"cursor": {
+		"enabled": true,
+		"command": "auto",
+		"timeoutMs": 120000,
+		"maxOutputChars": 200000,
+		"readinessTtlMs": 300000,
+		"latencyEstimateMs": 12000,
+		"marginalInputCost": 0.15,
+		"marginalOutputCost": 0.6
+	},
+	"antigravity": {
+		"enabled": true,
+		"command": "auto",
+		"timeoutMs": 120000,
+		"maxOutputChars": 200000,
+		"readinessTtlMs": 300000,
+		"latencyEstimateMs": 6000,
+		"marginalInputCost": 0.15,
+		"marginalOutputCost": 0.6
+	}
+}

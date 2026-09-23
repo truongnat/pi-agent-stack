@@ -1,0 +1,64 @@
+{
+  "name": "@davecodes/pi-dcp",
+  "version": "0.2.0",
+  "description": "Dynamic Context Pruning for Pi — port of opencode-dcp. Deduplication, error-input purge, and an LLM-callable compress tool to keep long sessions cheap.",
+  "type": "module",
+  "author": {
+    "name": "davecodes"
+  },
+  "license": "AGPL-3.0-or-later",
+  "homepage": "https://github.com/Davidcreador/pi-dcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Davidcreador/pi-dcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Davidcreador/pi-dcp/issues"
+  },
+  "keywords": [
+    "pi",
+    "pi-extension",
+    "pi-package",
+    "dcp",
+    "context-pruning",
+    "token-optimization",
+    "llm",
+    "agent",
+    "opencode-dcp-port"
+  ],
+  "files": [
+    "index.ts",
+    "lib/**/*.ts",
+    "skills/**/*",
+    "assets/preview.png",
+    "config.example.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "check": "npm run typecheck && npm run test",
+    "prepublishOnly": "npm run check"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "image": "assets/preview.png"
+  },
+  "dependencies": {
+    "@anthropic-ai/tokenizer": "^0.0.4"
+  }
+}

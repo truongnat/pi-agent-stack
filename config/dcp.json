@@ -1,0 +1,38 @@
+{
+	"enabled": true,
+	"debug": false,
+	"pruneNotification": "minimal",
+	"experimental": {
+		"customPrompts": false
+	},
+	"manualMode": {
+		"enabled": false,
+		"automaticStrategies": true
+	},
+	"turnProtection": {
+		"enabled": true,
+		"turns": 6
+	},
+	"compress": {
+		"mode": "range",
+		"permission": "allow",
+		"minContextLimit": "40%",
+		"maxContextLimit": "70%",
+		"nudgeEveryTurns": 6,
+		"nudgeFrequency": 3,
+		"iterationNudgeThreshold": 10,
+		"nudgeForce": "strong",
+		"protectedTools": []
+	},
+	"strategies": {
+		"deduplication": {
+			"enabled": true,
+			"protectedTools": []
+		},
+		"purgeErrors": {
+			"enabled": true,
+			"turns": 3,
+			"protectedTools": []
+		}
+	}
+}
