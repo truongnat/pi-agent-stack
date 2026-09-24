@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+
 import { computeReward, detectTestCommand, runCommand } from '../src/verifier.ts'
 
 test('detectTestCommand identifies npm test in package.json', () => {

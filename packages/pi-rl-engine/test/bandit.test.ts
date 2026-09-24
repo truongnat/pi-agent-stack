@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
+
 import { ContextualBandit } from '../src/bandit.ts'
 
 test('ContextualBandit initializes, updates Q-values and persists state', () => {

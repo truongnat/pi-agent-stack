@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+
 import type { QEntry } from './types.ts'
 
 export class ContextualBandit {
@@ -73,9 +74,19 @@ export class ContextualBandit {
 		taskType: string,
 		availableArms: Array<{ model: string; thinkingLevel: string }>,
 		epsilon: number = 0.1
-	): { model: string; thinkingLevel: string; qValue: number; explored: boolean } {
+	): {
+		model: string
+		thinkingLevel: string
+		qValue: number
+		explored: boolean
+	} {
 		if (availableArms.length === 0) {
-			return { model: 'gpt-5.6-luna', thinkingLevel: 'high', qValue: 0.5, explored: false }
+			return {
+				model: 'gpt-5.6-luna',
+				thinkingLevel: 'high',
+				qValue: 0.5,
+				explored: false
+			}
 		}
 
 		// Epsilon-greedy exploration

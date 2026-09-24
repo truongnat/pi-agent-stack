@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+
 import type { RewardResult, RewardWeights, VerificationDetail } from './types.ts'
 
 /**
@@ -61,7 +62,11 @@ export function runCommand(
 		})
 		return { passed: true, exitCode: 0, output: String(output) }
 	} catch (err: unknown) {
-		const execError = err as { status?: number; stdout?: string; stderr?: string }
+		const execError = err as {
+			status?: number
+			stdout?: string
+			stderr?: string
+		}
 		const stdout = execError.stdout ? String(execError.stdout) : ''
 		const stderr = execError.stderr ? String(execError.stderr) : ''
 		return {

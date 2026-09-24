@@ -1,7 +1,8 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
+
 import { ContextualBandit } from './bandit.ts'
 import { ShadowWorktreeManager } from './shadow.ts'
 import type { RLConfig, RLStats } from './types.ts'
@@ -86,7 +87,11 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 			currentTaskType = 'test'
 		} else if (prompt.includes('fix') || prompt.includes('bug') || prompt.includes('error')) {
 			currentTaskType = 'fix'
-		} else if (prompt.includes('refactor') || prompt.includes('clean') || prompt.includes('tối ưu')) {
+		} else if (
+			prompt.includes('refactor') ||
+			prompt.includes('clean') ||
+			prompt.includes('tối ưu')
+		) {
 			currentTaskType = 'refactor'
 		} else {
 			currentTaskType = 'general'
@@ -146,7 +151,10 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 				: '0.00'
 			const qEntries = bandit.getAllEntries().slice(0, 5)
 			const qSummary = qEntries
-				.map((q) => `  • [${q.taskType}] ${q.model} (${q.thinkingLevel}): Q=${q.qValue.toFixed(2)} (${q.successes}/${q.trials})`)
+				.map(
+					(q) =>
+						`  • [${q.taskType}] ${q.model} (${q.thinkingLevel}): Q=${q.qValue.toFixed(2)} (${q.successes}/${q.trials})`
+				)
 				.join('\n')
 
 			const report = [

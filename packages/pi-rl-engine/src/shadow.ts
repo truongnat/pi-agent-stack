@@ -3,7 +3,8 @@ import { randomBytes } from 'node:crypto'
 import { existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { RewardResult, RolloutCandidate } from './types.ts'
+
+import type { RewardResult } from './types.ts'
 import { computeReward } from './verifier.ts'
 
 export class ShadowWorktreeManager {

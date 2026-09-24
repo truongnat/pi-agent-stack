@@ -13,6 +13,7 @@ jobs:
         package:
           - packages/pi-jev-harness
           - packages/pi-subscription-providers
+          - packages/pi-rl-engine
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
