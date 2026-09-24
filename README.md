@@ -8,7 +8,7 @@ This repository contains the custom code and reproducible configuration from the
 
 - `packages/pi-jev-harness`: JEV harness with route/prefetch/trim/loop/guard, model/thinking policy, subscription-aware routing, and the DCP `compress` tool protected from accidental hiding.
 - `packages/pi-subscription-providers`: Pi compatibility providers for `cursor-agent` and `agy` stream-json, with readiness caching and redacted status metadata.
-- `packages/pi-rl-engine`: Harness-layer reinforcement learning & test-time search engine (ground-truth test/lint reward verifiers, speculative shadow worktree rollouts, and contextual bandit Q-routing with zero prompt-token overhead).
+- `packages/pi-rl-engine`: Harness-layer verified feedback that gives JEV cost-safe historical quality hints for model routing.
 - `NVlabs/SoL-Pi` (cloned from GitHub by `scripts/install.sh`): Observation Pack, Action Fusion, Evidence-Preserving Reducer, and Online Context Compact — context-cost optimizers that run as Pi extensions. Config template is in `config/sol-pi.json`.
 - `@davecodes/pi-dcp@0.2.0`: pinned third-party DCP package, installed from npm. Its active config is versioned in `config/dcp.json`; source and license are mirrored under `vendor/pi-dcp` for audit/reference.
 - `typesafe-harness/`: shared PreToolUse gate, PreInvocation skill prompter, and Stop claim verifier for multi-agent setups (Pi, Codex, Antigravity, Claude, Grok).
@@ -62,10 +62,9 @@ DCP handles context cost locally: deduplicates repeated tool results, purges sta
 
 ## Harness-Layer Reinforcement Learning
 
-The RL engine lives entirely at the **Harness Layer** (zero prompt injection, zero context token waste):
-- **Ground-Truth Verifiers**: Evaluates unit tests and linter feedback post-turn, updating $Q(s, a)$ rewards directly.
-- **Dynamic Tool Masking & Bandit Routing**: Automatically updates model/thinking level Q-values and gates tool availability based on task type.
-- **Shadow Worktree Search**: Run `/rl-explore` to test speculative changes in isolated `/tmp` shadow worktrees before committing to the primary workspace.
+The RL engine runs at the harness layer. After a turn changes the worktree, it detects the project's package manager and test command, checks Node engine requirements, and updates its local Q-table only when the test outcome is conclusive. A compatible Node version already installed through mise is used when available; runtime or command-start failures are recorded as skipped and never penalize a model. JEV remains the model decision-maker and may use verified history as a tie-breaker among near-equal-cost candidates after three trials. Historical scores never justify a more expensive route. No test is run for turns that leave the workspace unchanged.
+
+`/rl-explore` currently explains that candidate generation is unavailable. The command does not create a fake rollout or increment learning statistics.
 
 ## Useful commands
 
@@ -78,7 +77,7 @@ The RL engine lives entirely at the **Harness Layer** (zero prompt injection, ze
 /dcp stats
 /rl                   # RL engine status and mode (on|off|passive|stats)
 /rl-verify            # Run ground-truth test verifier and compute reward
-/rl-explore           # Run shadow worktree rollout
+/rl-explore           # Explain exploration availability
 ```
 
 The JEV log is local at `~/.jev-harness/log.jsonl`. The subscription status cache is local at `~/.pi/agent/subscription-providers-status.json` and is intentionally not committed.

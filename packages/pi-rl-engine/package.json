@@ -1,16 +1,15 @@
 {
 	"name": "pi-rl-engine",
 	"version": "0.1.0",
-	"description": "Reinforcement Learning & Test-Time Search Engine for Pi Coding Agent (Ground-Truth Verifiers, Shadow Worktree Rollouts, Contextual Bandit Routing).",
+	"description": "Verified task feedback for cost-aware model routing in the Pi coding agent JEV harness.",
 	"keywords": [
 		"pi-package",
 		"pi-extension",
 		"reinforcement-learning",
 		"rl",
-		"mcts",
+		"jev-routing",
 		"test-verifier",
-		"shadow-worktree",
-		"continuous-learning"
+		"cost-aware-routing"
 	],
 	"license": "MIT",
 	"type": "module",

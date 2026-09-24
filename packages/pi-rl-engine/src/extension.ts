@@ -1,27 +1,69 @@
+import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 
 import { ContextualBandit } from './bandit.ts'
-import { ShadowWorktreeManager } from './shadow.ts'
 import type { RLConfig, RLStats } from './types.ts'
-import { computeReward } from './verifier.ts'
+import { computeRewardAsync } from './verifier.ts'
 
 const CONFIG_PATH = join(homedir(), '.pi', 'agent', 'rl-config.json')
 const LOG_DIR = join(homedir(), '.pi-rl')
+const MAX_WORKSPACE_DIFF_BYTES = 32 * 1024 * 1024
 
 const DEFAULT_CONFIG: RLConfig = {
 	mode: 'on',
-	autoVerifyOnEdit: false,
-	shadowBranchFactor: 2,
+	autoVerifyOnEdit: true,
 	testTimeoutMs: 30000,
-	explorationRate: 0.1,
 	rewardWeights: {
 		test: 1.0,
 		lint: 0.3,
 		cost: 0.1
 	}
+}
+
+function workspaceFingerprint(cwd: string): string | undefined {
+	try {
+		const hash = createHash('sha256')
+		hash.update(
+			execFileSync('git', ['diff', 'HEAD', '--binary'], {
+				cwd,
+				maxBuffer: MAX_WORKSPACE_DIFF_BYTES
+			})
+		)
+		const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+			cwd,
+			encoding: 'utf8'
+		})
+		for (const relativePath of untracked.split('\0').filter(Boolean)) {
+			try {
+				const stat = readFileSync(join(cwd, relativePath), { flag: 'r' })
+				hash.update(relativePath)
+				hash.update(stat)
+			} catch {
+				hash.update(`${relativePath}:unreadable`)
+			}
+		}
+		return hash.digest('hex')
+	} catch {
+		return undefined
+	}
+}
+
+function taskTypeForPrompt(prompt: string): string {
+	const normalized = prompt.toLowerCase()
+	if (/\b(test|tests|testing|spec|specs)\b|unit test/.test(normalized)) {
+		return 'test'
+	}
+	if (/\b(fix|bug|error)\b|lỗi|sửa/.test(normalized)) {
+		return 'fix'
+	}
+	if (/\b(refactor|clean|optimize|optimise)\b/.test(normalized) || normalized.includes('tối ưu')) {
+		return 'refactor'
+	}
+	return 'general'
 }
 
 function loadConfig(): RLConfig {
@@ -55,21 +97,51 @@ function logRL(event: Record<string, unknown>): void {
 	}
 }
 
+function recordVerification(
+	result: Awaited<ReturnType<typeof computeRewardAsync>>,
+	stats: RLStats,
+	bandit: ContextualBandit,
+	taskType: string,
+	model: { provider: string; id: string } | undefined,
+	thinking: string
+): void {
+	if (result.status === 'skipped') {
+		stats.skippedVerifications++
+		logRL({ event: 'verification_skipped', reason: result.details.test?.reason ?? 'inconclusive' })
+		return
+	}
+
+	stats.verifications++
+	stats.totalRewardAccumulated += result.totalReward
+	if (result.passed) stats.passedVerifications++
+	else stats.failedVerifications++
+	if (model) {
+		bandit.update(taskType, `${model.provider}/${model.id}`, thinking, result.totalReward)
+	}
+	logRL({
+		event: 'turn_eval',
+		taskType,
+		reward: result.totalReward,
+		passed: result.passed,
+		model: model ? `${model.provider}/${model.id}` : undefined,
+		thinking,
+		details: result.details
+	})
+}
+
 export function registerRLExtension(pi: ExtensionAPI): void {
 	const config = loadConfig()
 	const bandit = new ContextualBandit()
 	const stats: RLStats = {
 		verifications: 0,
+		skippedVerifications: 0,
 		passedVerifications: 0,
 		failedVerifications: 0,
-		shadowRollouts: 0,
-		rolloutWins: 0,
 		totalRewardAccumulated: 0
 	}
 
 	let currentTaskType = 'general'
-	let currentModel = 'openai-codex/gpt-5.6-luna'
-	let currentThinking = 'high'
+	let taskStartFingerprint: string | undefined
 
 	pi.on('session_start', (_event, ctx) => {
 		Object.assign(config, loadConfig())
@@ -81,21 +153,8 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 
 	pi.on('before_agent_start', (event, ctx) => {
 		if (config.mode === 'off') return
-
-		const prompt = event.prompt.toLowerCase()
-		if (prompt.includes('test') || prompt.includes('ut') || prompt.includes('spec')) {
-			currentTaskType = 'test'
-		} else if (prompt.includes('fix') || prompt.includes('bug') || prompt.includes('error')) {
-			currentTaskType = 'fix'
-		} else if (
-			prompt.includes('refactor') ||
-			prompt.includes('clean') ||
-			prompt.includes('tối ưu')
-		) {
-			currentTaskType = 'refactor'
-		} else {
-			currentTaskType = 'general'
-		}
+		taskStartFingerprint = workspaceFingerprint(ctx.cwd)
+		currentTaskType = taskTypeForPrompt(event.prompt)
 
 		if (ctx.hasUI) {
 			ctx.ui.setStatus('pi-rl', `RL: ${config.mode} [${currentTaskType}]`)
@@ -104,31 +163,34 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 
 	pi.on('agent_end', (_event, ctx) => {
 		if (config.mode === 'off' || config.mode === 'passive') return
+		const currentFingerprint = workspaceFingerprint(ctx.cwd)
+		if (
+			!config.autoVerifyOnEdit ||
+			!taskStartFingerprint ||
+			!currentFingerprint ||
+			taskStartFingerprint === currentFingerprint
+		) {
+			return
+		}
+		taskStartFingerprint = currentFingerprint
 
-		const cwd = ctx.cwd
-		const result = computeReward(cwd, {
+		const verificationOptions = {
 			testCommand: config.testCommand,
 			timeoutMs: config.testTimeoutMs,
 			weights: config.rewardWeights
-		})
-
-		stats.verifications++
-		stats.totalRewardAccumulated += result.totalReward
-		if (result.passed) {
-			stats.passedVerifications++
-		} else {
-			stats.failedVerifications++
 		}
-
-		bandit.update(currentTaskType, currentModel, currentThinking, result.totalReward)
-
-		logRL({
-			event: 'turn_eval',
-			taskType: currentTaskType,
-			reward: result.totalReward,
-			passed: result.passed,
-			details: result.details
-		})
+		const currentModel = ctx.model
+		const thinking = pi.getThinkingLevel()
+		void computeRewardAsync(ctx.cwd, verificationOptions)
+			.then((result) =>
+				recordVerification(result, stats, bandit, currentTaskType, currentModel, thinking)
+			)
+			.catch((error: unknown) => {
+				logRL({
+					event: 'verification_error',
+					error: error instanceof Error ? error.message : String(error)
+				})
+			})
 	})
 
 	pi.registerCommand('rl', {
@@ -159,9 +221,9 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 
 			const report = [
 				`=== Pi RL Engine (${config.mode}) ===`,
-				`Verifications: ${stats.verifications} (Passed: ${stats.passedVerifications}, Failed: ${stats.failedVerifications})`,
+				`Verifications: ${stats.verifications} (Passed: ${stats.passedVerifications}, Failed: ${stats.failedVerifications}, Skipped: ${stats.skippedVerifications})`,
 				`Avg Reward: ${avgReward}`,
-				`Shadow Rollouts: ${stats.shadowRollouts} (Wins: ${stats.rolloutWins})`,
+				'Exploration: disabled (candidate generation is not connected)',
 				`Q-Table Highlights:`,
 				qSummary || '  (no Q-table trials recorded yet)'
 			].join('\n')
@@ -173,44 +235,30 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 	pi.registerCommand('rl-verify', {
 		description: 'Run ground-truth test verifier and compute immediate reward',
 		handler: async (_args, ctx) => {
-			const res = computeReward(ctx.cwd, {
+			const res = await computeRewardAsync(ctx.cwd, {
 				testCommand: config.testCommand,
 				timeoutMs: config.testTimeoutMs,
 				weights: config.rewardWeights
 			})
 
+			const outcome =
+				res.status === 'skipped'
+					? `Skipped: ${res.details.test?.reason ?? 'not verifiable'}`
+					: `Reward: ${res.totalReward} (Passed: ${res.passed})`
 			ctx.ui.notify(
-				`RL Verification:\nReward: ${res.totalReward} (Passed: ${res.passed})\nCommand: ${res.details.test?.command ?? 'none'}\nLatency: ${res.details.latencyMs}ms`,
-				res.passed ? 'info' : 'warning'
+				`RL Verification:\n${outcome}\nCommand: ${res.details.test?.command || 'none'}\nLatency: ${res.details.latencyMs ?? 0}ms`,
+				res.status === 'failed' ? 'warning' : 'info'
 			)
 		}
 	})
 
 	pi.registerCommand('rl-explore', {
-		description: 'Run speculative shadow worktree rollout for isolated verification',
+		description: 'Explain reinforcement-learning exploration availability',
 		handler: async (_args, ctx) => {
-			const manager = new ShadowWorktreeManager(ctx.cwd)
-			ctx.ui.notify('Creating isolated shadow worktree in /tmp...', 'info')
-			let shadowPath = ''
-			try {
-				shadowPath = manager.createShadowWorktree()
-				stats.shadowRollouts++
-				const evalResult = manager.evaluateRollout(shadowPath, {
-					testCommand: config.testCommand,
-					timeoutMs: config.testTimeoutMs
-				})
-
-				ctx.ui.notify(
-					`Shadow rollout verified: Reward=${evalResult.reward.totalReward} (Passed=${evalResult.reward.passed})`,
-					evalResult.reward.passed ? 'info' : 'warning'
-				)
-			} catch (err: unknown) {
-				ctx.ui.notify(`Shadow rollout error: ${String(err)}`, 'error')
-			} finally {
-				if (shadowPath) {
-					manager.cleanupShadowWorktree(shadowPath)
-				}
-			}
+			ctx.ui.notify(
+				'Candidate generation is not connected, so RL exploration is disabled. JEV still chooses the model using verified history; use /rl-verify to run a manual check.',
+				'warning'
+			)
 		}
 	})
 }

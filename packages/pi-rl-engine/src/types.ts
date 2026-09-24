@@ -1,4 +1,4 @@
-export type RLMode = 'on' | 'off' | 'shadow' | 'passive'
+export type RLMode = 'on' | 'off' | 'passive'
 
 export interface RewardWeights {
 	test: number
@@ -9,19 +9,19 @@ export interface RewardWeights {
 export interface RLConfig {
 	mode: RLMode
 	autoVerifyOnEdit: boolean
-	shadowBranchFactor: number
 	testCommand?: string
 	testTimeoutMs: number
-	explorationRate: number
 	rewardWeights: RewardWeights
 }
 
 export interface VerificationDetail {
 	test?: {
 		command: string
+		status: 'passed' | 'failed' | 'skipped'
 		passed: boolean
 		exitCode: number
 		output: string
+		reason?: string
 	}
 	lint?: {
 		command: string
@@ -32,26 +32,18 @@ export interface VerificationDetail {
 }
 
 export interface RewardResult {
+	status: 'passed' | 'failed' | 'skipped'
 	totalReward: number
 	passed: boolean
 	details: VerificationDetail
 	at: string
 }
 
-export interface RolloutCandidate {
-	id: string
-	worktreePath: string
-	branchName: string
-	reward: RewardResult
-	patch: string
-}
-
 export interface RLStats {
 	verifications: number
+	skippedVerifications: number
 	passedVerifications: number
 	failedVerifications: number
-	shadowRollouts: number
-	rolloutWins: number
 	totalRewardAccumulated: number
 }
 

@@ -325,7 +325,7 @@ async function route(
 	prompt: string
 ): Promise<{ kind: string; note: string; hideTools: boolean } | null> {
 	const names = pi.getActiveTools()
-	const models = routeModels(h, ctx)
+	const models = routeModels(h, ctx, prompt)
 	const tools = pi
 		.getAllTools()
 		.filter((tool) => names.includes(tool.name))

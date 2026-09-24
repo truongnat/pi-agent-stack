@@ -29,6 +29,7 @@ export type RoutingModel = {
 	marginalInputCost: number
 	marginalOutputCost: number
 	toolMode?: 'native' | 'compatibility' | undefined
+	history?: { trials: number; successRate: number; qValue: number } | undefined
 }
 
 export type Result = { answers: Answers; inputTokens: number; ms: number }
@@ -132,7 +133,7 @@ export function routingQuestions(
 	}
 	if (modelRouting) {
 		questions.model = choice(
-			'Choose the cheapest sufficient model for `task`. Prefer `keep_current` unless a cheaper candidate is clearly sufficient. Never choose a more expensive model automatically. HARD RULE: never choose a candidate with tools=compatibility when `kind` is explore, change, run, or unclear — those turns need native Pi tools; only answer turns may use subscription/compatibility providers. Prefer ready subscription candidates (billingMode=subscription, readiness=true, quotaAvailable) only for answer turns when latency is acceptable. Skip unavailable or quota-exhausted providers. API providers remain valid fallbacks.',
+			'Choose the cheapest sufficient model for `task`. Prefer `keep_current` unless a cheaper candidate is clearly sufficient. Never choose a more expensive model automatically. Use verified history only as a tie-breaker among candidates within 5% of the same marginal cost, and only when history has at least 3 trials. Never pay more because of a historical score. HARD RULE: never choose a candidate with tools=compatibility when `kind` is explore, change, run, or unclear — those turns need native Pi tools; only answer turns may use subscription/compatibility providers. Prefer ready subscription candidates (billingMode=subscription, readiness=true, quotaAvailable) only for answer turns when latency is acceptable. Skip unavailable or quota-exhausted providers. API providers remain valid fallbacks.',
 			{
 				keep_current: 'Keep the current model to preserve prompt-cache continuity',
 				...Object.fromEntries(models.map((model) => [model.key, model.label]))

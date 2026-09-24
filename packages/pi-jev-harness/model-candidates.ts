@@ -1,6 +1,9 @@
 /**
  * Build the ranked model candidate list for a routing turn.
  */
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import type { ExtensionContext } from '@earendil-works/pi-coding-agent'
 
 import type { RoutingModel } from './jev.ts'
@@ -68,6 +71,97 @@ type CatalogModel = {
 	input: readonly string[]
 	cost: { input: number; output: number }
 	contextWindow: number
+}
+
+type LearnedEntry = {
+	taskType?: string
+	model?: string
+	qValue?: number
+	trials?: number
+	successes?: number
+}
+
+const RL_CONFIG_PATH = join(homedir(), '.pi', 'agent', 'rl-config.json')
+
+const RL_QTABLE_PATH = join(homedir(), '.pi', 'agent', 'rl-qtable.json')
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isLearnedEntry(value: unknown): value is LearnedEntry {
+	if (!isRecord(value)) return false
+	return (
+		typeof value.taskType === 'string' &&
+		typeof value.model === 'string' &&
+		numberIsFinite(value.qValue) &&
+		numberIsFinite(value.trials) &&
+		numberIsFinite(value.successes)
+	)
+}
+
+function taskTypeForPrompt(prompt: string): string {
+	const normalized = prompt.toLowerCase()
+	if (/\b(test|tests|testing|spec|specs)\b|unit test/.test(normalized)) {
+		return 'test'
+	}
+	if (/\b(fix|bug|error)\b|lỗi|sửa/.test(normalized)) {
+		return 'fix'
+	}
+	if (/\b(refactor|clean|optimize|optimise)\b/.test(normalized) || normalized.includes('tối ưu')) {
+		return 'refactor'
+	}
+	return 'general'
+}
+
+function learningEnabled(): boolean {
+	try {
+		if (!existsSync(RL_CONFIG_PATH)) return true
+		const config: unknown = JSON.parse(readFileSync(RL_CONFIG_PATH, 'utf8'))
+		return !isRecord(config) || config.mode !== 'off'
+	} catch {
+		return false
+	}
+}
+
+function readLearnedEntries(): LearnedEntry[] {
+	if (!learningEnabled() || !existsSync(RL_QTABLE_PATH)) return []
+	try {
+		const entries: unknown = JSON.parse(readFileSync(RL_QTABLE_PATH, 'utf8'))
+		return Array.isArray(entries) ? entries.filter(isLearnedEntry) : []
+	} catch {
+		return []
+	}
+}
+
+function addVerifiedHistory(models: RoutingModel[], prompt: string): RoutingModel[] {
+	const taskType = taskTypeForPrompt(prompt)
+	const entries = readLearnedEntries()
+	return models.map((model) => {
+		const matching = entries.filter(
+			(entry) =>
+				entry.taskType === taskType &&
+				entry.model === model.key &&
+				numberIsFinite(entry.trials) &&
+				numberIsFinite(entry.qValue)
+		)
+		const trials = matching.reduce((total, entry) => total + (entry.trials ?? 0), 0)
+		if (trials < 3) return model
+		const qValue =
+			matching.reduce((total, entry) => total + (entry.qValue ?? 0) * (entry.trials ?? 0), 0) /
+			trials
+		const successes = matching.reduce((total, entry) => total + (entry.successes ?? 0), 0)
+		const successRate = successes / trials
+		return {
+			...model,
+			history: { trials, successRate, qValue },
+			label: `${model.label}; verified history=${trials} trials, ${Math.round(successRate * 100)}% pass, Q=${qValue.toFixed(2)}`
+		}
+	})
+}
+
+function numberIsFinite(value: unknown): value is number {
+	return typeof value === 'number' && Number.isFinite(value)
 }
 
 function sameFamilyModels(
@@ -181,7 +275,7 @@ function withCurrentModel(current: CatalogModel, models: RoutingModel[]): Routin
 	]
 }
 
-export function routeModels(h: Harness, ctx: ExtensionContext): RoutingModel[] {
+export function routeModels(h: Harness, ctx: ExtensionContext, prompt = ''): RoutingModel[] {
 	const current = ctx.model
 	if (!current || !h.config.modelRouting) return []
 	const contextTokens = ctx.getContextUsage()?.tokens ?? 0
@@ -202,5 +296,5 @@ export function routeModels(h: Harness, ctx: ExtensionContext): RoutingModel[] {
 				(right.marginalInputCost + right.marginalOutputCost)
 		)
 		.slice(0, 10)
-	return withCurrentModel(current, ranked)
+	return addVerifiedHistory(withCurrentModel(current, ranked), prompt)
 }
