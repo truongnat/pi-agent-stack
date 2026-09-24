@@ -1,0 +1,30 @@
+{
+  "typesafe-gate": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "TYPESAFE_HARNESS=antigravity ~/.agents/typesafe-harness/pre-tool.sh",
+            "timeout": 8
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "TYPESAFE_HARNESS=antigravity ~/.agents/typesafe-harness/stop.sh",
+        "timeout": 8
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "TYPESAFE_HARNESS=antigravity ~/.agents/typesafe-harness/prompt.sh",
+        "timeout": 12
+      }
+    ]
+  }
+}

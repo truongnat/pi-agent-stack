@@ -9,6 +9,12 @@ node_modules/
 runtime/
 tmp/
 
+# Python / typesafe harness runtime
+__pycache__/
+*.py[cod]
+cache.json
+decisions.jsonl
+
 # Local Pi state and credentials must never enter this repository.
 auth.json
 trust.json
@@ -16,3 +22,4 @@ models-store.json
 subscription-providers-status.json
 
 jev.env
+typesafe.env

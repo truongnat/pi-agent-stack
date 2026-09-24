@@ -19,6 +19,9 @@ rsync -a --delete \
 	--exclude '.git' \
 	--exclude 'node_modules' \
 	--exclude '.pi' \
+	--exclude '__pycache__' \
+	--exclude 'cache.json' \
+	--exclude 'decisions.jsonl' \
 	"$ROOT_DIR/" "$AGENT_DIR/pi-agent-stack/"
 
 cd "$AGENT_DIR"
@@ -45,16 +48,32 @@ pi install "$SOL_PI_DIR" --approve
 # Write user-wide sol-pi.json config (observationPack + actionFusion enabled)
 cp "$AGENT_DIR/pi-agent-stack/config/sol-pi.json" "$AGENT_DIR/sol-pi.json"
 
+# TypeSafe harness — sync to ~/.agents/typesafe-harness
+TYPESAFE_DIR="${TYPESAFE_HARNESS_DIR:-$HOME/.agents/typesafe-harness}"
+mkdir -p "$TYPESAFE_DIR"
+rsync -a \
+	--exclude '__pycache__' \
+	--exclude 'cache.json' \
+	--exclude 'decisions.jsonl' \
+	"$ROOT_DIR/typesafe-harness/" "$TYPESAFE_DIR/"
+chmod +x "$TYPESAFE_DIR"/*.sh "$TYPESAFE_DIR"/*.py 2>/dev/null || true
+
 echo
 echo "Pi agent stack installed."
 echo "  settings: $AGENT_DIR/settings.json"
 echo "  JEV config: $AGENT_DIR/jev-harness.json"
 echo "  DCP config: $HOME/.pi-dcp/config.json"
 echo "  SoL-Pi config: $AGENT_DIR/sol-pi.json"
+echo "  TypeSafe harness: $TYPESAFE_DIR"
 if [[ -f "$HOME/.keys/jev.env" ]]; then
 	echo "  JEV key file: found at ~/.keys/jev.env"
 else
 	echo "  JEV key file: missing; copy config/jev.env.example to ~/.keys/jev.env"
+fi
+if [[ -f "$HOME/.keys/typesafe.env" ]]; then
+	echo "  TypeSafe key file: found at ~/.keys/typesafe.env"
+else
+	echo "  TypeSafe key file: missing; add API_KEY to ~/.keys/typesafe.env"
 fi
 
 echo "Run: pi list"

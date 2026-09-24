@@ -10,13 +10,14 @@ This repository contains the custom code and reproducible configuration from the
 - `packages/pi-subscription-providers`: Pi compatibility providers for `cursor-agent` and `agy` stream-json, with readiness caching and redacted status metadata.
 - `NVlabs/SoL-Pi` (cloned from GitHub by `scripts/install.sh`): Observation Pack, Action Fusion, Evidence-Preserving Reducer, and Online Context Compact — context-cost optimizers that run as Pi extensions. Config template is in `config/sol-pi.json`.
 - `@davecodes/pi-dcp@0.2.0`: pinned third-party DCP package, installed from npm. Its active config is versioned in `config/dcp.json`; source and license are mirrored under `vendor/pi-dcp` for audit/reference.
-- `config/`: portable Pi, JEV, provider, DCP, and environment templates.
-- `scripts/install.sh`: stages this repo into `~/.pi/agent/pi-agent-stack`, merges Pi settings, installs DCP, and writes runtime configs.
-- `scripts/doctor.sh`: checks the install and available subscription CLIs.
+- `typesafe-harness/`: shared PreToolUse gate, PreInvocation skill prompter, and Stop claim verifier for multi-agent setups (Pi, Codex, Antigravity, Claude, Grok).
+- `config/`: portable Pi (`pi-defaults.json`), JEV, provider, DCP, SoL-Pi, and Antigravity hooks (`agy-hooks.json`) templates.
+- `scripts/install.sh`: stages this repo into `~/.pi/agent/pi-agent-stack`, syncs `~/.agents/typesafe-harness`, merges Pi settings, installs DCP, and writes runtime configs.
+- `scripts/doctor.sh`: checks the install, harness scripts, and available subscription CLIs.
 
-## Install on another Mac
+## Install
 
-Requirements: Pi, Node 22+, and optionally `cursor-agent` / `agy` for subscription routes.
+Requirements: Pi, Node 22+, Python 3, and optionally `cursor-agent` / `agy` for subscription routes.
 
 ```bash
 git clone <this-repository-url>
@@ -24,7 +25,7 @@ cd pi-agent-stack
 bash scripts/install.sh
 ```
 
-The installer preserves unrelated Pi packages/settings, removes the old JEV git checkout and duplicate custom package entries, and installs these defaults:
+The installer preserves unrelated Pi packages/settings, removes the old JEV git checkout and duplicate custom package entries, syncs `~/.agents/typesafe-harness`, and installs these defaults:
 
 ```text
 provider: openai-codex
@@ -32,13 +33,16 @@ model:    gpt-5.6-luna
 thinking: high
 ```
 
-JEV is active only when `JEV_API_KEY` is available. Keep the key outside the repo:
+JEV / TypeSafe is active when API keys are available in `~/.keys/`:
 
 ```bash
 mkdir -p ~/.keys
 cp config/jev.env.example ~/.keys/jev.env
 # edit ~/.keys/jev.env, then source it from your shell startup or before Pi
 source ~/.keys/jev.env
+
+# For TypeSafe harness:
+# add export API_KEY="your-typesafe-key" to ~/.keys/typesafe.env
 ```
 
 Then verify:

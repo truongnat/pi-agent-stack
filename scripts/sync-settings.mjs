@@ -15,6 +15,14 @@ try {
 	// A fresh Pi install has no settings file yet.
 }
 
+const defaultsPath = join(agentDir, 'pi-agent-stack/config/pi-defaults.json')
+let defaults = {}
+try {
+	defaults = JSON.parse(readFileSync(defaultsPath, 'utf8'))
+} catch {
+	// No defaults file found
+}
+
 const sourceOf = (entry) => (typeof entry === 'string' ? entry : entry?.source ?? '')
 const removeManaged = (entry) => {
 	const source = sourceOf(entry)
@@ -35,28 +43,20 @@ packages.push(
 )
 
 const next = {
+	...defaults,
 	...settings,
-	defaultProvider: 'openai-codex',
-	defaultModel: 'gpt-5.6-luna',
-	defaultThinkingLevel: 'high',
 	packages,
-	enableSkillCommands: true,
-	showCacheMissNotices: true,
-	cacheWarming: 'streaming',
 	compaction: {
-		enabled: true,
-		reserveTokens: 16384,
-		keepRecentTokens: 20000,
+		...(defaults.compaction ?? {}),
 		...(settings.compaction ?? {})
 	},
 	retry: {
-		enabled: true,
-		maxRetries: 3,
-		baseDelayMs: 1500,
-		maxAgentDelayMs: 30000,
-		provider: { maxRetries: 0 },
+		...(defaults.retry ?? {}),
 		...(settings.retry ?? {}),
-		provider: { maxRetries: 0, ...(settings.retry?.provider ?? {}) }
+		provider: {
+			...(defaults.retry?.provider ?? {}),
+			...(settings.retry?.provider ?? {})
+		}
 	}
 }
 
