@@ -33,8 +33,7 @@ const removeManaged = (entry) => {
 		source.includes('/pi-agent-stack/packages/pi-jev-harness') ||
 		source.includes('/pi-agent-stack/packages/pi-subscription-providers') ||
 		source.includes('/pi-agent-stack/packages/pi-rl-engine') ||
-		source.startsWith('npm:@davecodes/pi-dcp') ||
-		source.startsWith('npm:pi-continuous-learning')
+		source.startsWith('npm:@davecodes/pi-dcp')
 	)
 }
 
@@ -43,8 +42,7 @@ packages.push(
 	'./pi-agent-stack/packages/pi-jev-harness',
 	'./pi-agent-stack/packages/pi-subscription-providers',
 	'./pi-agent-stack/packages/pi-rl-engine',
-	'npm:@davecodes/pi-dcp@0.2.0',
-	'npm:pi-continuous-learning@0.14.4'
+	'npm:@davecodes/pi-dcp@0.2.0'
 )
 
 const next = {

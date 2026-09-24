@@ -1,6 +1,6 @@
 # Pi Agent Stack
 
-Portable local setup for Pi with JEV as the routing/harness layer, subscription-aware Cursor/Antigravity routing, DCP token/context pruning, and Reinforcement Learning (Continuous Instincts & Ground-Truth Test Verifiers).
+Portable local setup for Pi with JEV as the routing/harness layer, subscription-aware Cursor/Antigravity routing, DCP token/context pruning, and Harness-Layer Reinforcement Learning (Ground-Truth Test Verifiers, Contextual Bandit Q-Routing, Shadow Worktree Rollouts).
 
 This repository contains the custom code and reproducible configuration from the tuned setup. It does not contain API keys, Pi auth, session history, readiness cache, `node_modules`, or personal absolute paths.
 
@@ -8,13 +8,12 @@ This repository contains the custom code and reproducible configuration from the
 
 - `packages/pi-jev-harness`: JEV harness with route/prefetch/trim/loop/guard, model/thinking policy, subscription-aware routing, and the DCP `compress` tool protected from accidental hiding.
 - `packages/pi-subscription-providers`: Pi compatibility providers for `cursor-agent` and `agy` stream-json, with readiness caching and redacted status metadata.
-- `packages/pi-rl-engine`: Reinforcement learning & test-time search engine with ground-truth test/lint reward verifiers, speculative shadow worktree rollouts, and contextual bandit Q-routing.
-- `pi-continuous-learning@0.14.4`: Native Pi extension that observes coding sessions and distills patterns into reusable instincts with confidence scoring.
+- `packages/pi-rl-engine`: Harness-layer reinforcement learning & test-time search engine (ground-truth test/lint reward verifiers, speculative shadow worktree rollouts, and contextual bandit Q-routing with zero prompt-token overhead).
 - `NVlabs/SoL-Pi` (cloned from GitHub by `scripts/install.sh`): Observation Pack, Action Fusion, Evidence-Preserving Reducer, and Online Context Compact — context-cost optimizers that run as Pi extensions. Config template is in `config/sol-pi.json`.
 - `@davecodes/pi-dcp@0.2.0`: pinned third-party DCP package, installed from npm. Its active config is versioned in `config/dcp.json`; source and license are mirrored under `vendor/pi-dcp` for audit/reference.
 - `typesafe-harness/`: shared PreToolUse gate, PreInvocation skill prompter, and Stop claim verifier for multi-agent setups (Pi, Codex, Antigravity, Claude, Grok).
 - `config/`: portable Pi (`pi-defaults.json`), JEV, provider, DCP, SoL-Pi, and Antigravity hooks (`agy-hooks.json`) templates.
-- `scripts/install.sh`: stages this repo into `~/.pi/agent/pi-agent-stack`, syncs `~/.agents/typesafe-harness`, merges Pi settings, installs DCP & continuous learning, and writes runtime configs.
+- `scripts/install.sh`: stages this repo into `~/.pi/agent/pi-agent-stack`, syncs `~/.agents/typesafe-harness`, merges Pi settings, installs DCP, and writes runtime configs.
 - `scripts/doctor.sh`: checks the install, harness scripts, packages, and available subscription CLIs.
 
 ## Install
@@ -61,11 +60,12 @@ JEV decides the model and thinking level from the task. It prefers the cheapest 
 
 DCP handles context cost locally: deduplicates repeated tool results, purges stale error inputs, and exposes `/dcp context`, `/dcp stats`, and the `compress` tool. DCP never mutates the on-disk Pi transcript.
 
-## Reinforcement Learning & Instincts
+## Harness-Layer Reinforcement Learning
 
-- **Continuous Learning**: Pi automatically observes sessions and distills reusable instincts into `.pi/instincts.yaml` with confidence scores.
-- **Ground-Truth Verifiers**: `pi-rl-engine` evaluates test pass/fail rate and linter feedback post-turn, assigning objective rewards $R$.
-- **Shadow Worktree Search**: Run `/rl-explore` to test speculative changes in an isolated temporary worktree before merging into workspace.
+The RL engine lives entirely at the **Harness Layer** (zero prompt injection, zero context token waste):
+- **Ground-Truth Verifiers**: Evaluates unit tests and linter feedback post-turn, updating $Q(s, a)$ rewards directly.
+- **Dynamic Tool Masking & Bandit Routing**: Automatically updates model/thinking level Q-values and gates tool availability based on task type.
+- **Shadow Worktree Search**: Run `/rl-explore` to test speculative changes in isolated `/tmp` shadow worktrees before committing to the primary workspace.
 
 ## Useful commands
 
@@ -79,8 +79,6 @@ DCP handles context cost locally: deduplicates repeated tool results, purges sta
 /rl                   # RL engine status and mode (on|off|passive|stats)
 /rl-verify            # Run ground-truth test verifier and compute reward
 /rl-explore           # Run shadow worktree rollout
-/instincts            # List learned instincts and confidence scores
-/instinct-dream       # Review and consolidate all learned instincts
 ```
 
 The JEV log is local at `~/.jev-harness/log.jsonl`. The subscription status cache is local at `~/.pi/agent/subscription-providers-status.json` and is intentionally not committed.
