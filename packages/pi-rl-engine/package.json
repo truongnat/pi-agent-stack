@@ -1,0 +1,40 @@
+{
+	"name": "pi-rl-engine",
+	"version": "0.1.0",
+	"description": "Reinforcement Learning & Test-Time Search Engine for Pi Coding Agent (Ground-Truth Verifiers, Shadow Worktree Rollouts, Contextual Bandit Routing).",
+	"keywords": [
+		"pi-package",
+		"pi-extension",
+		"reinforcement-learning",
+		"rl",
+		"mcts",
+		"test-verifier",
+		"shadow-worktree",
+		"continuous-learning"
+	],
+	"license": "MIT",
+	"type": "module",
+	"engines": {
+		"node": ">=22.18"
+	},
+	"scripts": {
+		"lint": "oxlint",
+		"format": "prettier --write .",
+		"format:check": "prettier --check .",
+		"typecheck": "tsc --noEmit",
+		"test": "node --experimental-strip-types --test test/*.test.ts",
+		"check": "npm run typecheck && npm run lint && npm run format:check && npm test"
+	},
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"devDependencies": {
+		"@earendil-works/pi-coding-agent": "^0.87.1",
+		"@types/node": "^24.0.0",
+		"oxlint": "1.78.0",
+		"prettier": "3.9.6",
+		"typescript": "^5.9.0"
+	}
+}

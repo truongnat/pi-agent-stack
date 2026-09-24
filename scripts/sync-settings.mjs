@@ -29,9 +29,12 @@ const removeManaged = (entry) => {
 	return (
 		source.startsWith('git:github.com/MoonTory/pi-jev-harness') ||
 		source === 'pi-subscription-providers' ||
+		source === 'pi-rl-engine' ||
 		source.includes('/pi-agent-stack/packages/pi-jev-harness') ||
 		source.includes('/pi-agent-stack/packages/pi-subscription-providers') ||
-		source.startsWith('npm:@davecodes/pi-dcp')
+		source.includes('/pi-agent-stack/packages/pi-rl-engine') ||
+		source.startsWith('npm:@davecodes/pi-dcp') ||
+		source.startsWith('npm:pi-continuous-learning')
 	)
 }
 
@@ -39,7 +42,9 @@ const packages = Array.isArray(settings.packages) ? settings.packages.filter((en
 packages.push(
 	'./pi-agent-stack/packages/pi-jev-harness',
 	'./pi-agent-stack/packages/pi-subscription-providers',
-	'npm:@davecodes/pi-dcp@0.2.0'
+	'./pi-agent-stack/packages/pi-rl-engine',
+	'npm:@davecodes/pi-dcp@0.2.0',
+	'npm:pi-continuous-learning@0.14.4'
 )
 
 const next = {

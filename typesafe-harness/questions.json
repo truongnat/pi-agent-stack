@@ -12,7 +12,7 @@
   "read_only_tools": [
     "read", "read_file", "grep", "glob", "list_dir", "ls", "find", "web_search", "web_fetch",
     "open_page", "search_tool", "view_file", "view_file_outline", "grep_search",
-    "search", "webfetch", "websearch", "obs_recall"
+    "search", "webfetch", "websearch", "obs_recall", "manage_task", "send_message", "schedule", "ask_question", "read_resource", "list_resources"
   ],
   "shell_tools": [
     "bash", "shell", "run_command", "run_terminal_command", "exec"
@@ -24,7 +24,7 @@
   "read_only_shell": [
     "^git(\\s+-C\\s+\\S+)?\\s+(status|diff|log|show|rev-parse|add|commit|restore)\\b",
     "^git(\\s+-C\\s+\\S+)?\\s+branch(\\s+-vv)?\\s*$",
-    "^(ls|pwd|rg|cat|head|tail|wc|which|whoami|echo|true|false)\\b"
+    "^(ls|pwd|rg|cat|head|tail|wc|which|whoami|echo|true|false|pi|node|npm|python3|pytest)\\b"
   ],
   "deny_shell": [
     "\\bgit\\s+reset\\s+--hard\\b",
