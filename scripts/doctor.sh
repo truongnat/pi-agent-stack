@@ -46,6 +46,12 @@ else
 	echo "WARN ~/.keys/typesafe.env not found; TypeSafe harness will run in offline/fallback mode"
 fi
 
+if [[ -f "$HOME/.claude/.credentials.json" ]]; then
+	echo "OK   Claude OAuth credentials found (~/.claude/.credentials.json)"
+else
+	echo "INFO Claude credentials not found; use /login anthropic if needed"
+fi
+
 for cli in cursor-agent agy; do
 	if command -v "$cli" >/dev/null 2>&1; then
 		echo "OK   $cli"

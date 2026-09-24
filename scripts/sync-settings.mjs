@@ -59,5 +59,29 @@ const next = {
 }
 
 writeFileSync(settingsPath, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 })
-
 console.log(`Synced ${settingsPath}`)
+
+// Sync Claude Code OAuth credentials to Pi's anthropic provider if present
+const claudeCredsPath = join(process.env.HOME || '', '.claude', '.credentials.json')
+try {
+	const claudeCreds = JSON.parse(readFileSync(claudeCredsPath, 'utf8'))
+	if (claudeCreds?.claudeAiOauth?.accessToken && claudeCreds?.claudeAiOauth?.refreshToken) {
+		const authPath = join(agentDir, 'auth.json')
+		let auth = {}
+		try {
+			auth = JSON.parse(readFileSync(authPath, 'utf8'))
+		} catch {
+			// No auth file yet
+		}
+		auth.anthropic = {
+			type: 'oauth',
+			access: claudeCreds.claudeAiOauth.accessToken,
+			refresh: claudeCreds.claudeAiOauth.refreshToken,
+			expires: claudeCreds.claudeAiOauth.expiresAt
+		}
+		writeFileSync(authPath, `${JSON.stringify(auth, null, 2)}\n`, { mode: 0o600 })
+		console.log(`Synced Claude OAuth credentials to ${authPath}`)
+	}
+} catch {
+	// Claude credentials not found or unreadable, ignore
+}
