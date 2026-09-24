@@ -28,6 +28,12 @@ cd "$AGENT_DIR"
 pi install npm:@davecodes/pi-dcp@0.2.0
 node "$AGENT_DIR/pi-agent-stack/scripts/sync-settings.mjs"
 
+# Register global extension bridges in ~/.pi/agent/extensions/ for 100% reliable command loading
+mkdir -p "$AGENT_DIR/extensions"
+echo "export { default } from '../pi-agent-stack/packages/pi-jev-harness/index.ts'" > "$AGENT_DIR/extensions/pi-jev-harness.ts"
+echo "export { default } from '../pi-agent-stack/packages/pi-subscription-providers/src/extension.ts'" > "$AGENT_DIR/extensions/pi-subscription-providers.ts"
+echo "export { default } from '../pi-agent-stack/packages/pi-rl-engine/index.ts'" > "$AGENT_DIR/extensions/pi-rl-engine.ts"
+
 cp "$AGENT_DIR/pi-agent-stack/config/jev-harness.json" "$AGENT_DIR/jev-harness.json"
 cp "$AGENT_DIR/pi-agent-stack/config/subscription-providers.json" "$AGENT_DIR/subscription-providers.json"
 mkdir -p "$HOME/.pi-dcp"
@@ -65,7 +71,7 @@ echo "  JEV config: $AGENT_DIR/jev-harness.json"
 echo "  DCP config: $HOME/.pi-dcp/config.json"
 echo "  SoL-Pi config: $AGENT_DIR/sol-pi.json"
 echo "  TypeSafe harness: $TYPESAFE_DIR"
-echo "  Harness RL Engine: $AGENT_DIR/pi-agent-stack/packages/pi-rl-engine"
+echo "  Harness RL Engine: $AGENT_DIR/extensions/pi-rl-engine.ts"
 if [[ -f "$HOME/.keys/jev.env" ]]; then
 	echo "  JEV key file: found at ~/.keys/jev.env"
 else
