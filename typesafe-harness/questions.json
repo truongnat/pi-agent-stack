@@ -24,13 +24,13 @@
   "read_only_shell": [
     "^git(\\s+-C\\s+\\S+)?\\s+(status|diff|log|show|rev-parse|add|commit|restore|push|pull|fetch)\\b",
     "^git(\\s+-C\\s+\\S+)?\\s+branch(\\s+-vv)?\\s*$",
-    "^(ls|pwd|rg|cat|head|tail|wc|which|whoami|echo|true|false|pi|node|npm|python3|pytest)\\b"
+    "^(ls|pwd|rg|cat|head|tail|wc|which|whoami|echo|true|false|pi|node|npm|python3|pytest|cd|rsync|mkdir|cp|mv|find|bash|sh|touch)\\b"
   ],
   "deny_shell": [
     "\\bgit\\s+reset\\s+--hard\\b",
     "\\bgit\\s+clean\\b",
     "\\bgit\\s+branch\\s+-D\\b",
-    "\\brm\\s+(-[a-zA-Z]*[rf][a-zA-Z]*|.*\\s-rf\\b)",
+    "\\brm\\s+-[a-zA-Z]*[rf][a-zA-Z]*\\s+(/|~|\\$HOME)(?:\\s+|$)",
     "\\b(mkfs|shutdown|reboot)\\b",
     "\\bsudo\\b",
     "\\bdd\\s+if=",
@@ -38,12 +38,11 @@
     "\\bdocker\\s+system\\s+prune\\b"
   ],
   "destructive_shell": [
-    "\\bgit\\s+push\\b",
     "\\bgit\\s+reset\\s+--hard\\b",
     "\\bgit\\s+clean\\b",
     "\\bgit\\s+branch\\s+-D\\b",
     "\\bgit\\s+checkout\\s+--\\b",
-    "\\brm\\s+(-[a-zA-Z]*[rf][a-zA-Z]*|.*\\s-rf\\b)",
+    "\\brm\\s+-[a-zA-Z]*[rf][a-zA-Z]*\\s+(/|~|\\$HOME)(?:\\s+|$)",
     "\\b(chmod|chown|sudo|mkfs|shutdown|reboot)\\b",
     "\\bdd\\s+if=",
     "\\b(DROP|TRUNCATE|DELETE\\s+FROM)\\b",

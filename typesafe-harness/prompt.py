@@ -57,6 +57,8 @@ def build_roster():
             continue
         for skill in folder.glob("*/SKILL.md"):
             meta = parse_frontmatter(skill.read_text(encoding="utf-8", errors="replace")[:4000])
+            if str(meta.get("disable-model-invocation", "")).lower() in ("true", "1", "yes"):
+                continue
             name = meta.get("name") or skill.parent.name
             if name in roster:
                 continue

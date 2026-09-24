@@ -208,14 +208,19 @@ function handleAgyLine(
 		const step = row.step_update as {
 			step_type?: string
 			text_delta?: string
+			thinking_delta?: string
+			thought_delta?: string
 			usage?: {
 				input_tokens?: number
 				output_tokens?: number
+				thinking_tokens?: number
 				cache_read_tokens?: number
 			}
 		}
-		if (step.step_type === 'agent_response' && step.text_delta) {
-			appendText(output, stream, step.text_delta)
+		if (step.step_type === 'agent_response') {
+			if (step.text_delta) appendText(output, stream, step.text_delta)
+			if (step.thinking_delta) appendThinking(output, stream, step.thinking_delta)
+			if (step.thought_delta) appendThinking(output, stream, step.thought_delta)
 		}
 		if (step.usage) {
 			applyUsage(model, output, {
@@ -233,6 +238,7 @@ function handleAgyLine(
 			usage?: {
 				input_tokens?: number
 				output_tokens?: number
+				thinking_tokens?: number
 				cache_read_tokens?: number
 			}
 		}
@@ -344,18 +350,26 @@ export function streamAntigravityCli(
 			await options?.onResponse?.({ status: 200, headers: {} }, model)
 			stream.push({ type: 'start', partial: output })
 
-			const promptArg = `-p=${finalPayload.prompt ?? prompt}`
+			const promptText = finalPayload.prompt ?? prompt
+			const useStdin = promptText.length > 32_000
+			const args = [
+				'--output-format',
+				'stream-json',
+				'--model',
+				finalPayload.model ?? model.id,
+				'--mode',
+				'plan'
+			]
+			if (useStdin) {
+				args.push('--input-format', 'text')
+			} else {
+				args.push(`-p=${promptText}`)
+			}
+
 			const result = await lineRunner({
 				command: readiness.command,
-				args: [
-					'--output-format',
-					'stream-json',
-					'--model',
-					finalPayload.model ?? model.id,
-					'--mode',
-					'plan',
-					promptArg
-				],
+				args,
+				...(useStdin ? { stdin: promptText } : {}),
 				timeoutMs: cfg.timeoutMs,
 				maxOutputChars: cfg.maxOutputChars,
 				...(options?.signal ? { signal: options.signal } : {}),

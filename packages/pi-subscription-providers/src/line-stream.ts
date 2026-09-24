@@ -12,6 +12,7 @@ export async function runStreamingLines(request: {
 	timeoutMs: number
 	maxOutputChars: number
 	signal?: AbortSignal
+	stdin?: string | Buffer
 	onLine: LineHandler
 }): Promise<{ code: number | null; timedOut: boolean; aborted: boolean; stderr: string }> {
 	const env = allowlistEnv()
@@ -19,8 +20,11 @@ export async function runStreamingLines(request: {
 		const child = spawn(request.command, request.args, {
 			cwd: request.cwd,
 			env,
-			stdio: ['ignore', 'pipe', 'pipe']
+			stdio: [request.stdin !== undefined ? 'pipe' : 'ignore', 'pipe', 'pipe']
 		})
+		if (request.stdin !== undefined && child.stdin) {
+			child.stdin.end(request.stdin)
+		}
 		let stderr = ''
 		let stdoutChars = 0
 		let timedOut = false

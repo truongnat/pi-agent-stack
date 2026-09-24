@@ -6,17 +6,22 @@ import {
 	type TranscriptContext
 } from '@earendil-works/pi-ai'
 
+/** Max chars for single CLI argument to stay well within Linux MAX_ARG_STRLEN (128 KB). */
+export const MAX_CLI_PROMPT_CHARS = 90_000
+
 /** Build a compact text prompt for CLI compatibility mode (no native Pi tool wire). */
-export function buildCliPrompt(context: TranscriptContext): string {
+export function buildCliPrompt(context: TranscriptContext, maxChars: number = MAX_CLI_PROMPT_CHARS): string {
 	const transcript = collapseSystemMessages(context)
-	const system = getCurrentSystemPrompt(transcript.messages)
+	const rawSystem = getCurrentSystemPrompt(transcript.messages)
+	const system =
+		rawSystem.length > 8_000 ? `${rawSystem.slice(0, 8_000)}\n[...system prompt truncated...]` : rawSystem
 	const tools = getCurrentTools(transcript.messages)
-	const parts: string[] = []
+	const headerParts: string[] = []
 	if (system.trim()) {
-		parts.push(`System:\n${system.trim()}`)
+		headerParts.push(`System:\n${system.trim()}`)
 	}
 	if (tools.length) {
-		parts.push(
+		headerParts.push(
 			[
 				'Note: This provider runs in compatibility mode.',
 				'Native Pi tool-call semantics are not available.',
@@ -25,12 +30,32 @@ export function buildCliPrompt(context: TranscriptContext): string {
 			].join(' ')
 		)
 	}
-	parts.push('Conversation:')
-	for (const message of transcript.messages) {
-		parts.push(formatMessage(message))
+	headerParts.push('Conversation:')
+	const header = headerParts.join('\n\n')
+	const footer = '\n\nRespond as the assistant. Do not invent tool-call JSON for Pi.'
+
+	const budgetForMessages = Math.max(10_000, maxChars - header.length - footer.length)
+
+	const formattedMessages: string[] = []
+	let usedChars = 0
+	let truncated = false
+
+	for (let i = transcript.messages.length - 1; i >= 0; i--) {
+		const formatted = formatMessage(transcript.messages[i])
+		if (!formatted) continue
+		if (usedChars + formatted.length + 2 > budgetForMessages && formattedMessages.length > 0) {
+			truncated = true
+			break
+		}
+		formattedMessages.unshift(formatted)
+		usedChars += formatted.length + 2
 	}
-	parts.push('Respond as the assistant. Do not invent tool-call JSON for Pi.')
-	return parts.join('\n\n')
+
+	if (truncated) {
+		formattedMessages.unshift('[... earlier conversation truncated for CLI compatibility ...]')
+	}
+
+	return `${header}\n\n${formattedMessages.join('\n\n')}${footer}`
 }
 
 function formatMessage(message: Message): string {
@@ -46,7 +71,7 @@ function formatMessage(message: Message): string {
 		const text = message.content
 			.map((block) => {
 				if (block.type === 'text') return block.text
-				if (block.type === 'thinking') return `(thinking) ${block.thinking}`
+				if (block.type === 'thinking') return `(thinking) ${block.thinking.slice(0, 500)}`
 				if (block.type === 'toolCall') return `(toolCall ${block.name})`
 				return ''
 			})
@@ -59,7 +84,7 @@ function formatMessage(message: Message): string {
 			.filter((block) => block.type === 'text')
 			.map((block) => (block.type === 'text' ? block.text : ''))
 			.join('\n')
-		return `toolResult(${message.toolName}): ${text.slice(0, 2_000)}`
+		return `toolResult(${message.toolName}): ${text.slice(0, 1_000)}`
 	}
 	return ''
 }

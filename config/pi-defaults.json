@@ -1,7 +1,7 @@
 {
   "theme": "ember-light/ember",
   "quietStartup": true,
-  "showCacheMissNotices": true,
+  "showCacheMissNotices": false,
   "cacheWarming": "idle",
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-5.6-luna",

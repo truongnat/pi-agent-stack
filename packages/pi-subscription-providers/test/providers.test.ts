@@ -325,6 +325,10 @@ test('antigravity stream parses mocked events', async () => {
 	const lines = [
 		JSON.stringify({
 			event: 'step_update',
+			step_update: { step_type: 'agent_response', thinking_delta: 'analyzing...', state: 'ACTIVE' }
+		}),
+		JSON.stringify({
+			event: 'step_update',
 			step_update: { step_type: 'agent_response', text_delta: 'pong', state: 'DONE' }
 		}),
 		JSON.stringify({
@@ -332,16 +336,20 @@ test('antigravity stream parses mocked events', async () => {
 			result: {
 				status: 'SUCCESS',
 				response: 'pong',
-				usage: { input_tokens: 5, output_tokens: 1, cache_read_tokens: 0 }
+				usage: { input_tokens: 5, output_tokens: 1, thinking_tokens: 2, cache_read_tokens: 0 }
 			}
 		})
 	]
-	const stream = streamAntigravityCli(model, fakeContext(), {}, readiness, async ({ onLine }) => {
-		for (const line of lines) onLine(line)
+	let capturedStdin: string | Buffer | undefined
+	const stream = streamAntigravityCli(model, fakeContext(), {}, readiness, async (req) => {
+		capturedStdin = req.stdin
+		for (const line of lines) req.onLine(line)
 		return { code: 0, timedOut: false, aborted: false, stderr: '' }
 	})
 	const events = []
 	for await (const event of stream) events.push(event)
+	assert.ok(events.some((event) => event.type === 'thinking_delta' && event.delta === 'analyzing...'))
+	assert.ok(events.some((event) => event.type === 'text_delta' && event.delta === 'pong'))
 	assert.ok(events.some((event) => event.type === 'done'))
 })
 
@@ -428,4 +436,29 @@ test('offline refreshModels returns snapshot without CLI probe', async () => {
 	assert.deepEqual(offline, modelsFromSnapshot('cursor', null))
 	// Offline path must not wait on CLI probes (status/models take seconds).
 	assert.ok(elapsed < 200, `offline refresh took ${elapsed}ms`)
+})
+
+test('buildCliPrompt bounds prompt size for long conversations to prevent spawn E2BIG', async () => {
+	const { buildCliPrompt, MAX_CLI_PROMPT_CHARS } = await import('../src/transcript.ts')
+	const longMessages = []
+	for (let i = 0; i < 200; i++) {
+		longMessages.push({
+			role: 'user' as const,
+			content: `Message ${i}: ${'x'.repeat(1000)}`,
+			timestamp: Date.now()
+		})
+		longMessages.push({
+			role: 'assistant' as const,
+			content: [{ type: 'text' as const, text: `Reply ${i}: ${'y'.repeat(1000)}` }],
+			timestamp: Date.now()
+		})
+	}
+	const context = {
+		systemPrompt: 'You are an AI assistant.'.repeat(100),
+		messages: longMessages
+	} as any
+	const prompt = buildCliPrompt(context)
+	assert.ok(prompt.length <= MAX_CLI_PROMPT_CHARS, `Prompt length ${prompt.length} exceeds max ${MAX_CLI_PROMPT_CHARS}`)
+	assert.ok(prompt.includes('[... earlier conversation truncated for CLI compatibility ...]'))
+	assert.ok(prompt.includes('Message 199'))
 })
