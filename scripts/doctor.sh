@@ -20,6 +20,15 @@ check_file "$AGENT_DIR/settings.json"
 check_file "$AGENT_DIR/jev-harness.json"
 check_file "$AGENT_DIR/subscription-providers.json"
 check_file "$HOME/.pi-dcp/config.json"
+check_file "$AGENT_DIR/sol-pi.json"
+
+SOL_PI_DIR="$AGENT_DIR/git/github.com/NVlabs/SoL-Pi"
+if [[ -d "$SOL_PI_DIR/.git" ]]; then
+	echo "OK   SoL-Pi checkout at $SOL_PI_DIR"
+else
+	echo "MISS SoL-Pi checkout not found; run scripts/install.sh"
+	fail=1
+fi
 
 if [[ -f "$HOME/.keys/jev.env" ]]; then
 	echo "OK   ~/.keys/jev.env"

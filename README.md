@@ -8,6 +8,7 @@ This repository contains the custom code and reproducible configuration from the
 
 - `packages/pi-jev-harness`: JEV harness with route/prefetch/trim/loop/guard, model/thinking policy, subscription-aware routing, and the DCP `compress` tool protected from accidental hiding.
 - `packages/pi-subscription-providers`: Pi compatibility providers for `cursor-agent` and `agy` stream-json, with readiness caching and redacted status metadata.
+- `NVlabs/SoL-Pi` (cloned from GitHub by `scripts/install.sh`): Observation Pack, Action Fusion, Evidence-Preserving Reducer, and Online Context Compact — context-cost optimizers that run as Pi extensions. Config template is in `config/sol-pi.json`.
 - `@davecodes/pi-dcp@0.2.0`: pinned third-party DCP package, installed from npm. Its active config is versioned in `config/dcp.json`; source and license are mirrored under `vendor/pi-dcp` for audit/reference.
 - `config/`: portable Pi, JEV, provider, DCP, and environment templates.
 - `scripts/install.sh`: stages this repo into `~/.pi/agent/pi-agent-stack`, merges Pi settings, installs DCP, and writes runtime configs.

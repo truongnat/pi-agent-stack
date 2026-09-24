@@ -30,11 +30,27 @@ cp "$AGENT_DIR/pi-agent-stack/config/subscription-providers.json" "$AGENT_DIR/su
 mkdir -p "$HOME/.pi-dcp"
 cp "$AGENT_DIR/pi-agent-stack/config/dcp.json" "$HOME/.pi-dcp/config.json"
 
+# SoL-Pi (NVlabs) — clone if absent, then register user-wide
+SOL_PI_DIR="$AGENT_DIR/git/github.com/NVlabs/SoL-Pi"
+if [[ ! -d "$SOL_PI_DIR/.git" ]]; then
+	echo "Cloning SoL-Pi..."
+	mkdir -p "$(dirname "$SOL_PI_DIR")"
+	git clone --filter=blob:none https://github.com/NVlabs/SoL-Pi "$SOL_PI_DIR"
+else
+	echo "SoL-Pi already cloned at $SOL_PI_DIR"
+fi
+(cd "$SOL_PI_DIR" && npm ci --ignore-scripts --no-audit --no-fund)
+pi install "$SOL_PI_DIR" --approve
+
+# Write user-wide sol-pi.json config (observationPack + actionFusion enabled)
+cp "$AGENT_DIR/pi-agent-stack/config/sol-pi.json" "$AGENT_DIR/sol-pi.json"
+
 echo
 echo "Pi agent stack installed."
 echo "  settings: $AGENT_DIR/settings.json"
 echo "  JEV config: $AGENT_DIR/jev-harness.json"
 echo "  DCP config: $HOME/.pi-dcp/config.json"
+echo "  SoL-Pi config: $AGENT_DIR/sol-pi.json"
 if [[ -f "$HOME/.keys/jev.env" ]]; then
 	echo "  JEV key file: found at ~/.keys/jev.env"
 else
