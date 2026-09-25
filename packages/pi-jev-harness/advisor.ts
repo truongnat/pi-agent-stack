@@ -150,8 +150,22 @@ export function formatAdvisorBriefingText(params: {
 		lines.push('• Caution: High architectural invariant sensitivity; check existing tests & conventions.')
 	}
 
+	try {
+		const personaBridge = (globalThis as any).piAgentStackPersona
+		if (personaBridge?.getPersonaPrompt) {
+			const personaText = personaBridge.getPersonaPrompt(params.category)
+			if (personaText) {
+				const cleaned = personaText.replace('[Developer Persona & Taste Constraints]\n', '').trim()
+				lines.push(`• Persona Habits: ${cleaned}`)
+			}
+		}
+	} catch {
+		// Ignore persona lookup failure
+	}
+
 	return lines.join('\n')
 }
+
 
 /**
  * Main Advisor generator: runs fast JEV System 1 question or falls back to heuristic.

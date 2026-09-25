@@ -21,6 +21,11 @@ Pi
 │   ├── predefined roster: researcher (flash), coder (sonnet), tester (mini), reviewer (pro)
 │   ├── provider diversity guard: requires >= 2 available providers to prevent single-source exhaustion
 │   └── tools & control: invoke_subagent, manage_subagents, /agents command
+├── Persona Engine (native extension)
+│   ├── preference learning: self-tuning Q-weights from user corrections and git interactions
+│   ├── human/machine profiles: ~/.pi/agent/persona.json & auto-exported persona.md
+│   └── tools & control: get_persona, update_persona, feedback_persona, /persona command
+
 
 ├── Subscription providers (native extension)
 │   ├── account pools: switch on quota/login failure, then Pi's retry or a resend

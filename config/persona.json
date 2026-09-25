@@ -1,0 +1,43 @@
+{
+	"enabled": true,
+	"maxInjectedTokens": 100,
+	"minConfidenceThreshold": 0.5,
+	"defaults": [
+		{
+			"id": "habit_concise_comm",
+			"category": "communication",
+			"key": "direct_no_fluff",
+			"rule": "Provide concise, direct answers with clear bullet points and actionable code diffs without conversational fluff.",
+			"weight": 0.9,
+			"reinforcements": 5,
+			"rejections": 0
+		},
+		{
+			"id": "habit_strict_typing",
+			"category": "coding",
+			"key": "strict_typing_no_any",
+			"rule": "Ensure strict type safety in TypeScript: use explicit interfaces/types, TypeBox schemas, and never use any.",
+			"weight": 0.9,
+			"reinforcements": 5,
+			"rejections": 0
+		},
+		{
+			"id": "habit_minimal_diff",
+			"category": "coding",
+			"key": "minimal_diff_preservation",
+			"rule": "Preserve existing style, indentation, docstrings, and unrelated code; make minimal focused edits.",
+			"weight": 0.85,
+			"reinforcements": 4,
+			"rejections": 0
+		},
+		{
+			"id": "habit_tdd_verification",
+			"category": "workflow",
+			"key": "tdd_and_verification",
+			"rule": "Verify changes by running the automated test suite (e.g. npm test) before finishing.",
+			"weight": 0.85,
+			"reinforcements": 4,
+			"rejections": 0
+		}
+	]
+}

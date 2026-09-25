@@ -41,6 +41,7 @@ echo "export { default } from '../pi-agent-stack/packages/pi-gdrive/index.ts'" >
 echo "export { default } from '../pi-agent-stack/packages/pi-stitch/index.ts'" > "$AGENT_DIR/extensions/pi-stitch.ts"
 echo "export { default } from '../pi-agent-stack/packages/pi-goal/index.ts'" > "$AGENT_DIR/extensions/pi-goal.ts"
 echo "export { default } from '../pi-agent-stack/packages/pi-orchestrator/index.ts'" > "$AGENT_DIR/extensions/pi-orchestrator.ts"
+echo "export { default } from '../pi-agent-stack/packages/pi-persona/index.ts'" > "$AGENT_DIR/extensions/pi-persona.ts"
 cp "$AGENT_DIR/pi-agent-stack/config/typesafe-gate.ts" "$AGENT_DIR/extensions/typesafe-gate.ts"
 # Ember chrome: model rail above the editor (repaints on every model change), spinner, title.
 cp "$AGENT_DIR/pi-agent-stack/extensions/ember-ui.ts" "$AGENT_DIR/extensions/ember-ui.ts"
@@ -48,8 +49,10 @@ cp "$AGENT_DIR/pi-agent-stack/extensions/ember-ui.ts" "$AGENT_DIR/extensions/emb
 cp "$AGENT_DIR/pi-agent-stack/config/jev-harness.json" "$AGENT_DIR/jev-harness.json"
 cp "$AGENT_DIR/pi-agent-stack/config/subscription-providers.json" "$AGENT_DIR/subscription-providers.json"
 cp "$AGENT_DIR/pi-agent-stack/config/orchestrator.json" "$AGENT_DIR/orchestrator.json"
+cp "$AGENT_DIR/pi-agent-stack/config/persona.json" "$AGENT_DIR/persona-config.json"
 mkdir -p "$HOME/.pi-dcp"
 cp "$AGENT_DIR/pi-agent-stack/config/dcp.json" "$HOME/.pi-dcp/config.json"
+
 
 
 # SoL-Pi (NVlabs) — clone if absent, then register user-wide
