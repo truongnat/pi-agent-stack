@@ -55,7 +55,7 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 		].join('\n')
 
 		return {
-			systemPrompt: `${event.systemPrompt}\n\n${orchestratorBlock}`
+			message: { customType: 'orchestrator', content: orchestratorBlock, display: false }
 		}
 	})
 

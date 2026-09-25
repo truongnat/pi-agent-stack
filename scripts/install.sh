@@ -50,6 +50,7 @@ cp "$AGENT_DIR/pi-agent-stack/config/jev-harness.json" "$AGENT_DIR/jev-harness.j
 cp "$AGENT_DIR/pi-agent-stack/config/subscription-providers.json" "$AGENT_DIR/subscription-providers.json"
 cp "$AGENT_DIR/pi-agent-stack/config/orchestrator.json" "$AGENT_DIR/orchestrator.json"
 cp "$AGENT_DIR/pi-agent-stack/config/persona.json" "$AGENT_DIR/persona-config.json"
+cp "$AGENT_DIR/pi-agent-stack/config/AGENTS.md" "$AGENT_DIR/AGENTS.md"
 mkdir -p "$HOME/.pi-dcp"
 cp "$AGENT_DIR/pi-agent-stack/config/dcp.json" "$HOME/.pi-dcp/config.json"
 
