@@ -38,6 +38,7 @@ echo "export { default } from '../pi-agent-stack/packages/pi-rl-engine/index.ts'
 echo "export { default } from '../pi-agent-stack/packages/pi-redmine/index.ts'" > "$AGENT_DIR/extensions/pi-redmine.ts"
 echo "export { default } from '../pi-agent-stack/packages/pi-xlsx2md/index.ts'" > "$AGENT_DIR/extensions/pi-xlsx2md.ts"
 echo "export { default } from '../pi-agent-stack/packages/pi-gdrive/index.ts'" > "$AGENT_DIR/extensions/pi-gdrive.ts"
+echo "export { default } from '../pi-agent-stack/packages/pi-stitch/index.ts'" > "$AGENT_DIR/extensions/pi-stitch.ts"
 cp "$AGENT_DIR/pi-agent-stack/config/typesafe-gate.ts" "$AGENT_DIR/extensions/typesafe-gate.ts"
 
 cp "$AGENT_DIR/pi-agent-stack/config/jev-harness.json" "$AGENT_DIR/jev-harness.json"
