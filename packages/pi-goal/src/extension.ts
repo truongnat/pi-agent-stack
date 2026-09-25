@@ -194,14 +194,18 @@ export function createGoalExtension(pi: ExtensionAPI) {
 			updateStatus(ctx)
 
 			if (ctx.hasUI) {
-				const label =
-					finalStatus === 'complete'
-						? '🎉 Goal complete!'
-						: `Goal stopped (${finalStatus}): ${decision.reason}`
-				ctx.ui.notify(
-					`${label}\n- Turns: ${currentGoal.turns}\n- Tokens: ${formatTokens(currentGoal.tokensUsed)}\n- Duration: ${formatDuration(currentGoal.timeUsedMs)}`,
-					finalStatus === 'complete' ? 'info' : 'warning'
-				)
+				const isComplete = finalStatus === 'complete'
+				const title = isComplete ? '🎉 Goal Complete!' : `Goal Stopped (${finalStatus})`
+				const report = [
+					title,
+					`• Objective: "${currentGoal.objective}"`,
+					`• Total Tokens Used: ${currentGoal.tokensUsed.toLocaleString()} tokens (~${formatTokens(currentGoal.tokensUsed)})`,
+					`• Total Turns: ${currentGoal.turns}`,
+					`• Total Elapsed Time: ${formatDuration(currentGoal.timeUsedMs)}`,
+					`• Reason: ${decision.reason || (isComplete ? 'All criteria verified' : 'N/A')}`
+				].join('\n')
+
+				ctx.ui.notify(report, isComplete ? 'info' : 'warning')
 			}
 			return
 		}
@@ -215,11 +219,24 @@ export function createGoalExtension(pi: ExtensionAPI) {
 			updateStatus(ctx)
 			pendingWrapUp = true
 			isContinuationTurn = true
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[Goal Turn ${currentGoal.turns}]: +${(metrics.inputTokens + metrics.outputTokens).toLocaleString()} tokens · Total Tokens: ${currentGoal.tokensUsed.toLocaleString()} (~${formatTokens(currentGoal.tokensUsed)})\n⚠️ Token budget reached. Starting final wrap-up turn...`,
+					'warning'
+				)
+			}
 			pi.sendUserMessage('Complete the wrap-up summary for the token budget limit.')
 			return
 		}
 
 		// Continue goal loop
+		if (ctx.hasUI) {
+			const turnTokens = metrics.inputTokens + metrics.outputTokens
+			ctx.ui.notify(
+				`[Goal Turn ${currentGoal.turns}]: +${turnTokens.toLocaleString()} tokens · Total: ${currentGoal.tokensUsed.toLocaleString()} tokens (~${formatTokens(currentGoal.tokensUsed)})`,
+				'info'
+			)
+		}
 		isContinuationTurn = true
 		pi.sendUserMessage(`Continue the goal (turn ${currentGoal.turns + 1}).`)
 	})
