@@ -15,9 +15,11 @@ import { join } from 'node:path'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 
 import { ask, choiceOf, goalQuestions, noulOf } from './jev.ts'
+import { generateAdvisorBriefing, type AdvisorBriefingResult } from './advisor.ts'
 import { onBeforeAgentStart } from './route.ts'
 import { onToolCall, onToolResult, withReminder } from './tools.ts'
 import { active, type Config, type Harness, type Stats } from './types.ts'
+
 
 const DEFAULTS: Config = {
 	mode: 'on',
@@ -41,7 +43,11 @@ const DEFAULTS: Config = {
 	compactionReserveTokens: 16384,
 	subscriptionRouting: true,
 	subscriptionMaxLatencyMs: 20_000,
-	subscriptionStatusTtlMs: 5 * 60_000
+	subscriptionStatusTtlMs: 5 * 60_000,
+	advisor: true,
+	advisorMaxTokens: 150,
+	advisorSkills: true,
+	advisorVerification: true
 }
 
 const CONFIG_FILE = join(homedir(), '.pi', 'agent', 'jev-harness.json')
@@ -80,7 +86,7 @@ function report(h: Harness, ctx: ExtensionContext): void {
 	const cost = ((s.jevTokens / 1e6) * PRICE_PER_MTOK).toFixed(4)
 	ctx.ui.notify(
 		[
-			`jev-harness ${h.config.mode} · ${s.turns} turns seen, ${s.prefetched} files pre-fetched, ${s.prefetchSkipped} turns skipped (named file), ${s.toolsHidden} tool schemas hidden`,
+			`jev-harness ${h.config.mode} · ${s.turns} turns seen, ${s.advisorBriefings} advisor briefings, ${s.prefetched} files pre-fetched, ${s.prefetchSkipped} turns skipped (named file), ${s.toolsHidden} tool schemas hidden`,
 			`${s.trimmed} results trimmed (~${saved.toLocaleString()} model tokens saved), ${s.loopsCaught} loops caught, guard asked ${s.guardAsked} blocked ${s.guardBlocked}`,
 			`policy: ${s.modelDecisions} Jev model decisions, ${s.modelSwitches} cheaper model switches, ${s.thinkingSwitches} thinking reductions, ${s.routeHiddenTools} cost-effective tool routes`,
 			`subscription: ${s.subscriptionDecisions} subscription picks, ${s.providerFallbacks} fallbacks, ${s.unavailableProviderSkips} unavailable skips, ~$${s.marginalCostAvoided.toFixed(3)}/MTok marginal avoided`,
@@ -151,6 +157,7 @@ export function emptyStats(): Stats {
 		providerFallbacks: 0,
 		unavailableProviderSkips: 0,
 		marginalCostAvoided: 0,
+		advisorBriefings: 0,
 		shadowTurns: 0,
 		shadowAgree: 0,
 		shadowBaselineCost: 0,
@@ -170,7 +177,7 @@ export function shadowSummary(s: Stats): string {
 export default function (pi: ExtensionAPI) {
 	const h = createHarness()
 
-	// Expose goal evaluator bridge for packages/pi-goal
+	// Expose goal & advisor evaluator bridge for pi-agent-stack
 	;(globalThis as any).piAgentStackJev = {
 		evaluateGoal: async (params: {
 			objective: string
@@ -196,8 +203,21 @@ export default function (pi: ExtensionAPI) {
 			} catch (err) {
 				return { met: true, confidence: 0.5, reason: err instanceof Error ? err.message : String(err) }
 			}
+		},
+		getAdvisorBriefing: async (
+			prompt: string,
+			candidatePaths: string[] = []
+		): Promise<AdvisorBriefingResult | null> => {
+			return generateAdvisorBriefing(
+				h,
+				pi,
+				{ cwd: process.cwd(), hasUI: false, signal: undefined } as unknown as ExtensionContext,
+				prompt,
+				candidatePaths
+			)
 		}
 	}
+
 
 	pi.on('session_start', (_event, ctx) => {
 		Object.assign(h.config, loadConfig())

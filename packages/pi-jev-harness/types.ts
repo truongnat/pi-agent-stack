@@ -27,6 +27,10 @@ export type Config = {
 	subscriptionRouting: boolean
 	subscriptionMaxLatencyMs: number
 	subscriptionStatusTtlMs: number
+	advisor: boolean
+	advisorMaxTokens: number
+	advisorSkills: boolean
+	advisorVerification: boolean
 }
 
 export type Stats = {
@@ -51,6 +55,7 @@ export type Stats = {
 	providerFallbacks: number
 	unavailableProviderSkips: number
 	marginalCostAvoided: number
+	advisorBriefings: number
 	/** Shadow comparison: turns where JEV decided, and where it agreed with the plain route. */
 	shadowTurns: number
 	shadowAgree: number

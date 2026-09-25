@@ -222,6 +222,32 @@ export const goalQuestions: Record<string, Question> = {
 	})
 }
 
+// ---- 7. advisor briefing: strategic co-pilot briefing before main model generates ----
+export const advisorQuestions: Record<string, Question> = {
+	category: choice('What is the primary technical objective of `task`?', {
+		bugfix: 'Fixing an existing bug, failing test, runtime error, or regression',
+		feature: 'Implementing a new capability, tool, endpoint, or extension',
+		refactor: 'Restructuring, cleaning, optimizing, or modularizing existing code',
+		research: 'Explaining code, searching repository, reading documentation, or answering queries',
+		verification: 'Running tests, type-checking, building, or auditing security'
+	}),
+	verification: choice('What is the primary verification method to confirm `task` is complete?', {
+		unit_test: 'Run unit test suite (e.g., npm test, pytest, cargo test)',
+		type_check: 'Run static type-checker (e.g., tsc, mypy, dart analyze)',
+		build: 'Run build command (e.g., npm run build, cargo build)',
+		diff_review: 'Review git diff or output inspection without automated test runner',
+		none: 'Informational answer or query; no code execution verification needed'
+	}),
+	skill_guidance: choice('Which engineering practice is most critical for `task`?', {
+		tdd_first: 'TDD: Inspect/reproduce with failing test before changing implementation',
+		type_safety: 'Strict typing: Ensure interfaces, types, and schema contracts match',
+		minimal_diff: 'Minimal diff: Preserve existing structure, comments, and style conventions',
+		read_first: 'Read before write: Locate and inspect existing patterns before creating files',
+		standard: 'Standard concise coding'
+	}),
+	invariants: noul('Does `task` have non-obvious traps, architectural invariants, or sensitive areas?')
+}
+
 export const THRESHOLDS = {
 	toolNeeded: 0.35, // keep a tool if Jev gives it at least this much
 	prefetchFile: 0.6, // read a candidate file at or above this
@@ -230,4 +256,5 @@ export const THRESHOLDS = {
 	secrets: 0.7,
 	askConfidence: 0.5 // hard_to_reverse or destructive needs this much confidence to prompt
 }
+
 

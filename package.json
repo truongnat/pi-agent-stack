@@ -18,6 +18,7 @@
 		"typescript": "^5.9.0"
 	},
 	"scripts": {
-		"test": "node --test packages/*/test/*.test.ts"
+		"test": "node --test packages/*/test/*.test.ts packages/*/*.test.ts"
 	}
 }
+

@@ -6,9 +6,11 @@ import type {
 	ExtensionContext
 } from '@earendil-works/pi-coding-agent'
 
+import { generateAdvisorBriefing } from './advisor.ts'
 import { choiceOf, noulOf, relevanceQuestions, routingQuestions, THRESHOLDS } from './jev.ts'
 import { applyModelPolicy, routeModels } from './model-route.ts'
 import { active, short, THRESHOLD_ALWAYS_KEEP, type Candidate, type Harness } from './types.ts'
+
 
 const STOPWORDS = new Set([
 	'about',
@@ -371,30 +373,51 @@ export async function onBeforeAgentStart(
 	h.loopChecked = false
 	if (!active(h)) return undefined
 	h.stats.turns++
-	if (h.config.route || h.config.prefetch)
-		h.status(ctx, 'jev: choosing the cheapest sufficient path…')
+	if (h.config.route || h.config.prefetch || h.config.advisor)
+		h.status(ctx, 'jev: analyzing task & choosing optimal path…')
+
+	const terms = termsIn(event.prompt)
+	const candidatePaths = terms.filter((term) => looksLikeFile(term))
+
 	const routePromise = h.config.route ? route(h, pi, ctx, event.prompt) : Promise.resolve(null)
 	const prefetchPromise = h.config.prefetch
 		? prefetch(h, pi, ctx, event.prompt)
 		: Promise.resolve(null)
-	const [routed, fetched] = await Promise.all([routePromise, prefetchPromise]).catch(
-		(err: unknown) => {
-			h.stats.errors++
-			h.log({ what: 'error', error: err instanceof Error ? err.message : String(err) })
-			return [null, null] as const
-		}
+	const advisorPromise =
+		h.config.advisor !== false
+			? generateAdvisorBriefing(h, pi, ctx, event.prompt, candidatePaths)
+			: Promise.resolve(null)
+
+	const [routed, fetched, advised] = await Promise.all([
+		routePromise,
+		prefetchPromise,
+		advisorPromise
+	]).catch((err: unknown) => {
+		h.stats.errors++
+		h.log({ what: 'error', error: err instanceof Error ? err.message : String(err) })
+		return [null, null, null] as const
+	})
+
+	const notes = [advised?.summaryNote, routed?.note, fetched?.note].filter(
+		(note): note is string => !!note
 	)
-	const notes = [routed?.note, fetched?.note].filter((note): note is string => !!note)
 	if (fetched?.message && ctx.hasUI) ctx.ui.notify(`jev ${fetched.note}`, 'info')
 	h.status(ctx, notes[0] ? `jev ${notes.join('; ')}` : `jev-harness ${h.config.mode}`)
 	if (h.config.mode !== 'on') return undefined
-	const systemPrompt = routed?.hideTools
-		? `${event.systemPrompt}\n\njev-harness routed this turn: ${routed.note}. Tools not listed are hidden for this turn; say so if you need one.`
-		: undefined
+
+	let systemPrompt = event.systemPrompt
+	if (routed?.hideTools) {
+		systemPrompt = `${systemPrompt}\n\njev-harness routed this turn: ${routed.note}. Tools not listed are hidden for this turn; say so if you need one.`
+	}
+	if (advised?.briefingText) {
+		systemPrompt = `${systemPrompt}\n\n${advised.briefingText}`
+	}
+
 	return {
-		...(systemPrompt ? { systemPrompt } : {}),
+		...(systemPrompt !== event.systemPrompt ? { systemPrompt } : {}),
 		...(fetched?.message
 			? { message: { customType: 'jev-harness', content: fetched.message, display: false } }
 			: {})
 	}
 }
+

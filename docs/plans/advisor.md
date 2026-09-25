@@ -1,7 +1,8 @@
 # Research & Plan: Unified Advisor Layer as Default in Pi Harness
 
-**Status:** Proposed (2026-09-25)  
+**Status:** Implemented (2026-09-25)  
 **Target Package:** `packages/pi-jev-harness` (with bridge to `typesafe-harness`)
+
 
 ---
 

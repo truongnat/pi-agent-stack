@@ -20,6 +20,9 @@
 	"compactionReserveTokens": 16384,
 	"subscriptionRouting": true,
 	"subscriptionMaxLatencyMs": 20000,
-	"subscriptionStatusTtlMs": 300000
-
+	"subscriptionStatusTtlMs": 300000,
+	"advisor": true,
+	"advisorMaxTokens": 150,
+	"advisorSkills": true,
+	"advisorVerification": true
 }
