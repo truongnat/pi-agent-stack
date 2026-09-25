@@ -6,6 +6,7 @@ import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-a
 import { choiceOf, type Answers, type RoutingModel } from './jev.ts'
 import { toRoutingModel } from './model-candidates.ts'
 import {
+	isSubscriptionProvider,
 	needsForcedSubscriptionExit,
 	redactSubscriptionLog,
 	subscriptionAllowedForKind
@@ -164,7 +165,7 @@ async function tryCheaperSwitch(
 		const avoided =
 			args.currentCost - (args.target.marginalInputCost + args.target.marginalOutputCost)
 		if (avoided > 0) h.stats.marginalCostAvoided += avoided
-	} else if (args.currentKey.startsWith('cursor/') || args.currentKey.startsWith('antigravity/')) {
+	} else if (isSubscriptionProvider(args.currentKey.split('/')[0] ?? '')) {
 		h.stats.providerFallbacks++
 	}
 	h.log(

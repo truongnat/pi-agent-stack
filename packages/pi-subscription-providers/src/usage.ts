@@ -57,7 +57,8 @@ export type UsageDeps = {
 const DISPLAY_NAMES: Record<string, string> = {
 	anthropic: 'claude',
 	'openai-codex': 'codex',
-	xai: 'grok'
+	xai: 'grok',
+	'claude-code': 'claude'
 }
 
 export function displayName(provider: string): string {
@@ -515,6 +516,9 @@ const FETCHERS: Record<string, Fetcher> = {
 	}
 }
 
+// The claude-code provider runs on the same Claude Code login, so it shares Claude's quota.
+FETCHERS['claude-code'] = (deps) => (FETCHERS.anthropic ?? (async () => undefined))(deps)
+
 /** Providers /usage reports when installed and signed in, in display order. */
 export const USAGE_PROVIDERS = [
 	'anthropic',
@@ -530,6 +534,7 @@ const TTL_MS: Record<string, number> = {
 	cursor: 10 * 60_000,
 	antigravity: 5 * 60_000,
 	anthropic: 5 * 60_000,
+	'claude-code': 5 * 60_000,
 	'openai-codex': 2 * 60_000
 }
 const DEFAULT_TTL_MS = 60_000

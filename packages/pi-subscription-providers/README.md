@@ -1,6 +1,6 @@
 # pi-subscription-providers
 
-Local Pi package that registers **Cursor** and **Google Antigravity** as custom model providers for [Pi](https://pi.dev). Authentication stays with the official CLIs. [JEV](https://typesafe.ai) remains the policy engine for routing.
+Local Pi package that registers **Cursor**, **Google Antigravity**, and **Claude Code** as custom model providers for [Pi](https://pi.dev). Authentication stays with the official CLIs. [JEV](https://typesafe.ai) remains the policy engine for routing.
 
 ## Security
 
@@ -13,6 +13,10 @@ Local Pi package that registers **Cursor** and **Google Antigravity** as custom 
 - Subprocesses get a **strict environment allowlist** (PATH, HOME, locale, XDG, …).
 - All errors, logs, status files, and test output are **secret-redacted**.
 - No fake OAuth and no private API reverse-engineering.
+
+## Claude Code (`claude-code/sonnet|opus|haiku`)
+
+Uses the machine's existing Claude Code login. Anthropic rejects direct third-party API calls on subscription plans ("Third-party apps now draw from extra usage"), even with a valid Claude Code token, so every request goes through `claude -p` and counts against the plan like normal Claude Code use. Tools, MCP, hooks, slash commands, and session history are off (`--tools "" --strict-mcp-config --settings '{"disableAllHooks":true}' --no-session-persistence --disable-slash-commands`); Claude Code's own system prompt is replaced by a one-line one (~4.7k instead of ~10.7k tokens per call), and the prompt is sent on stdin. Readiness is `claude auth status`; models are listed at startup whenever `claude` is on PATH.
 
 ## Compatibility mode
 

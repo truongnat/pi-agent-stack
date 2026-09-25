@@ -24,9 +24,16 @@ import type {
 } from '@earendil-works/pi-coding-agent'
 
 import { loadConfig } from './config.ts'
+import { which } from './detect.ts'
 import { toProviderModels } from './models.ts'
-import { compactSummaries, readStatus, refreshStatus, writeStatus } from './readiness.ts'
-import { streamAntigravityCli, streamCursorCli } from './stream.ts'
+import {
+	CLAUDE_CODE_MODELS,
+	compactSummaries,
+	readStatus,
+	refreshStatus,
+	writeStatus
+} from './readiness.ts'
+import { streamAntigravityCli, streamClaudeCodeCli, streamCursorCli } from './stream.ts'
 import type { ProviderId, Readiness, RootConfig, StatusSnapshot } from './types.ts'
 import {
 	formatStatusLine,
@@ -41,6 +48,9 @@ import {
 
 const CURSOR_API = 'cursor-cli-compat'
 const ANTIGRAVITY_API = 'antigravity-cli-compat'
+const CLAUDE_CODE_API = 'claude-code-cli-compat'
+
+const CLI_PROVIDERS = ['cursor', 'antigravity', 'claude-code'] as const
 
 function autoPersistDefault(patch: Record<string, unknown>): void {
 	const settingsPath = join(homedir(), '.pi', 'agent', 'settings.json')
@@ -85,26 +95,44 @@ const quotaOk: Partial<Record<ProviderId, boolean>> = {}
 
 function persist(snap: StatusSnapshot): StatusSnapshot {
 	let next = snap
-	for (const p of ['cursor', 'antigravity'] as const) {
+	for (const p of CLI_PROVIDERS) {
 		const ok = quotaOk[p]
-		if (ok !== undefined) next = { ...next, [p]: { ...next[p], quotaAvailable: ok } }
+		const row = next[p]
+		if (ok !== undefined && row) next = { ...next, [p]: { ...row, quotaAvailable: ok } }
 	}
 	writeStatus(next)
 	return next
 }
 
+/**
+ * Claude Code's model aliases are static, so with `claude` on PATH its models can be listed
+ * before the first readiness probe (otherwise `--model claude-code/…` fails at startup).
+ * The background probe confirms the login and withdraws the models if it is missing.
+ */
+function provisionalClaudeCode(): Readiness {
+	const command = which('claude')
+	if (!command) return unavailable('claude-code', 'claude CLI not found on PATH')
+	return {
+		...unavailable('claude-code', 'pending login check'),
+		ready: true,
+		command,
+		models: CLAUDE_CODE_MODELS
+	}
+}
+
 function initialSnapshot(): StatusSnapshot {
 	const cached = readStatus()
 	if (cached) {
-		for (const p of ['cursor', 'antigravity'] as const) {
-			if (cached[p].quotaAvailable === false) quotaOk[p] = false
+		for (const p of CLI_PROVIDERS) {
+			if (cached[p]?.quotaAvailable === false) quotaOk[p] = false
 		}
-		return cached
+		return { ...cached, 'claude-code': cached['claude-code'] ?? provisionalClaudeCode() }
 	}
 	return {
 		updatedAt: Date.now(),
 		cursor: unavailable('cursor', 'pending readiness check'),
-		antigravity: unavailable('antigravity', 'pending readiness check')
+		antigravity: unavailable('antigravity', 'pending readiness check'),
+		'claude-code': provisionalClaudeCode()
 	}
 }
 
@@ -139,29 +167,67 @@ export async function refreshProviderModels(
 	return modelsFromSnapshot(provider, snapshot)
 }
 
+/** Last model list registered per provider. */
+const published = new Map<ProviderId, string>()
+
+/**
+ * Re-registering a provider briefly resets its auth in Pi; doing it while a prompt starts
+ * fails that prompt with "No API key found". Only re-register when the model list changed.
+ */
+function modelsChanged(provider: ProviderId, snap: StatusSnapshot): boolean {
+	const key = JSON.stringify(modelsFromSnapshot(provider, snap))
+	if (published.get(provider) === key) return false
+	published.set(provider, key)
+	return true
+}
+
 function publishProviders(pi: ExtensionAPI, snap: StatusSnapshot): void {
 	snapshot = snap
-	pi.registerProvider('cursor', {
-		name: 'Cursor (CLI subscription)',
-		baseUrl: 'cli://cursor-agent',
-		apiKey: 'subscription-cli',
-		api: CURSOR_API,
-		models: modelsFromSnapshot('cursor', snap),
-		refreshModels: (context) => refreshProviderModels('cursor', context),
-		streamSimple: (model, context, options) =>
-			streamCursorCli(model, context, options, readinessOrUnavailable('cursor', snapshot))
-	})
+	if (modelsChanged('cursor', snap))
+		pi.registerProvider('cursor', {
+			name: 'Cursor (CLI subscription)',
+			baseUrl: 'cli://cursor-agent',
+			apiKey: 'subscription-cli',
+			api: CURSOR_API,
+			models: modelsFromSnapshot('cursor', snap),
+			refreshModels: (context) => refreshProviderModels('cursor', context),
+			streamSimple: (model, context, options) =>
+				streamCursorCli(model, context, options, readinessOrUnavailable('cursor', snapshot))
+		})
 
-	pi.registerProvider('antigravity', {
-		name: 'Google Antigravity (CLI subscription)',
-		baseUrl: 'cli://agy',
-		apiKey: 'subscription-cli',
-		api: ANTIGRAVITY_API,
-		models: modelsFromSnapshot('antigravity', snap),
-		refreshModels: (context) => refreshProviderModels('antigravity', context),
-		streamSimple: (model, context, options) =>
-			streamAntigravityCli(model, context, options, readinessOrUnavailable('antigravity', snapshot))
-	})
+	if (modelsChanged('antigravity', snap))
+		pi.registerProvider('antigravity', {
+			name: 'Google Antigravity (CLI subscription)',
+			baseUrl: 'cli://agy',
+			apiKey: 'subscription-cli',
+			api: ANTIGRAVITY_API,
+			models: modelsFromSnapshot('antigravity', snap),
+			refreshModels: (context) => refreshProviderModels('antigravity', context),
+			streamSimple: (model, context, options) =>
+				streamAntigravityCli(
+					model,
+					context,
+					options,
+					readinessOrUnavailable('antigravity', snapshot)
+				)
+		})
+
+	if (modelsChanged('claude-code', snap))
+		pi.registerProvider('claude-code', {
+			name: 'Claude Code (CLI subscription)',
+			baseUrl: 'cli://claude',
+			apiKey: 'subscription-cli',
+			api: CLAUDE_CODE_API,
+			models: modelsFromSnapshot('claude-code', snap),
+			refreshModels: (context) => refreshProviderModels('claude-code', context),
+			streamSimple: (model, context, options) =>
+				streamClaudeCodeCli(
+					model,
+					context,
+					options,
+					readinessOrUnavailable('claude-code', snapshot)
+				)
+		})
 }
 
 function applyStatusUi(
@@ -170,7 +236,7 @@ function applyStatusUi(
 ): void {
 	if (!ctx.hasUI) return
 	const summaries = compactSummaries(snap)
-	const parts = [summaries.cursor, summaries.antigravity].filter(
+	const parts = [summaries.cursor, summaries.antigravity, summaries['claude-code']].filter(
 		(line) => !line.includes('disabled')
 	)
 	ctx.ui.setStatus('subscription-providers', parts.map((line) => line.split(';')[0]).join(' · '))
@@ -195,7 +261,7 @@ function usageDeps(ctx: UsageCtx): UsageDeps {
 }
 
 function isCliProvider(provider: string): provider is ProviderId {
-	return provider === 'cursor' || provider === 'antigravity'
+	return (CLI_PROVIDERS as readonly string[]).includes(provider)
 }
 
 function readyCommand(provider: ProviderId): string | undefined {
@@ -203,11 +269,12 @@ function readyCommand(provider: ProviderId): string | undefined {
 	return r?.ready ? r.command : undefined
 }
 
-/** Re-read Cursor/Antigravity quota (cached, no model call) and publish it for JEV. */
+/** Re-read CLI providers' quota (cached, no model call) and publish it for JEV. */
 async function refreshSubscriptionQuota(ctx: UsageCtx): Promise<void> {
 	const deps = usageDeps(ctx)
 	let changed = false
-	for (const p of ['cursor', 'antigravity'] as const) {
+	for (const p of CLI_PROVIDERS) {
+		if (p === 'claude-code' && !readyCommand(p)) continue
 		const quota = (await getQuota(p, deps))?.quota
 		if (!quota) continue
 		const ok = !quotaExhausted(quota)
@@ -256,12 +323,42 @@ async function usageRows(ctx: UsageCtx, force: boolean): Promise<ReportRow[]> {
 	const rows = await Promise.all(
 		USAGE_PROVIDERS.map(async (provider) => ({
 			provider,
-			active: provider === active,
+			active: provider === (active === 'claude-code' ? 'anthropic' : active),
 			result: await getQuota(provider, deps, force)
 		}))
 	)
 	// Fetchers return no quota for tools that are missing or logged out; hide those rows.
 	return rows.filter((r) => r.result?.quota || r.result?.error)
+}
+
+/** Claude Code alias for an Anthropic model id: same tier, newest model. */
+export function claudeCodeTier(modelId: string): 'opus' | 'sonnet' | 'haiku' {
+	if (/opus/i.test(modelId)) return 'opus'
+	if (/haiku/i.test(modelId)) return 'haiku'
+	return 'sonnet'
+}
+
+/**
+ * Anthropic subscription (OAuth) calls from Pi are rejected as third-party, and a missing
+ * login fails outright. When Claude Code is logged in, move such a selection to the same
+ * tier on `claude-code/*`; a real API key keeps the native provider.
+ */
+async function redirectAnthropic(
+	pi: ExtensionAPI,
+	ctx: Pick<ExtensionContext, 'hasUI' | 'ui' | 'model' | 'modelRegistry'>,
+	model = ctx.model
+): Promise<void> {
+	if (model?.provider !== 'anthropic' || !readyCommand('claude-code')) return
+	const auth = ctx.modelRegistry.getProviderAuthStatus('anthropic')
+	if (auth.configured && !ctx.modelRegistry.isUsingOAuth(model)) return
+	const target = ctx.modelRegistry.find('claude-code', claudeCodeTier(model.id))
+	if (!target || !(await pi.setModel(target))) return
+	if (ctx.hasUI) {
+		ctx.ui.notify(
+			`anthropic/${model.id} → claude-code/${target.id}: using the machine's Claude Code login (Anthropic blocks subscription calls from third-party apps).`,
+			'info'
+		)
+	}
 }
 
 export default function (pi: ExtensionAPI): void {
@@ -270,6 +367,7 @@ export default function (pi: ExtensionAPI): void {
 	publishProviders(pi, snapshot)
 
 	pi.on('session_start', (_event, ctx) => {
+		void redirectAnthropic(pi, ctx).catch(() => {})
 		void refreshUsageStatus(ctx).catch(() => {})
 		// Probe once in the background, then publish that snapshot.
 		// registerProvider triggers an offline refreshModels pass that must not re-probe.
@@ -328,6 +426,7 @@ export default function (pi: ExtensionAPI): void {
 	)
 
 	pi.on('model_select', (event, ctx) => {
+		void redirectAnthropic(pi, ctx, event.model).catch(() => {})
 		void refreshUsageStatus(ctx, event.model?.provider).catch(() => {})
 		if (event.source === 'restore') return
 		if (event.model?.provider && event.model?.id) {

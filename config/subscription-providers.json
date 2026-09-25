@@ -18,6 +18,15 @@
 		"latencyEstimateMs": 6000,
 		"marginalInputCost": 0.15,
 		"marginalOutputCost": 0.6
+	},
+	"claude-code": {
+		"enabled": true,
+		"command": "auto",
+		"timeoutMs": 120000,
+		"maxOutputChars": 200000,
+		"readinessTtlMs": 300000,
+		"latencyEstimateMs": 8000,
+		"marginalInputCost": 0.15,
+		"marginalOutputCost": 0.6
 	}
-
 }

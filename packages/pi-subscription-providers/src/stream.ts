@@ -397,3 +397,141 @@ export function streamAntigravityCli(
 	})()
 	return stream
 }
+
+function handleClaudeLine(
+	line: string,
+	model: Model<Api>,
+	output: AssistantMessage,
+	stream: AssistantMessageEventStream
+): void {
+	let row: Record<string, unknown>
+	try {
+		row = JSON.parse(line) as Record<string, unknown>
+	} catch {
+		return
+	}
+	if (row.type === 'stream_event' && row.event && typeof row.event === 'object') {
+		const event = row.event as {
+			type?: string
+			delta?: { type?: string; text?: string; thinking?: string }
+		}
+		if (event.type !== 'content_block_delta' || !event.delta) return
+		if (event.delta.type === 'text_delta' && event.delta.text)
+			appendText(output, stream, event.delta.text)
+		if (event.delta.type === 'thinking_delta' && event.delta.thinking) {
+			appendThinking(output, stream, event.delta.thinking)
+		}
+		return
+	}
+	if (row.type !== 'result') return
+	const usage = row.usage as
+		| {
+				input_tokens?: number
+				output_tokens?: number
+				cache_read_input_tokens?: number
+				cache_creation_input_tokens?: number
+		  }
+		| undefined
+	if (usage) {
+		applyUsage(model, output, {
+			input: usage.input_tokens,
+			output: usage.output_tokens,
+			cacheRead: usage.cache_read_input_tokens,
+			cacheWrite: usage.cache_creation_input_tokens
+		})
+	}
+	if (typeof row.result === 'string' && !hasText(output) && row.is_error !== true) {
+		appendText(output, stream, row.result)
+	}
+	if (row.is_error === true) {
+		output.stopReason = 'error'
+		output.errorMessage = redact(
+			diagnostic(typeof row.result === 'string' ? row.result : 'claude error')
+		)
+	} else {
+		output.stopReason = 'stop'
+	}
+}
+
+/** Pi's own system prompt travels inside the transcript; this only replaces Claude Code's. */
+const CLAUDE_SYSTEM_PROMPT =
+	'Follow the instructions and conversation in the user message. Tools are unavailable; answer directly.'
+
+/**
+ * Claude Code CLI with the machine's Claude Code login. Tools, MCP, hooks, slash commands,
+ * and session history are off: this is a plain answer route (compatibility mode).
+ */
+export function streamClaudeCodeCli(
+	model: Model<Api>,
+	context: TranscriptContext,
+	options: SimpleStreamOptions | undefined,
+	readiness: Readiness,
+	lineRunner: LineRunner = runStreamingLines
+): AssistantMessageEventStream {
+	const stream = createAssistantMessageEventStream()
+	const cfg = providerConfig(loadConfig(), 'claude-code')
+	void (async () => {
+		const output = createOutput(model)
+		try {
+			if (!readiness.ready || !readiness.command) {
+				throw new Error(`claude-code provider_not_ready: ${readiness.reason}`)
+			}
+			const prompt = buildCliPrompt(context)
+			const payload = { prompt, model: model.id, provider: 'claude-code', mode: 'compatibility' }
+			const replacement = options?.onPayload ? await options.onPayload(payload, model) : payload
+			const finalPayload =
+				replacement && typeof replacement === 'object'
+					? (replacement as { prompt?: string; model?: string })
+					: payload
+			await options?.onResponse?.({ status: 200, headers: {} }, model)
+			stream.push({ type: 'start', partial: output })
+
+			const result = await lineRunner({
+				command: readiness.command,
+				args: [
+					'-p',
+					'--model',
+					finalPayload.model ?? model.id,
+					'--output-format',
+					'stream-json',
+					'--verbose',
+					'--include-partial-messages',
+					'--tools',
+					'',
+					'--strict-mcp-config',
+					'--settings',
+					'{"disableAllHooks":true}',
+					'--no-session-persistence',
+					'--disable-slash-commands',
+					'--system-prompt',
+					CLAUDE_SYSTEM_PROMPT
+				],
+				// Prompt on stdin: no argv size limit, and nothing leaks into `ps`.
+				stdin: finalPayload.prompt ?? prompt,
+				timeoutMs: cfg.timeoutMs,
+				maxOutputChars: cfg.maxOutputChars,
+				...(options?.signal ? { signal: options.signal } : {}),
+				onLine: (line) => handleClaudeLine(line, model, output, stream)
+			})
+			if (result.aborted) throw new Error('Request was aborted')
+			if (result.timedOut) throw new Error(`claude timed out after ${cfg.timeoutMs}ms`)
+			if (result.code !== 0 && output.stopReason !== 'error') {
+				throw new Error(diagnostic(result.stderr) || `claude exit ${result.code}`)
+			}
+			closeOpenBlocks(output, stream)
+			if (output.stopReason === 'pending') output.stopReason = 'stop'
+			if (output.stopReason === 'error' || output.stopReason === 'aborted') {
+				stream.push({ type: 'error', reason: output.stopReason, error: output })
+			} else {
+				stream.push({ type: 'done', reason: doneReason(output.stopReason), message: output })
+			}
+			stream.end()
+		} catch (error) {
+			output.stopReason = options?.signal?.aborted ? 'aborted' : 'error'
+			output.errorMessage = redactError(error)
+			stream.push({ type: 'error', reason: output.stopReason, error: output })
+			stream.end()
+		}
+	})()
+	return stream
+}

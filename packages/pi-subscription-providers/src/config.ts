@@ -21,7 +21,8 @@ const DEFAULT_PROVIDER: ProviderConfig = {
 
 export const DEFAULT_CONFIG: RootConfig = {
 	cursor: { ...DEFAULT_PROVIDER, latencyEstimateMs: 12_000 },
-	antigravity: { ...DEFAULT_PROVIDER, latencyEstimateMs: 6_000 }
+	antigravity: { ...DEFAULT_PROVIDER, latencyEstimateMs: 6_000 },
+	'claude-code': { ...DEFAULT_PROVIDER, latencyEstimateMs: 8_000 }
 }
 
 export function loadConfig(path = CONFIG_PATH): RootConfig {
@@ -30,13 +31,15 @@ export function loadConfig(path = CONFIG_PATH): RootConfig {
 		const raw = JSON.parse(readFileSync(path, 'utf8')) as Partial<RootConfig>
 		return {
 			cursor: { ...DEFAULT_CONFIG.cursor, ...(raw.cursor ?? {}) },
-			antigravity: { ...DEFAULT_CONFIG.antigravity, ...(raw.antigravity ?? {}) }
+			antigravity: { ...DEFAULT_CONFIG.antigravity, ...(raw.antigravity ?? {}) },
+			'claude-code': { ...DEFAULT_CONFIG['claude-code'], ...(raw['claude-code'] ?? {}) }
 		}
 	} catch {
 		// Missing or unreadable config → defaults.
 		return {
 			cursor: { ...DEFAULT_CONFIG.cursor },
-			antigravity: { ...DEFAULT_CONFIG.antigravity }
+			antigravity: { ...DEFAULT_CONFIG.antigravity },
+			'claude-code': { ...DEFAULT_CONFIG['claude-code'] }
 		}
 	}
 }

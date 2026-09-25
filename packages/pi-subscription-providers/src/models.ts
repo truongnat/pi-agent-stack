@@ -1,10 +1,10 @@
 import type { ProviderModelConfig } from '@earendil-works/pi-coding-agent'
 
-import type { DiscoveredModel, Readiness } from './types.ts'
+import type { DiscoveredModel, ProviderId, Readiness } from './types.ts'
 
 /** Subscription-backed model costs: non-zero opportunity costs for JEV routing. */
 export function toProviderModels(
-	provider: 'cursor' | 'antigravity',
+	provider: ProviderId,
 	readiness: Readiness,
 	limit = 24
 ): ProviderModelConfig[] {
@@ -13,7 +13,7 @@ export function toProviderModels(
 }
 
 function toModel(
-	provider: 'cursor' | 'antigravity',
+	_provider: ProviderId,
 	model: DiscoveredModel,
 	readiness: Readiness
 ): ProviderModelConfig {
@@ -28,7 +28,7 @@ function toModel(
 			cacheRead: readiness.marginalInputCost * 0.1,
 			cacheWrite: readiness.marginalInputCost * 0.25
 		},
-		contextWindow: provider === 'cursor' ? 200_000 : 200_000,
+		contextWindow: 200_000,
 		maxTokens: 16_384
 	}
 }

@@ -9,8 +9,18 @@ import { join } from 'node:path'
 
 export type BillingMode = 'api' | 'subscription' | 'unknown'
 
+/** CLI-backed providers from pi-subscription-providers (compatibility tool mode). */
+export const SUBSCRIPTION_PROVIDERS = ['cursor', 'antigravity', 'claude-code'] as const
+
+export type SubscriptionProvider = (typeof SUBSCRIPTION_PROVIDERS)[number]
+
+export function isSubscriptionProvider(provider: string): provider is SubscriptionProvider {
+	// SAFETY: widening a readonly tuple of literals to string[] only to call includes().
+	return (SUBSCRIPTION_PROVIDERS as readonly string[]).includes(provider)
+}
+
 export type SubscriptionReadiness = {
-	provider: 'cursor' | 'antigravity'
+	provider: SubscriptionProvider
 	ready: boolean
 	reason: string
 	billingMode: BillingMode
@@ -27,6 +37,16 @@ export type SubscriptionStatus = {
 	updatedAt: number
 	cursor: SubscriptionReadiness
 	antigravity: SubscriptionReadiness
+	/** Absent in status files written before Claude Code support. */
+	'claude-code'?: SubscriptionReadiness
+}
+
+/** Provider rows present in a status file. */
+export function subscriptionRows(status: SubscriptionStatus): SubscriptionReadiness[] {
+	return SUBSCRIPTION_PROVIDERS.flatMap((p) => {
+		const row = status[p]
+		return row ? [row] : []
+	})
 }
 
 const STATUS_PATH = join(homedir(), '.pi', 'agent', 'subscription-providers-status.json')
@@ -48,7 +68,7 @@ export function freshSubscriptionProviders(
 	ttlMs = DEFAULT_TTL_MS
 ): SubscriptionReadiness[] {
 	if (!status) return []
-	return [status.cursor, status.antigravity].filter(
+	return subscriptionRows(status).filter(
 		(row) => row.ready && row.quotaAvailable !== false && now - row.checkedAt <= ttlMs
 	)
 }
@@ -58,9 +78,9 @@ export function subscriptionAllowedForKind(kind: string): boolean {
 	return kind === 'answer'
 }
 
-/** Current Cursor/Antigravity session must leave subscription when the turn needs native tools. */
+/** A current subscription session must leave it when the turn needs native tools. */
 export function needsForcedSubscriptionExit(kind: string, provider: string): boolean {
-	return (provider === 'cursor' || provider === 'antigravity') && !subscriptionAllowedForKind(kind)
+	return isSubscriptionProvider(provider) && !subscriptionAllowedForKind(kind)
 }
 
 export function redactSubscriptionLog(entry: Record<string, unknown>): Record<string, unknown> {

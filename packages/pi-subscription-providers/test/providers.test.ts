@@ -3,9 +3,13 @@ import { test } from 'node:test'
 import type { TranscriptContext } from '@earendil-works/pi-ai'
 
 import { DEFAULT_CONFIG } from '../src/config.ts'
-import { checkAntigravityReadiness, checkCursorReadiness } from '../src/readiness.ts'
+import {
+	checkAntigravityReadiness,
+	checkClaudeCodeReadiness,
+	checkCursorReadiness
+} from '../src/readiness.ts'
 import { redact } from '../src/redact.ts'
-import { streamAntigravityCli, streamCursorCli } from '../src/stream.ts'
+import { streamAntigravityCli, streamClaudeCodeCli, streamCursorCli } from '../src/stream.ts'
 import type { Readiness, Runner } from '../src/types.ts'
 
 function fakeContext(): TranscriptContext {
@@ -469,4 +473,99 @@ test('buildCliPrompt bounds prompt size for long conversations to prevent spawn 
 	)
 	assert.ok(prompt.includes('[... earlier conversation truncated for CLI compatibility ...]'))
 	assert.ok(prompt.includes('Message 199'))
+})
+
+test('claude-code stream: text/thinking deltas, usage, prompt on stdin, tools off', async () => {
+	const readiness: Readiness = {
+		provider: 'claude-code',
+		ready: true,
+		reason: 'ready',
+		command: '/bin/claude',
+		billingMode: 'subscription',
+		latencyEstimateMs: 1000,
+		marginalInputCost: 0.15,
+		marginalOutputCost: 0.6,
+		models: [{ id: 'haiku', name: 'Haiku', reasoning: false }],
+		checkedAt: Date.now(),
+		toolMode: 'compatibility'
+	}
+	const model = {
+		id: 'haiku',
+		name: 'Haiku',
+		api: 'claude-code-cli-compat',
+		provider: 'claude-code',
+		baseUrl: 'cli://claude',
+		reasoning: false,
+		input: ['text'] as ('text' | 'image')[],
+		cost: { input: 0.15, output: 0.6, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 200000,
+		maxTokens: 8192
+	}
+	const delta = (d: object) =>
+		JSON.stringify({
+			type: 'stream_event',
+			event: { type: 'content_block_delta', index: 0, delta: d }
+		})
+	const lines = [
+		JSON.stringify({ type: 'system', subtype: 'init' }),
+		delta({ type: 'thinking_delta', thinking: 'hmm' }),
+		delta({ type: 'text_delta', text: 'po' }),
+		delta({ type: 'text_delta', text: 'ng' }),
+		JSON.stringify({
+			type: 'result',
+			subtype: 'success',
+			is_error: false,
+			result: 'pong',
+			usage: {
+				input_tokens: 10,
+				output_tokens: 2,
+				cache_read_input_tokens: 5,
+				cache_creation_input_tokens: 7
+			}
+		})
+	]
+	let seen: { args: string[]; stdin?: string | Buffer | undefined } | undefined
+	const stream = streamClaudeCodeCli(model, fakeContext(), {}, readiness, async (req) => {
+		seen = { args: req.args, stdin: req.stdin }
+		for (const line of lines) req.onLine(line)
+		return { code: 0, timedOut: false, aborted: false, stderr: '' }
+	})
+	const events = []
+	for await (const event of stream) events.push(event)
+	const done = events.find((e) => e.type === 'done')
+	assert.ok(done && done.type === 'done')
+	const text = done.message.content.find((c) => c.type === 'text')
+	assert.equal(text?.type === 'text' ? text.text : '', 'pong', 'deltas only; result not duplicated')
+	assert.deepEqual(
+		[
+			done.message.usage.input,
+			done.message.usage.output,
+			done.message.usage.cacheRead,
+			done.message.usage.cacheWrite
+		],
+		[10, 2, 5, 7]
+	)
+	assert.ok(events.some((e) => e.type === 'thinking_delta'))
+	assert.ok(seen?.args.includes('--no-session-persistence'))
+	assert.equal(seen?.args[seen.args.indexOf('--tools') + 1], '', 'tools disabled')
+	assert.match(String(seen?.stdin), /hi/, 'prompt goes through stdin')
+})
+
+test('claude-code readiness: logged in vs logged out', async () => {
+	const runnerFor =
+		(stdout: string, code = 0): Runner =>
+		async () => ({ code, stdout, stderr: '', timedOut: false, aborted: false, durationMs: 1 })
+	const config = {
+		...DEFAULT_CONFIG,
+		'claude-code': { ...DEFAULT_CONFIG['claude-code'], command: 'sh' }
+	}
+	const ready = await checkClaudeCodeReadiness(config, runnerFor('{"loggedIn":true}'))
+	assert.equal(ready.ready, true)
+	assert.deepEqual(
+		ready.models.map((m) => m.id),
+		['sonnet', 'opus', 'haiku']
+	)
+	const out = await checkClaudeCodeReadiness(config, runnerFor('{"loggedIn":false}', 1))
+	assert.equal(out.ready, false)
+	assert.match(out.reason, /not logged in/)
 })

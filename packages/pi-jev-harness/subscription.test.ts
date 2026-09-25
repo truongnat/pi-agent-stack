@@ -212,3 +212,32 @@ void test('stale subscription status is ignored', () => {
 	}
 	assert.equal(freshSubscriptionProviders(status, Date.now(), 5 * 60_000).length, 0)
 })
+
+void test('claude-code is a subscription provider; old status files without it still load', () => {
+	const row = (provider: 'cursor' | 'antigravity' | 'claude-code', ready: boolean) => ({
+		provider,
+		ready,
+		reason: ready ? 'ready' : 'missing',
+		billingMode: 'subscription' as const,
+		quotaAvailable: true,
+		latencyEstimateMs: 1000,
+		marginalInputCost: 0.15,
+		marginalOutputCost: 0.6,
+		models: [],
+		checkedAt: Date.now(),
+		toolMode: 'compatibility' as const
+	})
+	const legacy: SubscriptionStatus = {
+		updatedAt: Date.now(),
+		cursor: row('cursor', false),
+		antigravity: row('antigravity', false)
+	}
+	assert.deepEqual(freshSubscriptionProviders(legacy), [])
+	const withClaude: SubscriptionStatus = { ...legacy, 'claude-code': row('claude-code', true) }
+	assert.deepEqual(
+		freshSubscriptionProviders(withClaude).map((r) => r.provider),
+		['claude-code']
+	)
+	assert.equal(needsForcedSubscriptionExit('change', 'claude-code'), true)
+	assert.equal(needsForcedSubscriptionExit('answer', 'claude-code'), false)
+})

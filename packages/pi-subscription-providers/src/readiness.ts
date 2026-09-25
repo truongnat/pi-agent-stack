@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 import { loadConfig, providerConfig, STATUS_PATH } from './config.ts'
-import { resolveAntigravityCommand, resolveCursorCommand } from './detect.ts'
+import { resolveAntigravityCommand, resolveCursorCommand, which } from './detect.ts'
 import { diagnostic } from './redact.ts'
 import { defaultRunner } from './subprocess.ts'
 import type { DiscoveredModel, Readiness, RootConfig, Runner, StatusSnapshot } from './types.ts'
@@ -193,6 +193,61 @@ export async function checkAntigravityReadiness(
 	}
 }
 
+/** Claude Code aliases resolve to the newest model of each tier on Claude's side. */
+export const CLAUDE_CODE_MODELS: DiscoveredModel[] = [
+	{ id: 'sonnet', name: 'Claude Sonnet (Claude Code)', reasoning: true },
+	{ id: 'opus', name: 'Claude Opus (Claude Code)', reasoning: true },
+	{ id: 'haiku', name: 'Claude Haiku (Claude Code)', reasoning: false }
+]
+
+/**
+ * Claude Code CLI: uses the machine's existing Claude Code login. Anthropic rejects direct
+ * third-party API calls on subscription plans, so requests must go through `claude -p`.
+ */
+export async function checkClaudeCodeReadiness(
+	config: RootConfig = loadConfig(),
+	runner: Runner = defaultRunner
+): Promise<Readiness> {
+	const cfg = providerConfig(config, 'claude-code')
+	if (!cfg.enabled) {
+		return emptyReadiness('claude-code', 'disabled in subscription-providers.json', cfg)
+	}
+	const command = cfg.command === 'auto' ? which('claude') : which(cfg.command)
+	if (!command) return emptyReadiness('claude-code', 'claude CLI not found on PATH', cfg)
+	const status = await runner({
+		command,
+		args: ['auth', 'status', '--json'],
+		timeoutMs: 20_000,
+		maxOutputChars: 20_000
+	})
+	let loggedIn = false
+	try {
+		loggedIn = (JSON.parse(status.stdout) as { loggedIn?: boolean }).loggedIn === true
+	} catch {
+		// Non-JSON output means not usable.
+	}
+	if (status.code !== 0 || !loggedIn) {
+		return {
+			...emptyReadiness('claude-code', 'not logged in (run `claude` and /login)', cfg),
+			command
+		}
+	}
+	return {
+		provider: 'claude-code',
+		ready: true,
+		reason: `ready via claude -p (${CLAUDE_CODE_MODELS.length} models)`,
+		command,
+		billingMode: 'subscription',
+		quotaAvailable: true,
+		latencyEstimateMs: cfg.latencyEstimateMs,
+		marginalInputCost: cfg.marginalInputCost,
+		marginalOutputCost: cfg.marginalOutputCost,
+		models: CLAUDE_CODE_MODELS,
+		checkedAt: Date.now(),
+		toolMode: 'compatibility'
+	}
+}
+
 export async function refreshStatus(
 	config: RootConfig = loadConfig(),
 	runner: Runner = defaultRunner,
@@ -211,12 +266,23 @@ export async function refreshStatus(
 		!options.force && existing && now - existing.antigravity.checkedAt < agyTtl
 			? Promise.resolve(existing.antigravity)
 			: checkAntigravityReadiness(config, runner)
-	const [cursorFresh, antigravityFresh] = await Promise.all([cursorPromise, antigravityPromise])
+	const claudeTtl = providerConfig(config, 'claude-code').readinessTtlMs
+	const claudeCached = existing?.['claude-code']
+	const claudePromise =
+		!options.force && claudeCached && now - claudeCached.checkedAt < claudeTtl
+			? Promise.resolve(claudeCached)
+			: checkClaudeCodeReadiness(config, runner)
+	const [cursorFresh, antigravityFresh, claudeFresh] = await Promise.all([
+		cursorPromise,
+		antigravityPromise,
+		claudePromise
+	])
 
 	const snapshot: StatusSnapshot = {
 		updatedAt: now,
 		cursor: cursorFresh,
-		antigravity: antigravityFresh
+		antigravity: antigravityFresh,
+		'claude-code': claudeFresh
 	}
 	writeStatus(snapshot)
 	return snapshot
@@ -244,10 +310,16 @@ export function writeStatus(snapshot: StatusSnapshot, path = STATUS_PATH): void 
 export function compactSummaries(snapshot: StatusSnapshot): {
 	cursor: string
 	antigravity: string
+	'claude-code': string
 } {
 	const fmt = (r: Readiness) =>
 		r.ready
 			? `${r.provider}: ready; billing=${r.billingMode}; models=${r.models.length}; latency~${r.latencyEstimateMs}ms; marginal=$${r.marginalInputCost}/$${r.marginalOutputCost} per MTok; tools=${r.toolMode}`
 			: `${r.provider}: unavailable; ${r.reason}`
-	return { cursor: fmt(snapshot.cursor), antigravity: fmt(snapshot.antigravity) }
+	const claude = snapshot['claude-code']
+	return {
+		cursor: fmt(snapshot.cursor),
+		antigravity: fmt(snapshot.antigravity),
+		'claude-code': claude ? fmt(claude) : 'claude-code: unavailable; not checked yet'
+	}
 }

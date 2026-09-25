@@ -9,7 +9,9 @@ import type { ExtensionContext } from '@earendil-works/pi-coding-agent'
 import type { RoutingModel } from './jev.ts'
 import {
 	freshSubscriptionProviders,
+	isSubscriptionProvider,
 	readSubscriptionStatus,
+	subscriptionRows,
 	type SubscriptionReadiness
 } from './subscription.ts'
 import type { Harness } from './types.ts'
@@ -250,8 +252,7 @@ function subscriptionModels(
 	if (!h.config.subscriptionRouting) return []
 	const status = readSubscriptionStatus()
 	const ready = freshSubscriptionProviders(status, Date.now(), h.config.subscriptionStatusTtlMs)
-	const skipped =
-		status == null ? 0 : [status.cursor, status.antigravity].filter((row) => !row.ready).length
+	const skipped = status == null ? 0 : subscriptionRows(status).filter((row) => !row.ready).length
 	h.stats.unavailableProviderSkips += skipped
 	const out: RoutingModel[] = []
 	for (const row of ready) {
@@ -265,7 +266,7 @@ function subscriptionModels(
 function withCurrentModel(current: CatalogModel, models: RoutingModel[]): RoutingModel[] {
 	const currentKey = `${current.provider}/${current.id}`
 	if (models.some((model) => model.key === currentKey)) return models
-	const isSubscription = current.provider === 'cursor' || current.provider === 'antigravity'
+	const isSubscription = isSubscriptionProvider(current.provider)
 	return [
 		toRoutingModel(current, {
 			billingMode: isSubscription ? 'subscription' : 'api',
