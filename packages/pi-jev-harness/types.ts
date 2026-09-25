@@ -1,6 +1,10 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import type { ExtensionContext } from '@earendil-works/pi-coding-agent'
 
 import type { Question, Result } from './jev.ts'
+
 
 export type Mode = 'on' | 'log' | 'off' // log = ask Jev and record, change nothing
 
@@ -103,7 +107,33 @@ export const THRESHOLD_ALWAYS_KEEP = [
 
 export const READ_TOOLS = ['read', 'grep', 'find', 'ls']
 
-export const active = (h: Harness): boolean => h.config.mode !== 'off' && !!process.env.JEV_API_KEY
+export function ensureJevApiKey(): string | undefined {
+	if (process.env.JEV_API_KEY) return process.env.JEV_API_KEY
+	try {
+		const keyPath = join(homedir(), '.keys', 'jev.env')
+		if (existsSync(keyPath)) {
+			const content = readFileSync(keyPath, 'utf8')
+			for (const line of content.split('\n')) {
+				const match =
+					line.match(/^export\s+JEV_API_KEY=["']?([^"'\s]+)["']?/) ||
+					line.match(/^JEV_API_KEY=["']?([^"'\s]+)["']?/)
+				if (match?.[1]) {
+					process.env.JEV_API_KEY = match[1]
+					return match[1]
+				}
+			}
+		}
+	} catch {
+		// Ignore key load errors
+	}
+	return undefined
+}
+
+export const active = (h: Harness): boolean => {
+	ensureJevApiKey()
+	return h.config.mode !== 'off' && !!process.env.JEV_API_KEY
+}
+
 
 export const short = (value: unknown, max = 300): string => {
 	const text = typeof value === 'string' ? value : JSON.stringify(value)
