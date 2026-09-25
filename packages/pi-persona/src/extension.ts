@@ -38,14 +38,12 @@ export function createPersonaExtension(pi: ExtensionAPI) {
 			store.addOrUpdatePreference(sig.category, sig.key, sig.rule, sig.confidence)
 		}
 
-		// Synthesize persona guidance
+		// Synthesize persona guidance as tail message to protect prefix cache
 		const personaBlock = synthesizePersonaPrompt(store, event.prompt, store.config.maxInjectedTokens)
 		if (!personaBlock) return undefined
 
-		const updatedSystemPrompt = `${event.systemPrompt}\n\n${personaBlock}`
-
 		return {
-			systemPrompt: updatedSystemPrompt
+			message: { customType: 'persona', content: personaBlock, display: false }
 		}
 	})
 

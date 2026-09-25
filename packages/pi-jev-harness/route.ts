@@ -417,18 +417,20 @@ export async function onBeforeAgentStart(
 	h.status(ctx, notes[0] ? `jev ${notes.join('; ')}` : `jev-harness ${h.config.mode}`)
 	if (h.config.mode !== 'on') return undefined
 
-	let systemPrompt = event.systemPrompt
-	if (routed?.hideTools) {
-		systemPrompt = `${systemPrompt}\n\njev-harness routed this turn: ${routed.note}. Tools not listed are hidden for this turn; say so if you need one.`
-	}
+	const messageParts: string[] = []
 	if (advised?.briefingText) {
-		systemPrompt = `${systemPrompt}\n\n${advised.briefingText}`
+		messageParts.push(advised.briefingText)
+	}
+	if (routed?.hideTools) {
+		messageParts.push(`jev-harness routed this turn: ${routed.note}. Tools not listed are hidden for this turn; say so if you need one.`)
+	}
+	if (fetched?.message) {
+		messageParts.push(fetched.message)
 	}
 
 	return {
-		...(systemPrompt !== event.systemPrompt ? { systemPrompt } : {}),
-		...(fetched?.message
-			? { message: { customType: 'jev-harness', content: fetched.message, display: false } }
+		...(messageParts.length > 0
+			? { message: { customType: 'jev-harness', content: messageParts.join('\n\n'), display: false } }
 			: {})
 	}
 }

@@ -140,7 +140,7 @@ test('createPersonaTools executes get, update, and feedback tools', async () => 
 	}
 })
 
-test('createPersonaExtension lifecycle: learns from prompt and injects persona into systemPrompt', async () => {
+test('createPersonaExtension lifecycle: learns from prompt and injects persona into transient tail message', async () => {
 	const registeredTools: any[] = []
 	const registeredCommands: Record<string, any> = {}
 	const eventHandlers: Record<string, Function[]> = {}
@@ -171,9 +171,13 @@ test('createPersonaExtension lifecycle: learns from prompt and injects persona i
 	}
 
 	const res = await beforeAgentStartHandler(event, { cwd: process.cwd() })
-	assert.ok(res?.systemPrompt)
-	assert.ok(res.systemPrompt.includes('Base instructions.'))
-	assert.ok(res.systemPrompt.includes('[Developer Persona & Taste Constraints]'))
+	// Verify prefix cache preservation: systemPrompt is NOT mutated
+	assert.equal(res?.systemPrompt, undefined)
+	// Persona steering is passed as a transient message with display: false
+	assert.ok(res?.message)
+	assert.equal(res.message.customType, 'persona')
+	assert.equal(res.message.display, false)
+	assert.ok(res.message.content.includes('[Developer Persona & Taste Constraints]'))
 
 	// Global bridge check
 	assert.ok((globalThis as any).piAgentStackPersona)

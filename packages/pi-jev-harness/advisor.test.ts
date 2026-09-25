@@ -183,7 +183,7 @@ test('generateAdvisorBriefing handles active JEV answers properly', async () => 
 	assert.ok(result?.briefingText.includes('Caution: High architectural invariant sensitivity'))
 })
 
-test('onBeforeAgentStart injects advisor briefing into systemPrompt', async () => {
+test('onBeforeAgentStart injects advisor briefing into transient tail message to preserve prefix cache', async () => {
 	process.env.JEV_API_KEY = 'mock_key'
 	const h = createMockHarness({ advisor: true, route: false, prefetch: false })
 	const ctx = createMockContext()
@@ -197,10 +197,14 @@ test('onBeforeAgentStart injects advisor briefing into systemPrompt', async () =
 	const res = await onBeforeAgentStart(h, pi, event as any, ctx)
 	delete process.env.JEV_API_KEY
 
-	assert.ok(res?.systemPrompt)
-	assert.ok(res.systemPrompt.includes('Base system prompt instructions.'))
-	assert.ok(res.systemPrompt.includes('[Harness Advisor Briefing]'))
-	assert.ok(res.systemPrompt.includes('Bugfix / Regression Resolution'))
+	// Verify prefix cache preservation: systemPrompt is NOT mutated
+	assert.equal(res?.systemPrompt, undefined)
+	// Briefing is passed as a transient message with display: false
+	assert.ok(res?.message)
+	assert.equal(res.message.customType, 'jev-harness')
+	assert.equal(res.message.display, false)
+	assert.ok(res.message.content.includes('[Harness Advisor Briefing]'))
+	assert.ok(res.message.content.includes('Bugfix / Regression Resolution'))
 })
 
 test('scanRepoMap detects packages and frameworks in workspace', () => {
