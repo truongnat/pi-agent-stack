@@ -18,9 +18,27 @@ Multi-Agent Orchestrator & Subagent Supervisor for the Pi coding agent (`@earend
   - `invoke_subagent`: Spawns subagents in parallel or sequentially.
   - `manage_subagents`: Inspects live subagents, views logs, kills runaway workers, or clears history.
   - `send_subagent_message`: Dispatches intermediate guidance to an active subagent.
+- **Provider Diversity Guard**:
+  - Requires at least 2 available/configured providers (`minProvidersRequired: 2`) before dispatching subagents, protecting against single-provider rate-limiting or quota exhaustion.
 - **Control Slash Command**:
   - `/agents`: Interactive dashboard for monitoring and managing active subagents.
-  - `/agents list`, `/agents roster`, `/agents kill <id>`, `/agents kill-all`, `/agents clear`.
+  - `/agents status`, `/agents list`, `/agents roster`, `/agents kill <id>`, `/agents kill-all`, `/agents clear`.
+
+## Configuration
+
+Config lives at `~/.pi/agent/orchestrator.json`:
+
+```json
+{
+  "enabled": true,
+  "guard": true,
+  "minProvidersRequired": 2
+}
+```
+
+- `enabled` (boolean, default: `true`): Enable/disable orchestrator capabilities.
+- `guard` (boolean, default: `true`): Enforce provider diversity verification.
+- `minProvidersRequired` (number, default: `2`): Minimum distinct LLM providers required.
 
 ## Installation
 
@@ -31,3 +49,4 @@ export { default } from '../pi-agent-stack/packages/pi-orchestrator/index.ts'
 ```
 
 Or run `scripts/install.sh`.
+

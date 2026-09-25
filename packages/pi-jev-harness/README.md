@@ -27,9 +27,10 @@ Six things, each switchable in config.
 
 **4. Loop control** (`tool_call`). Calls are compared with their input keys sorted. The 3rd, 5th and 8th identical call in the last twelve get a short reminder appended to the result, with no model call (from deepseek-harness). From the 5th, Jev also sees the recent calls and answers whether the agent is stuck and whether a different approach would be better. If so the call is blocked with a reason the model can act on. Jev is asked once per turn.
 
-**5. Guard** (`tool_call`, non-read tools). A compact version of [pi-jev-guard](https://github.com/MoonTory/pi-jev-guard) in the same request as loop control: a risk Score (read only, reversible, hard to reverse, destructive) and a secrets Noul. Hard to reverse or destructive calls get a confirm dialog with Jev's reason; with no UI they are blocked so the model asks the user.
+**6. Default Advisor Layer** (`before_agent_start`, when `advisor` is enabled). Runs ultra-fast System 1 task classification, verification targeting (e.g. `npm test`), and engineering practice guidance (TDD, type safety, minimal diff), injecting a concise steering briefing into `systemPrompt` before generation begins.
 
 ## Cost policy and subscription providers
+
 
 Jev chooses the cheapest sufficient model and lowest sufficient thinking level. Automatic model changes require high confidence and at least 5% lower combined marginal cost; expensive upgrades are never made automatically. Same-provider `gpt-5.6-(luna|terra|sol)` candidates remain. When `subscriptionRouting` is on, Jev also considers ready **Cursor** / **Antigravity** entries from `~/.pi/agent/subscription-providers-status.json` (TTL-cached; no per-turn CLI probes; quota-exhausted providers skipped) and available **xai** models. Unavailable providers are skipped. **Hard rule:** subscription/compatibility providers are never selected for explore/change/run/unclear turns (they lack native Pi tool-call wire); only answer turns may use them. If the session is already on Cursor/Antigravity and the next turn needs native tools, Jev **forces a fallback** to a native API model (prefer `openai-codex/gpt-5.6-luna`) even when the model choice is `keep_current`. API providers stay as fallback. Default model and thinking stay `gpt-5.6-luna` / `high` unless Jev switches with confidence.
 
@@ -76,7 +77,11 @@ Optional `~/.pi/agent/jev-harness.json`:
 	"thinkingSwitchConfidence": 0.75,
 	"routeMinHiddenTools": 2,
 	"routeMinSchemaChars": 4500,
-	"compactionReserveTokens": 16384
+	"compactionReserveTokens": 16384,
+	"advisor": true,
+	"advisorMaxTokens": 150,
+	"advisorSkills": true,
+	"advisorVerification": true
 }
 ```
 
@@ -85,8 +90,10 @@ Jev now chooses the cheapest sufficient model and thinking level in the same rou
 ## Files
 
 - `jev.ts`: the client and every question and threshold. Read this first.
-- `route.ts`: term extraction, candidate files, tool routing, pre-fetch.
+- `advisor.ts`: System 1 pre-turn strategic briefing generation & heuristic fallback.
+- `route.ts`: term extraction, candidate files, tool routing, pre-fetch, advisor injection.
 - `model-candidates.ts`: ranked model candidate list (same-family, xai, subscription).
+
 - `model-route.ts`: cost / subscription policy (`applyModelPolicy`, forced native exit).
 - `subscription.ts`: readiness cache reader and subscription routing helpers.
 - `tools.ts`: loop control, repeat reminders, guard, result trimming.

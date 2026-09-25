@@ -2,7 +2,8 @@
 
 ```text
 Pi
-├── JEV harness (native extension)
+├── JEV harness & Advisor (native extension)
+│   ├── advisor: System 1 pre-turn strategic briefings, verification target, & invariant hints
 │   ├── route: selects useful tools and context prefetch
 │   ├── model policy: chooses cost/sufficiency and thinking level
 │   ├── subscription policy: answer-only compatibility routes
@@ -14,10 +15,13 @@ Pi
 ├── Goal loop (native extension)
 │   ├── multi-turn loop: autonomous execution until complete, budget-limited, or stopped
 │   ├── self-report: update_goal tool with requirement-by-requirement audit
+│   └── token telemetry: per-round delta & total token reporting
 ├── Multi-Agent Orchestrator (native extension)
 │   ├── supervisor-worker: isolated subagent scratchpads with role-scoped tools
 │   ├── predefined roster: researcher (flash), coder (sonnet), tester (mini), reviewer (pro)
+│   ├── provider diversity guard: requires >= 2 available providers to prevent single-source exhaustion
 │   └── tools & control: invoke_subagent, manage_subagents, /agents command
+
 ├── Subscription providers (native extension)
 │   ├── account pools: switch on quota/login failure, then Pi's retry or a resend
 │   ├── cursor-agent -> readiness/model metadata cache
