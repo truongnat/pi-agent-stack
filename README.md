@@ -6,7 +6,7 @@ A portable, reproducible setup for the [Pi](https://pi.dev) coding agent: cost-a
 - **Uses the logins you already have.** Cursor, Antigravity, and Claude Code run through their official CLIs, so subscription usage counts against your plans.
 - **Shows plan quota where you type.** A footer line for the active provider, and `/usage` for every signed-in one, without spending model tokens.
 - **Designs UI with Google Stitch.** Stitch's MCP tools, loaded only when design work starts, with design skills consulted before each prompt.
-- **Installs one skill library for all agents.** 82 skills in `~/.agents/skills`, read by Pi, Codex, Cursor, and agy.
+- **Installs one skill library for all agents.** 83 skills in `~/.agents/skills`, read by Pi, Codex, Cursor, and agy.
 
 The repo holds code and portable configuration only: no API keys, Pi auth, session history, caches, `node_modules`, or personal absolute paths.
 
@@ -20,7 +20,7 @@ cd pi-agent-stack
 bash scripts/install.sh
 ```
 
-The installer stages the repo into `~/.pi/agent/pi-agent-stack`, registers the extensions, merges Pi settings (keeping unrelated packages), installs DCP and SoL-Pi, syncs the TypeSafe harness, and installs the global skills. Defaults:
+The installer stages the repo into `~/.pi/agent/pi-agent-stack`, registers the extensions, merges Pi settings (keeping unrelated packages), installs DCP and SoL-Pi, syncs the TypeSafe harness, installs the `xlsx2md` CLI, and installs the global skills. Defaults:
 
 ```text
 provider: openai-codex
@@ -55,7 +55,8 @@ pi -p 'Reply with exactly pong.'
 | [`packages/pi-rl-engine`](packages/pi-rl-engine)                           | Verified task feedback (test outcomes, lessons) that gives JEV cost-safe quality hints.                                                                                            |
 | [`packages/pi-redmine`](packages/pi-redmine)                               | Redmine tools: get and list issues, comment, log time.                                                                                                                             |
 | [`packages/pi-gdrive`](packages/pi-gdrive)                                 | Google Drive tools: search, resolve specs, download files and docs.                                                                                                                |
-| [`packages/pi-xlsx2md`](packages/pi-xlsx2md)                               | Excel to Markdown (densified merges) and workbook diffs.                                                                                                                           |
+| [`packages/pi-xlsx2md`](packages/pi-xlsx2md)                               | Excel to Markdown (densified merges) and workbook diffs, backed by the `xlsx2md` CLI.                                                                                              |
+| [`tools/xlsx2md`](tools/xlsx2md)                                           | Source of the `xlsx2md` CLI (Python, markitdown + openpyxl). The installer installs it with `uv tool`, `pipx`, or `pip --user` when it is not on PATH.                             |
 | [`NVlabs/SoL-Pi`](https://github.com/NVlabs/SoL-Pi)                        | Context-cost optimizers (Observation Pack, Action Fusion, Evidence-Preserving Reducer, Online Context Compact). Cloned by the installer; config in `config/sol-pi.json`.           |
 | `@davecodes/pi-dcp@0.2.0`                                                  | Pinned DCP (dynamic context pruning) from npm; config in `config/dcp.json`, source mirrored in `vendor/pi-dcp` for audit.                                                          |
 | [`typesafe-harness/`](typesafe-harness)                                    | Shared PreToolUse gate, skill prompter, and Stop claim verifier for Pi, Codex, Antigravity, Claude, and Grok.                                                                      |
@@ -103,7 +104,7 @@ Oversized results (embedded DESIGN.md, HTML) are slimmed while staying valid JSO
 
 ## Global skills
 
-`install.sh` installs the checklist in [`config/skills.json`](config/skills.json), 82 skills, into `~/.agents/skills`. Skills load on demand and cost no tokens until a task matches one. A skill already present under the same `SKILL.md` name is kept, so local edits are never overwritten.
+`install.sh` installs the checklist in [`config/skills.json`](config/skills.json), 83 skills, into `~/.agents/skills`. Skills load on demand and cost no tokens until a task matches one. A skill already present under the same `SKILL.md` name is kept, so local edits are never overwritten.
 
 <details>
 <summary><b>Public repos</b> (71 skills, <code>npx skills add</code>)</summary>
@@ -125,9 +126,9 @@ Oversized results (embedded DESIGN.md, HTML) are slimmed while staying valid JSO
 
 </details>
 
-- **Vendored in [`skills/`](skills):** `master-writer` (with its learned `USER-VOICE.md`), `reflect`, `remake`, `solution-intelligence`. No public source; copied only when missing.
+- **Vendored in [`skills/`](skills):** `master-writer` (with its learned `USER-VOICE.md`), `reflect`, `remake`, `solution-intelligence`, `xlsx2md`. No public source; copied only when missing.
 - **Installed by their own CLI**, when it is on PATH: `ai-memory-*` ×6 (`ai-memory install-instructions`) and `browser-skill` (`bsk install-skill`).
-- **Not included:** company skills (`bsn-*`, `redmine`, `get-dev-token`, `get-spec`, `xlsx2md`).
+- **Not included:** company skills (`bsn-*`, `redmine`, `get-dev-token`, `get-spec`).
 
 ```bash
 npx -y skills update -g -y                                   # update everything later
@@ -178,6 +179,7 @@ cd packages/pi-jev-harness && npm ci && npm run check
 cd ../pi-subscription-providers && npm ci && npm run check
 cd ../pi-stitch && npm ci && npm run check
 cd ../pi-rl-engine && npm test
+cd ../../tools/xlsx2md && python3 -m pytest -q
 ```
 
 After editing, re-run `bash scripts/install.sh` (or copy the changed files into `~/.pi/agent/pi-agent-stack/`) and `/reload` in Pi.

@@ -71,6 +71,19 @@ rsync -a \
 	"$ROOT_DIR/typesafe-harness/" "$TYPESAFE_DIR/"
 chmod +x "$TYPESAFE_DIR"/*.sh "$TYPESAFE_DIR"/*.py 2>/dev/null || true
 
+# xlsx2md CLI for pi-xlsx2md, vendored in tools/xlsx2md. Installed into an isolated tool env
+# (uv, then pipx, then pip --user) only when no `xlsx2md` is on PATH.
+if ! command -v xlsx2md >/dev/null 2>&1; then
+	XLSX2MD_SRC="$AGENT_DIR/pi-agent-stack/tools/xlsx2md"
+	if command -v uv >/dev/null 2>&1; then
+		uv tool install --quiet "$XLSX2MD_SRC"
+	elif command -v pipx >/dev/null 2>&1; then
+		pipx install --quiet "$XLSX2MD_SRC"
+	else
+		python3 -m pip install --user --quiet "$XLSX2MD_SRC"
+	fi || echo "warning: xlsx2md CLI not installed; pi-xlsx2md tools will fail" >&2
+fi
+
 # Global agent skills (config/skills.json) in the shared ~/.agents/skills, which Pi, Codex,
 # Cursor, and agy all read. Skills load on demand, so they cost no tokens until used; pi-stitch
 # refers to the design skills before sending prompts to Stitch. A skill already present under

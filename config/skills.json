@@ -138,7 +138,8 @@
 		"master-writer",
 		"reflect",
 		"remake",
-		"solution-intelligence"
+		"solution-intelligence",
+		"xlsx2md"
 	],
 	"tools": [
 		{
