@@ -1,4 +1,11 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import {
+	appendFileSync,
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	writeFileSync
+} from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 
@@ -19,6 +26,32 @@ export interface LessonEntry {
 }
 
 const LESSONS_DIR = join(homedir(), '.pi', 'agent', 'lessons')
+
+// A name with a source extension is a tool, not a model: llama.cpp, whisper.cpp-style ports.
+const MODEL_ID = String.raw`(?:gpt-?\d|o\d\b|claude|sonnet|opus|haiku|gemini|grok|deepseek|llama|qwen|mistral|kimi|glm)(?![\w-]*\.(?:cpp|c|js|ts|py|rs|go)\b)[\w.-]*`
+
+/** A model id ends the clause: "use gpt-5." pins a model, "use gpt-4 tokenizer" does not. */
+const CLAUSE_END = String.raw`(?=\s*(?:$|[,;:!?)\n]|\.(?:\s|$)|(?:for|when|if|instead|rather|and|or|because|unless|on|in)\b))`
+
+/** Runtime facts ("current model is X") and model pins ("always use X") go stale on the next
+ * model change; routing is JEV's job, not a lesson's. Pattern from KiroCrew lesson_validation. */
+const VOLATILE = [
+	/\b(?:current|active|selected|session)\s+model(?:\s+identity)?\s*(?:is\b|was\b|[:=])/i,
+	new RegExp(String.raw`\brunning\s+as\s+(?:the\s+)?(?:model\b|${MODEL_ID})`, 'i'),
+	new RegExp(
+		String.raw`\b(?:use|choose|select|prefer|switch\s+to|stick\s+with)\s+(?:the\s+)?(?:model\s+)?${MODEL_ID}(?:\s+model)?${CLAUSE_END}`,
+		'i'
+	)
+]
+
+/** Whether a lesson records a runtime model fact or a model pin instead of durable know-how. */
+export function volatileLesson(
+	lesson: Pick<LessonEntry, 'ruleLearned' | 'successfulStrategy'>
+): boolean {
+	return [lesson.ruleLearned, lesson.successfulStrategy].some(
+		(text) => text && VOLATILE.some((re) => re.test(text))
+	)
+}
 
 export class LessonStore {
 	private baseDir: string
@@ -45,14 +78,18 @@ export class LessonStore {
 		return join(this.baseDir, `${repo}-summary.md`)
 	}
 
-	public saveLesson(lesson: LessonEntry): void {
+	/** Returns false when the lesson is refused as volatile or cannot be written. */
+	public saveLesson(lesson: LessonEntry): boolean {
+		if (volatileLesson(lesson)) return false
 		try {
 			mkdirSync(this.baseDir, { recursive: true })
 			const file = this.getRepoFilePath(lesson.repo)
 			appendFileSync(file, `${JSON.stringify(lesson)}\n`, 'utf8')
 			this.updateSummaryMarkdown(lesson.repo)
+			return true
 		} catch (err) {
 			console.error('Failed to save lesson:', err)
+			return false
 		}
 	}
 
@@ -60,7 +97,9 @@ export class LessonStore {
 		const file = this.getRepoFilePath(repo)
 		if (!existsSync(file)) return []
 		try {
-			const lines = readFileSync(file, 'utf8').split('\n').filter((l) => l.trim().length > 0)
+			const lines = readFileSync(file, 'utf8')
+				.split('\n')
+				.filter((l) => l.trim().length > 0)
 			return lines.map((l) => JSON.parse(l) as LessonEntry)
 		} catch {
 			return []
@@ -87,7 +126,8 @@ export class LessonStore {
 	}
 
 	public findRelevantLessons(prompt: string, repo: string, limit = 3): LessonEntry[] {
-		const lessons = this.getLessons(repo)
+		// Rows saved before validation existed are filtered on the way out.
+		const lessons = this.getLessons(repo).filter((lesson) => !volatileLesson(lesson))
 		if (lessons.length === 0) return []
 
 		const tokens = prompt
@@ -141,8 +181,8 @@ export class LessonStore {
 			if (item.ruleLearned) {
 				lines.push(`   - **Rule/Lesson**: ${item.ruleLearned}`)
 			}
-			if (item.successfulFix || item.successfulStrategy) {
-				lines.push(`   - **Strategy**: ${item.successfulFix || item.successfulStrategy}`)
+			if (item.successfulStrategy) {
+				lines.push(`   - **Strategy**: ${item.successfulStrategy}`)
 			}
 			if (item.rootCause) {
 				lines.push(`   - **Root Cause to Avoid**: ${item.rootCause}`)

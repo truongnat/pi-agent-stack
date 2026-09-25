@@ -229,6 +229,41 @@ function applyThinkingPolicy(h: Harness, pi: ExtensionAPI, answers: Answers): st
 	return `thinking ${thinking.choice}`
 }
 
+/**
+ * Shadow row per decided turn: the plain route (the model already selected, as without JEV)
+ * next to JEV's pick and the model that actually runs, so savings and agreement are measured
+ * rather than assumed. Pattern from KiroCrew decisions/outcomes.py (Apache-2.0).
+ */
+export function recordShadow(
+	h: Pick<Harness, 'stats' | 'log'>,
+	applied: { provider: string; id: string; cost: { input: number; output: number } } | undefined,
+	turn: {
+		kind: string
+		selected: { choice: string; confidence: number }
+		currentKey: string
+		baselineCost: number
+	}
+): void {
+	const appliedKey = applied ? `${applied.provider}/${applied.id}` : turn.currentKey
+	const appliedCost = applied ? applied.cost.input + applied.cost.output : turn.baselineCost
+	const agree = appliedKey === turn.currentKey
+	h.stats.shadowTurns++
+	if (agree) h.stats.shadowAgree++
+	h.stats.shadowBaselineCost += turn.baselineCost
+	h.stats.shadowAppliedCost += appliedCost
+	h.log({
+		what: 'route-shadow',
+		kind: turn.kind,
+		baseline: turn.currentKey,
+		jev: turn.selected.choice,
+		confidence: turn.selected.confidence,
+		applied: appliedKey,
+		agree,
+		baselineCost: turn.baselineCost,
+		appliedCost
+	})
+}
+
 export async function applyModelPolicy(
 	h: Harness,
 	pi: ExtensionAPI,
@@ -275,5 +310,11 @@ export async function applyModelPolicy(
 
 	const thinkingNote = applyThinkingPolicy(h, pi, answers)
 	if (thinkingNote) notes.push(thinkingNote)
+	recordShadow(h, ctx.model, {
+		kind: kind.choice,
+		selected,
+		currentKey,
+		baselineCost: current.cost.input + current.cost.output
+	})
 	return notes.join(', ')
 }

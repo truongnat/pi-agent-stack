@@ -4,7 +4,7 @@
  * 1. route     before_agent_start: Jev picks the kind of turn and which tools it will need; the rest are hidden for the turn
  * 2. prefetch  before_agent_start: code finds candidate files from terms in the prompt, Jev picks which to read, they are injected
  * 3. trim      tool_result: Jev judges whether the output matters; irrelevant or repetitive output is cut before the model sees it
- * 4. loop      tool_call: repeated calls are checked with Jev and blocked with a reason when it says the agent is stuck
+ * 4. loop      tool_call: free reminders at 3, 5, 8 repeats; from 5, repeated calls are checked with Jev and blocked with a reason when it says the agent is stuck
  * 5. guard     tool_call: risk and secrets, in the same request as loop control; destructive calls prompt or block
  *
  * All questions and thresholds live in jev.ts. Every Jev call is logged to ~/.jev-harness/log.jsonl.
@@ -16,7 +16,7 @@ import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-a
 
 import { ask } from './jev.ts'
 import { onBeforeAgentStart } from './route.ts'
-import { onToolCall, onToolResult } from './tools.ts'
+import { onToolCall, onToolResult, withReminder } from './tools.ts'
 import { active, type Config, type Harness, type Stats } from './types.ts'
 
 const DEFAULTS: Config = {
@@ -84,6 +84,7 @@ function report(h: Harness, ctx: ExtensionContext): void {
 			`${s.trimmed} results trimmed (~${saved.toLocaleString()} model tokens saved), ${s.loopsCaught} loops caught, guard asked ${s.guardAsked} blocked ${s.guardBlocked}`,
 			`policy: ${s.modelDecisions} Jev model decisions, ${s.modelSwitches} cheaper model switches, ${s.thinkingSwitches} thinking reductions, ${s.routeHiddenTools} cost-effective tool routes`,
 			`subscription: ${s.subscriptionDecisions} subscription picks, ${s.providerFallbacks} fallbacks, ${s.unavailableProviderSkips} unavailable skips, ~$${s.marginalCostAvoided.toFixed(3)}/MTok marginal avoided`,
+			shadowSummary(s),
 			`jev: ${s.jevCalls} successful calls, ${avg}ms avg, ${s.jevTokens.toLocaleString()} tokens ($${cost}), ${s.errors} errors · log ~/.jev-harness/log.jsonl`
 		].join('\n'),
 		'info'
@@ -92,29 +93,7 @@ function report(h: Harness, ctx: ExtensionContext): void {
 
 function createHarness(): Harness {
 	const config = loadConfig()
-	const stats: Stats = {
-		jevCalls: 0,
-		jevMs: 0,
-		jevTokens: 0,
-		errors: 0,
-		turns: 0,
-		prefetchSkipped: 0,
-		toolsHidden: 0,
-		prefetched: 0,
-		trimmed: 0,
-		charsSaved: 0,
-		loopsCaught: 0,
-		guardAsked: 0,
-		guardBlocked: 0,
-		modelDecisions: 0,
-		modelSwitches: 0,
-		thinkingSwitches: 0,
-		routeHiddenTools: 0,
-		subscriptionDecisions: 0,
-		providerFallbacks: 0,
-		unavailableProviderSkips: 0,
-		marginalCostAvoided: 0
-	}
+	const stats = emptyStats()
 	const h: Harness = {
 		config,
 		stats,
@@ -148,6 +127,46 @@ function createHarness(): Harness {
 	return h
 }
 
+/** Session counters, all starting at zero. */
+export function emptyStats(): Stats {
+	return {
+		jevCalls: 0,
+		jevMs: 0,
+		jevTokens: 0,
+		errors: 0,
+		turns: 0,
+		prefetchSkipped: 0,
+		toolsHidden: 0,
+		prefetched: 0,
+		trimmed: 0,
+		charsSaved: 0,
+		loopsCaught: 0,
+		guardAsked: 0,
+		guardBlocked: 0,
+		modelDecisions: 0,
+		modelSwitches: 0,
+		thinkingSwitches: 0,
+		routeHiddenTools: 0,
+		subscriptionDecisions: 0,
+		providerFallbacks: 0,
+		unavailableProviderSkips: 0,
+		marginalCostAvoided: 0,
+		shadowTurns: 0,
+		shadowAgree: 0,
+		shadowBaselineCost: 0,
+		shadowAppliedCost: 0
+	}
+}
+
+/** Plain route (no JEV) vs what JEV ran, over this session's decided turns. */
+export function shadowSummary(s: Stats): string {
+	if (s.shadowTurns === 0) return 'shadow: no routed turns yet'
+	const agree = Math.round((s.shadowAgree / s.shadowTurns) * 100)
+	const ratio =
+		s.shadowBaselineCost > 0 ? Math.round((s.shadowAppliedCost / s.shadowBaselineCost) * 100) : 100
+	return `shadow: JEV kept the plain route on ${s.shadowAgree}/${s.shadowTurns} turns (${agree}%); routes used cost ~${ratio}% of the plain route's list price`
+}
+
 export default function (pi: ExtensionAPI) {
 	const h = createHarness()
 
@@ -167,7 +186,9 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on('tool_call', (event, ctx) => onToolCall(h, event, ctx))
 
-	pi.on('tool_result', (event, ctx) => onToolResult(h, event, ctx))
+	pi.on('tool_result', async (event, ctx) =>
+		withReminder(h, event, await onToolResult(h, event, ctx))
+	)
 
 	pi.registerCommand('jev-harness', {
 		description: 'jev-harness: on | log | off | stats',

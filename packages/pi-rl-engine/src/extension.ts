@@ -245,7 +245,7 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 						verificationPassed: true,
 						testOutput: result.details.test?.output
 					})
-					lessonStore.saveLesson(lesson)
+					if (!lessonStore.saveLesson(lesson)) return
 					logRL({
 						event: 'lesson_synthesized',
 						lessonId: lesson.id,
@@ -308,7 +308,8 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 
 	// 2. Command: /lessons
 	pi.registerCommand('lessons', {
-		description: 'Manage learned lessons & episodic reflections: /lessons [list|search <query>|summary]',
+		description:
+			'Manage learned lessons & episodic reflections: /lessons [list|search <query>|summary]',
 		handler: async (args, ctx) => {
 			const input = (args ?? '').trim()
 			const repoName = lessonStore.sanitizeRepoName(ctx.cwd)
@@ -322,7 +323,8 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 					return
 				}
 				const lines = matched.map(
-					(l) => `• **${l.taskSummary}**\n  - *Rule*: ${l.ruleLearned}\n  - *Tags*: [${(l.tags || []).join(', ')}]`
+					(l) =>
+						`• **${l.taskSummary}**\n  - *Rule*: ${l.ruleLearned}\n  - *Tags*: [${(l.tags || []).join(', ')}]`
 				)
 				ctx.ui.notify(`### Matched Lessons for "${query}":\n\n${lines.join('\n\n')}`, 'info')
 				return
@@ -357,7 +359,8 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 
 	// 3. Command: /reflect
 	pi.registerCommand('reflect', {
-		description: 'Explicitly record a lesson or rule learned for this repository: /reflect <lesson/note>',
+		description:
+			'Explicitly record a lesson or rule learned for this repository: /reflect <lesson/note>',
 		handler: async (args, ctx) => {
 			const note = (args ?? '').trim()
 			if (!note) {
@@ -376,7 +379,13 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 				customNote: note
 			})
 
-			lessonStore.saveLesson(lesson)
+			if (!lessonStore.saveLesson(lesson)) {
+				ctx.ui.notify(
+					'Lesson not saved: it names the current model or pins one ("always use X"). Model choice is routed per turn; record the reason instead.',
+					'warning'
+				)
+				return
+			}
 			ctx.ui.notify(
 				`✓ Saved lesson \`${lesson.id}\` to "${repoName}" knowledge store:\n"${note}"`,
 				'info'

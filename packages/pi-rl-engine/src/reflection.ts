@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+
 import type { LessonEntry } from './lessons.ts'
 
 export interface TrajectoryTurn {

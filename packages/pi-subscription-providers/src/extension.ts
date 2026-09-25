@@ -16,7 +16,9 @@
 import { existsSync, readFileSync, watch, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { stripVTControlCharacters } from 'node:util'
+import { isRetryableAssistantError } from '@earendil-works/pi-ai'
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -29,6 +31,7 @@ import {
 	blockActive,
 	captureLive,
 	chooseAccount,
+	failedBeforeOutput,
 	httpQuota,
 	livePools,
 	poolForProvider,
@@ -651,26 +654,41 @@ export default function (pi: ExtensionAPI): void {
 		if (store) await rotate(pool, store, ctx, '').catch(() => undefined)
 	})
 
-	pi.on('agent_end', (event, ctx) => {
-		const last = [...event.messages].toReversed().find((m) => m.role === 'assistant') as
-			{ provider?: string; stopReason?: string; errorMessage?: string } | undefined
-		const reason = last?.stopReason === 'error' ? rotationReason(last.errorMessage) : undefined
-		const pool = reason ? poolForProvider(last?.provider, livePools()) : undefined
+	pi.on('agent_end', async (event, ctx) => {
+		const last = [...event.messages].toReversed().find((m) => m.role === 'assistant')
+		if (last?.role !== 'assistant' || last.stopReason !== 'error') return
+		// Pi's retry backoff (2s, 4s, 8s) has no jitter and awaits this handler first; a random
+		// extra wait keeps several sessions from retrying one provider in lockstep.
+		if (isRetryableAssistantError(last)) await sleep(Math.random() * 1000)
+		const reason = rotationReason(last.errorMessage)
+		const pool = reason ? poolForProvider(last.provider, livePools()) : undefined
 		if (!reason || !pool) return
-		const store = readStore()
-		const entry = store[pool]
-		const active = entry?.active ? entry.accounts[entry.active] : undefined
 		const until = Date.now() + (reason === 'quota' ? 60 * 60_000 : 24 * 60 * 60_000)
-		updateStore((current) =>
+		const store = updateStore((current) =>
 			blockActive(pool, current, reason === 'quota' ? 'limit reached' : 'login failed', until)
 		)
-		// Only mark it here; the swap itself happens before the next request, when nothing runs.
-		if (ctx.hasUI && entry && Object.keys(entry.accounts).length > 1) {
-			ctx.ui.notify(
-				`${poolName(pool)}: ${active?.label ?? 'account'} ${reason === 'quota' ? 'hit its limit' : 'login failed'}; the next message switches to another account.`,
-				'warning'
-			)
+		// The request has failed and nothing runs, so the switch is safe now.
+		const next = await rotate(pool, store, ctx, '').catch(() => undefined)
+		if (!next) {
+			if (ctx.hasUI && Object.keys(store[pool]?.accounts ?? {}).length > 1) {
+				ctx.ui.notify(
+					`${poolName(pool)}: every saved account is blocked or out of quota.`,
+					'warning'
+				)
+			}
+			return
 		}
+		// Pi retries transient errors itself (with backoff) and that retry now uses the new
+		// account; resend the rest only when the failed reply showed nothing.
+		if (isRetryableAssistantError(last) || !failedBeforeOutput(last)) return
+		pi.sendMessage(
+			{
+				customType: 'account-switched',
+				content: `The request failed on a ${poolName(pool)} account (${reason}); it now runs on another account. Continue the task.`,
+				display: false
+			},
+			{ triggerTurn: true, deliverAs: 'followUp' }
+		)
 	})
 
 	pi.registerCommand('accounts', {

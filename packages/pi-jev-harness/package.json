@@ -19,7 +19,7 @@
 		"format": "prettier --write .",
 		"format:check": "prettier --check .",
 		"typecheck": "tsc --noEmit",
-		"test": "node --experimental-strip-types --test subscription.test.ts",
+		"test": "node --experimental-strip-types --test *.test.ts",
 		"check": "npm run typecheck && npm run lint && npm run format:check",
 		"bench": "node bench.ts"
 	},

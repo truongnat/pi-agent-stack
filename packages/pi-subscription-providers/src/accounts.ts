@@ -413,6 +413,18 @@ export function rotationReason(errorMessage: string | undefined): 'quota' | 'aut
 	return undefined
 }
 
+type FailedReply = { content?: ReadonlyArray<{ type: string; text?: string; thinking?: string }> }
+
+/**
+ * After a switch, resend a failed request only when the failed reply produced nothing: no
+ * text, no thinking, no tool call. Earlier tool results stay in context, so nothing reruns.
+ */
+export function failedBeforeOutput(reply: FailedReply): boolean {
+	return !(reply.content ?? []).some(
+		(block) => block.type === 'toolCall' || (block.text ?? block.thinking ?? '').trim()
+	)
+}
+
 type Window = { used_percent?: number; utilization?: number; reset_at?: number; resets_at?: string }
 
 /**

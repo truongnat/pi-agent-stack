@@ -14,12 +14,54 @@ import {
 	THRESHOLDS,
 	type Answers
 } from './jev.ts'
+import { spill, spillHint } from './spill.ts'
 import { active, READ_TOOLS, short, type Block, type Harness } from './types.ts'
 
 const resultText = (event: ToolResultEvent): string =>
 	event.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n')
 
-/** Step 4: the same call three times in the last twelve gets a second opinion. */
+/** Deep key sort, so `{a,b}` and `{b,a}` count as the same call. */
+function sortKeys(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(sortKeys)
+	if (value === null || typeof value !== 'object') return value
+	return Object.fromEntries(
+		Object.entries(value)
+			.toSorted(([a], [b]) => a.localeCompare(b))
+			.map(([k, v]) => [k, sortKeys(v)])
+	)
+}
+
+export const callKey = (tool: string, input: unknown): string =>
+	`${tool}:${JSON.stringify(sortKeys(input))}`
+
+/** Free nudges (no Jev call) at these repeat counts; Jev is asked from LOOP_CHECK_AT on. */
+const REMIND_AT = new Set([3, 5, 8])
+
+const LOOP_CHECK_AT = 5
+
+/** Pattern from deepseek-harness repeat-tool-reminder (MIT): gentle first, then specific. */
+export function repeatReminder(tool: string, repeats: number): string | undefined {
+	if (!REMIND_AT.has(repeats)) return undefined
+	if (repeats === 3) {
+		return '[jev-harness: you have made this exact call 3 times. Read the earlier result before calling again; if the task is not done, change the approach or the arguments.]'
+	}
+	return `[jev-harness: ${repeats} identical ${tool} calls with the same arguments are not making progress. Do not repeat them; use the latest result, try something different, or finish if you have enough.]`
+}
+
+/** Append the repeat nudge to a tool result, on top of whatever trimming already did. */
+export function withReminder(
+	h: Harness,
+	event: ToolResultEvent,
+	patch: { content: ToolResultEvent['content'] } | undefined
+): { content: ToolResultEvent['content'] } | undefined {
+	if (!active(h) || !h.config.loop || h.config.mode !== 'on') return patch
+	const key = callKey(event.toolName, event.input)
+	const text = repeatReminder(event.toolName, h.recent.filter((r) => r.key === key).length)
+	if (!text) return patch
+	return { content: [...(patch?.content ?? event.content), { type: 'text', text }] }
+}
+
+/** Step 4: the same call five times in the last twelve gets a second opinion. */
 function loopVerdict(
 	h: Harness,
 	answers: Answers,
@@ -84,11 +126,11 @@ export async function onToolCall(
 ): Promise<Block | undefined> {
 	try {
 		if (!active(h)) return undefined
-		const key = `${event.toolName}:${JSON.stringify(event.input)}`
+		const key = callKey(event.toolName, event.input)
 		h.recent.push({ tool: event.toolName, key, input: event.input })
 		if (h.recent.length > 12) h.recent.shift()
 		const repeats = h.recent.filter((r) => r.key === key).length
-		const checkLoop = h.config.loop && repeats >= 3 && !h.loopChecked
+		const checkLoop = h.config.loop && repeats >= LOOP_CHECK_AT && !h.loopChecked
 		const checkGuard = h.config.guard && !READ_TOOLS.includes(event.toolName)
 		if (!checkLoop && !checkGuard) return undefined
 		const questions = { ...(checkLoop ? loopQuestions : {}), ...(checkGuard ? guardQuestions : {}) }
@@ -135,16 +177,23 @@ export async function onToolResult(h: Harness, event: ToolResultEvent, ctx: Exte
 		const keep = choiceOf(result.answers, 'keep')
 		const relevant = noulOf(result.answers, 'relevant')
 		const succeeded = noulOf(result.answers, 'succeeded') >= 0.5 ? 'successfully' : 'with problems'
-		let replacement: string | null = null
-		if (keep.choice === 'drop' && relevant < THRESHOLDS.dropResult && keep.confidence >= 0.6) {
-			replacement = `[jev-harness dropped ${full.length} chars of ${event.toolName} output judged not needed for the task (relevance ${relevant.toFixed(2)}). It ran ${succeeded}. Re-run it if you need the output.]`
-		} else if (
+		const dropping =
+			keep.choice === 'drop' && relevant < THRESHOLDS.dropResult && keep.confidence >= 0.6
+		const heading =
+			!dropping &&
 			keep.choice === 'head' &&
 			keep.confidence >= 0.6 &&
 			full.length > h.config.keepHeadChars
-		) {
+		// Keep what gets cut on disk so the model can read it back instead of re-running the call.
+		const saved = dropping || heading ? spill(full, event.toolName) : undefined
+		let replacement: string | null = null
+		if (dropping) {
+			const recover = saved ? spillHint(saved) : 'Re-run it if you need the output.'
+			replacement = `[jev-harness dropped ${full.length} chars of ${event.toolName} output judged not needed for the task (relevance ${relevant.toFixed(2)}). It ran ${succeeded}. ${recover}]`
+		} else if (heading) {
 			const cut = full.length - h.config.keepHeadChars
-			replacement = `${full.slice(0, h.config.keepHeadChars)}\n[jev-harness cut ${cut} more chars judged repetitive (relevance ${relevant.toFixed(2)}). Re-run with a narrower filter if you need them.]`
+			const recover = saved ? spillHint(saved) : 'Re-run with a narrower filter if you need them.'
+			replacement = `${full.slice(0, h.config.keepHeadChars)}\n[jev-harness cut ${cut} more chars judged repetitive (relevance ${relevant.toFixed(2)}). ${recover}]`
 		}
 		if (!replacement) return undefined
 		h.stats.trimmed++

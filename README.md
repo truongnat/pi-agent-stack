@@ -98,9 +98,9 @@ When every quota pool of Cursor or Antigravity is spent, the provider is marked 
 Log in as usual; every account you log in with is kept, and a provider with more than one rotates by itself.
 
 - **Saving:** `/login <provider>` (or `claude` → `/login`, `cursor-agent login`) with another account adds it to that provider's pool in `~/.pi/agent/accounts.json` (mode 600) instead of replacing the previous one. Refreshed tokens follow automatically.
-- **Rotating:** before each turn, an active account whose quota is spent is swapped for another one in the same pool; after a turn that fails with a usage-limit or login error, the account is benched and the next one takes over (send the message again). Quota is checked per account for ChatGPT/Codex and Claude; other providers rotate on the error.
+- **Rotating:** before each turn, an active account whose quota is spent is swapped for another one in the same pool; when a turn fails with a usage-limit or login error, the account is benched and the next one takes over at once. Pi's own retry (transient errors, with backoff plus up to 1 s of jitter) then runs on the new account. Other failures are resent automatically only when the failed reply showed nothing: no text, no thinking, no tool call. Quota is checked per account for ChatGPT/Codex and Claude; other providers rotate on the error.
 - **Pools:** every entry in Pi's `auth.json` (`openai-codex`, `anthropic`, `xai`, `deepseek`, …), plus Claude Code (`~/.claude/.credentials.json` with its `oauthAccount`) and cursor-agent (`~/.config/cursor/auth.json`). Accounts are identified from the login data itself (token claims, Claude's account id); API keys by fingerprint. Antigravity keeps its login in the OS keyring and is not pooled.
-- **Picking an account:** `/accounts` opens one menu listing every saved account, grouped by provider, with plan and quota; `●` marks the single account in use. Picking one from another provider also moves the session to that provider: back to the model and thinking level you last used there (kept in `~/.pi/agent/provider-memory.json`), or, the first time, to a balanced model (codex `gpt-6-luna`, cursor `auto`, grok `grok-4.6`, claude the newest Sonnet; override with `balancedModels` in `subscription-providers.json`). It also removes accounts. Switching happens only while idle (no request or tool running); automatic rotation also waits for the start of the next turn.
+- **Picking an account:** `/accounts` opens one menu listing every saved account, grouped by provider, with plan and quota; `●` marks the single account in use. Picking one from another provider also moves the session to that provider: back to the model and thinking level you last used there (kept in `~/.pi/agent/provider-memory.json`), or, the first time, to a balanced model (codex `gpt-6-luna`, cursor `auto`, grok `grok-4.6`, claude the newest Sonnet; override with `balancedModels` in `subscription-providers.json`). It also removes accounts. Switching happens only while idle (no request or tool running); automatic rotation runs at the start of a turn or right after a failed request, when nothing else is running.
 
 ## Google Stitch
 
@@ -167,7 +167,7 @@ The RL engine updates its Q-table only when a turn changed the worktree and the 
 | `/rl [on\|off\|passive\|stats]`        | RL engine mode and statistics                                                         |
 | `/rl-verify`                           | Run the ground-truth test verifier and compute the reward                             |
 | `/lessons [list\|search <q>\|summary]` | Learned lessons and episodic reflections                                              |
-| `/reflect <note>`                      | Record a lesson or rule for this repository                                           |
+| `/reflect <note>`                      | Record a lesson or rule for this repository (model facts and model pins are refused)  |
 
 ## Where things live
 
@@ -180,7 +180,8 @@ The RL engine updates its Q-table only when a turn changed the worktree and the 
 | `~/.pi/agent/accounts.json`                      | Saved accounts per provider (credentials, mode 600) |
 | `~/.pi/agent/stitch-tools.json`                  | Cached Stitch tool catalog                          |
 | `~/.agents/skills/`                              | Global skills shared by all agents                  |
-| `~/.jev-harness/log.jsonl`                       | JEV decision log                                    |
+| `~/.jev-harness/log.jsonl`                       | JEV decision log, including `route-shadow` rows     |
+| `~/.jev-harness/spill/`                          | Full text of trimmed tool results (24 h)            |
 | `~/.keys/`                                       | API keys (JEV, TypeSafe, Stitch)                    |
 
 ## Development
@@ -191,7 +192,7 @@ Each package checks on its own (typecheck, lint, format, tests):
 cd packages/pi-jev-harness && npm ci && npm run check
 cd ../pi-subscription-providers && npm ci && npm run check
 cd ../pi-stitch && npm ci && npm run check
-cd ../pi-rl-engine && npm test
+cd ../pi-rl-engine && npm ci && npm run check
 cd ../../tools/xlsx2md && python3 -m pytest -q
 ```
 

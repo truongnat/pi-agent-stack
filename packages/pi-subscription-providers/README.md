@@ -80,6 +80,15 @@ One format for every provider, no extra packages. Each provider is read through 
 | DeepSeek    | `api.deepseek.com/user/balance` with Pi's API key                                                                                                                                                                                          |
 | Cursor      | `DashboardService/GetCurrentPeriodUsage` (what the TUI `/usage` calls; auto and API pools per billing month) + `cursor-agent about --format json` (plan + account)                                                                         |
 
+## Accounts
+
+Every login is saved in `~/.pi/agent/accounts.json` (mode 600), grouped by provider; one account per provider is in use at a time. `/accounts` picks or removes one, only while idle.
+
+- Before a turn, an account whose quota is spent (readable for ChatGPT/Codex and Claude) is swapped for another one in the same pool.
+- When a request fails with a usage-limit or login error, the account is blocked (1 hour for quota, 24 hours for login) and the next one takes over at once.
+- Transient errors are retried by Pi (2 s, 4 s, 8 s backoff); this extension adds up to 1 s of jitter so several sessions do not retry in lockstep, and the retry runs on the new account.
+- Other failures are resent automatically only when the failed reply showed nothing (no text, no thinking, no tool call), as a hidden follow-up; earlier tool results stay in context and nothing reruns.
+
 ## Costs
 
 Models use non-zero **marginal opportunity costs** (`marginalInputCost` / `marginalOutputCost`) so JEV can compare paths. Billing mode is `subscription`, not free.

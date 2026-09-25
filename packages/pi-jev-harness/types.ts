@@ -51,6 +51,12 @@ export type Stats = {
 	providerFallbacks: number
 	unavailableProviderSkips: number
 	marginalCostAvoided: number
+	/** Shadow comparison: turns where JEV decided, and where it agreed with the plain route. */
+	shadowTurns: number
+	shadowAgree: number
+	/** Summed list price ($/MTok in+out) of the plain route vs the route actually used. */
+	shadowBaselineCost: number
+	shadowAppliedCost: number
 }
 
 export type RecentCall = { tool: string; key: string; input: unknown }

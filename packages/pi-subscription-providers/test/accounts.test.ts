@@ -8,6 +8,7 @@ import {
 	blockActive,
 	captureLive,
 	chooseAccount,
+	failedBeforeOutput,
 	identify,
 	livePools,
 	poolForProvider,
@@ -192,4 +193,12 @@ test('updateStore applies each change to the latest copy (several Pi sessions)',
 	assert.deepEqual(Object.keys(readStore(p)).toSorted(), ['pi:a', 'pi:b'])
 	assert.deepEqual(stale, {})
 	assert.throws(() => statSync(join(p.agentDir, 'accounts.json.lock')), 'lock released')
+})
+
+test('resend after a switch only when the failed reply showed nothing', () => {
+	assert.equal(failedBeforeOutput({ content: [] }), true)
+	assert.equal(failedBeforeOutput({ content: [{ type: 'text', text: '  ' }] }), true)
+	assert.equal(failedBeforeOutput({ content: [{ type: 'text', text: 'Partial answer' }] }), false)
+	assert.equal(failedBeforeOutput({ content: [{ type: 'thinking', thinking: 'plan' }] }), false)
+	assert.equal(failedBeforeOutput({ content: [{ type: 'toolCall' }] }), false)
 })

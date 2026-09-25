@@ -21,9 +21,11 @@ Six things, each switchable in config.
 
 **2. Pre-fetch context** (`before_agent_start`, when pre-fetch is enabled). Code pulls terms from a vague prompt and sends matching lines from up to forty files to Jev. If the prompt names a file and `rg --files` finds it, pre-fetch stops: the model can make a cheaper targeted read itself. Otherwise Jev ranks the candidates. At most two files qualify when Jev's `first` confidence or file score reaches 0.6. The harness injects 15-line windows around matching lines, merges overlapping windows, and caps the total at 120 lines per file. It never injects a file twice in one session. The injected message stays out of the transcript; the footer lists its file ranges.
 
-**3. Trim results** (`tool_result`, for bash, grep, find, ls output over 6,000 chars; file reads are never judged, the model asked for exactly that). Jev sees the head and tail of the output with the task and answers: did it succeed, is it relevant, and how much should the model see (all, head, drop). Irrelevant output is replaced by a one-line note with the relevance score and how to get it back; repetitive output is cut to its first 2,000 chars. The model never pays for output it did not need. The judgement waits on Jev before the model sees the result, so the floor is high on purpose: only long test logs, wide greps and big listings are worth the round trip.
+**3. Trim results** (`tool_result`, for bash, grep, find, ls output over 6,000 chars; file reads are never judged, the model asked for exactly that). Jev sees the head and tail of the output with the task and answers: did it succeed, is it relevant, and how much should the model see (all, head, drop). Irrelevant output is replaced by a one-line note with the relevance score; repetitive output is cut to its first 2,000 chars. The full output is saved to `~/.jev-harness/spill/` (mode 600, kept 24 hours, at most 200 files) and the note gives the path, so the model reads the rest with `read` or `grep` instead of re-running the command (from deepseek-harness). The model never pays for output it did not need. The judgement waits on Jev before the model sees the result, so the floor is high on purpose: only long test logs, wide greps and big listings are worth the round trip.
 
-**4. Loop control** (`tool_call`). When the same call with the same input shows up three times in the last twelve, Jev sees the recent calls and answers whether the agent is stuck and whether a different approach would be better. If so the call is blocked with a reason the model can act on. Checked once per turn.
+**Shadow baseline.** Every routed turn also logs a `route-shadow` row in `~/.jev-harness/log.jsonl`: the route the turn would have taken without JEV, the route JEV picked, its confidence, and both list prices. `/jev-harness stats` sums these into one line, so you can tell whether routing pays off before trusting it (from KiroCrew).
+
+**4. Loop control** (`tool_call`). Calls are compared with their input keys sorted. The 3rd, 5th and 8th identical call in the last twelve get a short reminder appended to the result, with no model call (from deepseek-harness). From the 5th, Jev also sees the recent calls and answers whether the agent is stuck and whether a different approach would be better. If so the call is blocked with a reason the model can act on. Jev is asked once per turn.
 
 **5. Guard** (`tool_call`, non-read tools). A compact version of [pi-jev-guard](https://github.com/MoonTory/pi-jev-guard) in the same request as loop control: a risk Score (read only, reversible, hard to reverse, destructive) and a secrets Noul. Hard to reverse or destructive calls get a confirm dialog with Jev's reason; with no UI they are blocked so the model asks the user.
 
@@ -44,7 +46,8 @@ The footer shows the last Jev verdict. Every Jev call is logged with its answers
 /jev-harness log     # ask Jev and log every answer, change nothing
 /jev-harness off
 /jev-harness         # stats: turns seen, files pre-fetched, turns skipped, results trimmed, Jev cost
-                     # and model tokens saved, loops caught, guard verdicts, Jev calls, latency, tokens, cost
+                     # and model tokens saved, loops caught, guard verdicts, Jev calls, latency, tokens, cost,
+                     # and the shadow line: how often JEV kept the plain route and the list-price ratio
 ```
 
 Run in `log` mode for a day first. The log shows what it would have hidden, pre-fetched, or cut without changing anything.
@@ -86,7 +89,8 @@ Jev now chooses the cheapest sufficient model and thinking level in the same rou
 - `model-candidates.ts`: ranked model candidate list (same-family, xai, subscription).
 - `model-route.ts`: cost / subscription policy (`applyModelPolicy`, forced native exit).
 - `subscription.ts`: readiness cache reader and subscription routing helpers.
-- `tools.ts`: loop control, guard, result trimming.
+- `tools.ts`: loop control, repeat reminders, guard, result trimming.
+- `spill.ts`: saves the full text of trimmed results.
 - `types.ts`: config, stats, shared types.
 - `index.ts`: wiring, stats, the command.
 - `try.ts`: dry run of routing and pre-fetch on a prompt against the current directory.
@@ -136,6 +140,6 @@ Linting follows the adminty ruleset: oxlint with the correctness and suspicious 
 
 - Jev sees trimmed inputs: the prompt, tool descriptions cut to 200 chars, result head and tail, recent calls cut to 160 chars. It does not see the conversation.
 - Hiding a tool is a bet. If the model says it needs one, the system prompt note tells it to say so; the tool comes back next turn. `ALWAYS_KEEP` in `types.ts` pins `read`.
-- Trimming replaces content the model never saw. The note always says how many chars were cut and the relevance score, and the full output stays in the pane.
+- Trimming replaces content the model never saw. The note always says how many chars were cut and the relevance score, and the full output stays in the pane and in the spill file.
 - Confidence drifts by a few hundredths between identical calls, so near a threshold the same output can be kept one time and cut the next.
 - Token savings shown by the stats command are chars saved divided by four, an estimate.
