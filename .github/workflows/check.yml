@@ -6,7 +6,7 @@ on:
 
 jobs:
   packages:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -22,4 +22,5 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - run: npm run --prefix ${{ matrix.package }} check
+      - run: npm run check
+        working-directory: ${{ matrix.package }}
