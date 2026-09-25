@@ -1,0 +1,5 @@
+interface:
+  display_name: "Remake"
+  short_description: "Rewrite a rough request into an executable prompt, then run it"
+policy:
+  allow_implicit_invocation: true

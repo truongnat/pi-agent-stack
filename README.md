@@ -56,6 +56,41 @@ pi list
 pi -p 'Reply with exactly pong.'
 ```
 
+## Global skills
+
+`scripts/install.sh` installs the checklist in [`config/skills.json`](config/skills.json) (82 skills) into the shared `~/.agents/skills`, which Pi, Codex, Cursor, and agy all read. Skills load on demand, so they cost no tokens until a task matches one. A skill already present under the same `SKILL.md` name is kept, so local edits are never overwritten.
+
+**From public repos** (`npx skills add`, one call per repo, then `npx skills update -g`):
+
+| Repo | Skills |
+|---|---|
+| [mattpocock/skills](https://github.com/mattpocock/skills) | 36: `tdd`, `diagnosing-bugs`, `code-review`, `research`, `grilling`, `domain-modeling`, `writing-for-agents`, … |
+| [iOfficeAI/OfficeCLI](https://github.com/iOfficeAI/OfficeCLI) | 11: `officecli`, `officecli-docx/-pptx/-xlsx/…`, `morph-ppt`, `morph-ppt-3d` |
+| [truongnat/clean-code-skills](https://github.com/truongnat/clean-code-skills) | 7: `clean-code`, `clean-architecture`, `clean-code-review`, … |
+| [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | 6: `ponytail`, `ponytail-audit`, `-debt`, `-gain`, `-help`, `-review` |
+| [stablyai/orca](https://github.com/stablyai/orca) | `orca-cli`, `orchestration`, `computer-use` |
+| [Leonxlnx/taste-skill](https://github.com/Leonxlnx/taste-skill) | `design-taste-frontend`, `stitch-design-taste` |
+| [pbakaus/impeccable](https://github.com/pbakaus/impeccable) | `impeccable` |
+| [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) | `ui-ux-pro-max` |
+| [multica-ai/andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills) | `karpathy-guidelines` |
+| [blader/humanizer](https://github.com/blader/humanizer) | `humanizer` |
+| [typesafe-ai/skills](https://github.com/typesafe-ai/skills) | `typesafe-ai` |
+| [vercel-labs/skills](https://github.com/vercel-labs/skills) | `find-skills` |
+
+**Vendored in [`skills/`](skills)** (no public source; copied only when missing): `master-writer` (with its learned `USER-VOICE.md`), `reflect`, `remake`, `solution-intelligence`.
+
+**Shipped by their own CLI** (installed only when the CLI is on PATH): `ai-memory-*` ×6 via `ai-memory install-instructions --skills-scope global --skills-agent agents`, `browser-skill` via `bsk install-skill -H codex`.
+
+**Not included:** company skills (`bsn-*`, `redmine`, `get-dev-token`, `get-spec`, `xlsx2md`).
+
+Update everything later without reinstalling the stack:
+
+```bash
+npx -y skills update -g -y
+```
+
+To add a skill for every machine: install it with `npx -y skills add <owner/repo> -s <skill> -g -y -a codex`, then add it to `config/skills.json`.
+
 ## Routing and cost policy
 
 JEV decides the model and thinking level from the task. It prefers the cheapest sufficient route and only switches automatically when confidence and savings gates pass. Cursor/Antigravity are compatibility-only answer routes because their stream output is not Pi's native tool-call wire. Explore/change/run/unclear turns are forced back to a native API model, preferring `openai-codex/gpt-5.6-luna`.

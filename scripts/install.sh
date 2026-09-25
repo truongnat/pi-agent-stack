@@ -71,23 +71,47 @@ rsync -a \
 	"$ROOT_DIR/typesafe-harness/" "$TYPESAFE_DIR/"
 chmod +x "$TYPESAFE_DIR"/*.sh "$TYPESAFE_DIR"/*.py 2>/dev/null || true
 
-# Design skills in the shared ~/.agents/skills (Pi reads it; pi-stitch refers to them before
-# sending prompts to Stitch). Loaded on demand, so they cost no tokens outside design work.
-# A skill already present under the same `name:` is kept, so manual copies are not duplicated.
+# Global agent skills (config/skills.json) in the shared ~/.agents/skills, which Pi, Codex,
+# Cursor, and agy all read. Skills load on demand, so they cost no tokens until used; pi-stitch
+# refers to the design skills before sending prompts to Stitch. A skill already present under
+# the same SKILL.md `name:` is kept (manual copies are not duplicated); the rest are installed
+# per repo in one call, then everything tracked in ~/.agents/.skill-lock.json is updated.
 SKILLS_DIR="$HOME/.agents/skills"
-install_skill() {
-	local repo="$1" name="$2"
-	if grep -qsx "name: $name" "$SKILLS_DIR"/*/SKILL.md; then
-		echo "skill $name: already installed"
-	else
-		npx -y skills add "$repo" -s "$name" -g -y -a codex >/dev/null ||
-			echo "warning: could not install skill $name from $repo" >&2
+SKILLS_JSON="$ROOT_DIR/config/skills.json"
+have_skill() { grep -qsx "name: $1" "$SKILLS_DIR"/*/SKILL.md; }
+manifest() { node -e "$1" "$SKILLS_JSON"; }
+
+# 1. Public repos, one `skills add` per repo for whatever is missing.
+while IFS=$'\t' read -r repo depth names; do
+	missing=()
+	for name in $names; do have_skill "$name" || missing+=("$name"); done
+	if ((${#missing[@]})); then
+		echo "skills from $repo: installing ${missing[*]}"
+		flags=(-g -y -a codex)
+		[[ "$depth" == 1 ]] && flags+=(--full-depth)
+		# </dev/null: npx must not read the remaining manifest lines from this loop's stdin.
+		npx -y skills add "$repo" -s "${missing[@]}" "${flags[@]}" </dev/null >/dev/null ||
+			echo "warning: could not install skills from $repo" >&2
 	fi
-}
-install_skill pbakaus/impeccable impeccable
-install_skill nextlevelbuilder/ui-ux-pro-max-skill ui-ux-pro-max
-install_skill Leonxlnx/taste-skill design-taste-frontend
-install_skill Leonxlnx/taste-skill stitch-design-taste
+done < <(manifest 'for (const s of require(process.argv[1]).sources)
+	console.log([s.repo, s.fullDepth ? 1 : 0, s.skills.join(" ")].join("\t"))')
+
+# 2. Personal skills without a public source, vendored in ./skills (never overwrite local edits).
+for name in $(manifest 'console.log(require(process.argv[1]).vendored.join(" "))'); do
+	have_skill "$name" || { mkdir -p "$SKILLS_DIR" && cp -R "$ROOT_DIR/skills/$name" "$SKILLS_DIR/$name"; }
+done
+
+# 3. Skills shipped by their own CLI, installed only when that CLI is present.
+if command -v ai-memory >/dev/null 2>&1 && ! have_skill ai-memory-retrieval; then
+	# --target: the instruction snippet goes to a scratch file, only the skills are kept.
+	ai-memory install-instructions --target "$(mktemp)" --skills-scope global --skills-agent agents \
+		>/dev/null || echo "warning: ai-memory skills not installed" >&2
+fi
+if command -v bsk >/dev/null 2>&1 && ! have_skill browser-skill; then
+	bsk install-skill -H codex -y --quiet || echo "warning: browser-skill not installed" >&2
+fi
+
+npx -y skills update -g -y >/dev/null || echo "warning: skills update failed" >&2
 
 echo
 echo "Pi agent stack installed."

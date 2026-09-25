@@ -1,0 +1,162 @@
+{
+	"$comment": "Global agent skills installed by scripts/install.sh into ~/.agents/skills (read by Pi, Codex, Cursor, agy). A skill already present under the same SKILL.md name is kept. `sources` install via `npx skills add` (fullDepth: search nested skill folders); `vendored` are copied from ./skills; `tools` are installed by their own CLI when it is on PATH. Company skills are not listed.",
+	"sources": [
+		{
+			"repo": "blader/humanizer",
+			"skills": [
+				"humanizer"
+			]
+		},
+		{
+			"repo": "DietrichGebert/ponytail",
+			"skills": [
+				"ponytail",
+				"ponytail-audit",
+				"ponytail-debt",
+				"ponytail-gain",
+				"ponytail-help",
+				"ponytail-review"
+			]
+		},
+		{
+			"repo": "iOfficeAI/OfficeCLI",
+			"fullDepth": true,
+			"skills": [
+				"morph-ppt",
+				"morph-ppt-3d",
+				"officecli",
+				"officecli-academic-paper",
+				"officecli-data-dashboard",
+				"officecli-docx",
+				"officecli-financial-model",
+				"officecli-pitch-deck",
+				"officecli-pptx",
+				"officecli-word-form",
+				"officecli-xlsx"
+			]
+		},
+		{
+			"repo": "Leonxlnx/taste-skill",
+			"skills": [
+				"design-taste-frontend",
+				"stitch-design-taste"
+			]
+		},
+		{
+			"repo": "mattpocock/skills",
+			"skills": [
+				"ask-matt",
+				"claude-handoff",
+				"code-review",
+				"codebase-design",
+				"diagnosing-bugs",
+				"domain-modeling",
+				"git-guardrails-claude-code",
+				"grill-me",
+				"grill-with-docs",
+				"grilling",
+				"handoff",
+				"implement",
+				"implement-spec",
+				"improve-codebase-architecture",
+				"loop-me",
+				"migrate-to-shoehorn",
+				"prototype",
+				"research",
+				"resolving-merge-conflicts",
+				"scaffold-exercises",
+				"setup-matt-pocock-skills",
+				"setup-pre-commit",
+				"setup-ts-deep-modules",
+				"tdd",
+				"teach",
+				"to-questionnaire",
+				"to-spec",
+				"to-tickets",
+				"triage",
+				"wait-what",
+				"wayfinder",
+				"wizard",
+				"writing-beats",
+				"writing-for-agents",
+				"writing-fragments",
+				"writing-shape"
+			]
+		},
+		{
+			"repo": "multica-ai/andrej-karpathy-skills",
+			"skills": [
+				"karpathy-guidelines"
+			]
+		},
+		{
+			"repo": "nextlevelbuilder/ui-ux-pro-max-skill",
+			"skills": [
+				"ui-ux-pro-max"
+			]
+		},
+		{
+			"repo": "pbakaus/impeccable",
+			"skills": [
+				"impeccable"
+			]
+		},
+		{
+			"repo": "stablyai/orca",
+			"skills": [
+				"computer-use",
+				"orca-cli",
+				"orchestration"
+			]
+		},
+		{
+			"repo": "truongnat/clean-code-skills",
+			"skills": [
+				"clean-architecture",
+				"clean-code",
+				"clean-code-error-handling",
+				"clean-code-formatting-hooks",
+				"clean-code-naming",
+				"clean-code-refactoring",
+				"clean-code-review"
+			]
+		},
+		{
+			"repo": "typesafe-ai/skills",
+			"skills": [
+				"typesafe-ai"
+			]
+		},
+		{
+			"repo": "vercel-labs/skills",
+			"skills": [
+				"find-skills"
+			]
+		}
+	],
+	"vendored": [
+		"master-writer",
+		"reflect",
+		"remake",
+		"solution-intelligence"
+	],
+	"tools": [
+		{
+			"cli": "ai-memory",
+			"skills": [
+				"ai-memory-durable-pages",
+				"ai-memory-handoff",
+				"ai-memory-learning-maintenance",
+				"ai-memory-messaging",
+				"ai-memory-retrieval",
+				"ai-memory-routing-install"
+			]
+		},
+		{
+			"cli": "bsk",
+			"skills": [
+				"browser-skill"
+			]
+		}
+	]
+}
