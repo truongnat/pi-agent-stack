@@ -10,11 +10,16 @@ import {
 export const MAX_CLI_PROMPT_CHARS = 90_000
 
 /** Build a compact text prompt for CLI compatibility mode (no native Pi tool wire). */
-export function buildCliPrompt(context: TranscriptContext, maxChars: number = MAX_CLI_PROMPT_CHARS): string {
+export function buildCliPrompt(
+	context: TranscriptContext,
+	maxChars: number = MAX_CLI_PROMPT_CHARS
+): string {
 	const transcript = collapseSystemMessages(context)
 	const rawSystem = getCurrentSystemPrompt(transcript.messages)
 	const system =
-		rawSystem.length > 8_000 ? `${rawSystem.slice(0, 8_000)}\n[...system prompt truncated...]` : rawSystem
+		rawSystem.length > 8_000
+			? `${rawSystem.slice(0, 8_000)}\n[...system prompt truncated...]`
+			: rawSystem
 	const tools = getCurrentTools(transcript.messages)
 	const headerParts: string[] = []
 	if (system.trim()) {
@@ -41,7 +46,9 @@ export function buildCliPrompt(context: TranscriptContext, maxChars: number = MA
 	let truncated = false
 
 	for (let i = transcript.messages.length - 1; i >= 0; i--) {
-		const formatted = formatMessage(transcript.messages[i])
+		const message = transcript.messages[i]
+		if (!message) continue
+		const formatted = formatMessage(message)
 		if (!formatted) continue
 		if (usedChars + formatted.length + 2 > budgetForMessages && formattedMessages.length > 0) {
 			truncated = true

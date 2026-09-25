@@ -12,7 +12,7 @@ function fakeContext(): TranscriptContext {
 	// SAFETY: tests only need messages; brand is runtime-opaque.
 	return {
 		messages: [{ role: 'user', content: 'hi', timestamp: Date.now() }]
-	} as TranscriptContext
+	} as unknown as TranscriptContext
 }
 
 function mockRunner(
@@ -348,9 +348,13 @@ test('antigravity stream parses mocked events', async () => {
 	})
 	const events = []
 	for await (const event of stream) events.push(event)
-	assert.ok(events.some((event) => event.type === 'thinking_delta' && event.delta === 'analyzing...'))
+	assert.ok(
+		events.some((event) => event.type === 'thinking_delta' && event.delta === 'analyzing...')
+	)
 	assert.ok(events.some((event) => event.type === 'text_delta' && event.delta === 'pong'))
 	assert.ok(events.some((event) => event.type === 'done'))
+	// Short prompts go through -p, not stdin.
+	assert.equal(capturedStdin, undefined)
 })
 
 test('timeout and cancellation map to structured errors', async () => {
@@ -453,12 +457,16 @@ test('buildCliPrompt bounds prompt size for long conversations to prevent spawn 
 			timestamp: Date.now()
 		})
 	}
+	// SAFETY: fixture assistant messages omit api/provider/usage, which buildCliPrompt never reads.
 	const context = {
 		systemPrompt: 'You are an AI assistant.'.repeat(100),
 		messages: longMessages
-	} as any
+	} as unknown as TranscriptContext
 	const prompt = buildCliPrompt(context)
-	assert.ok(prompt.length <= MAX_CLI_PROMPT_CHARS, `Prompt length ${prompt.length} exceeds max ${MAX_CLI_PROMPT_CHARS}`)
+	assert.ok(
+		prompt.length <= MAX_CLI_PROMPT_CHARS,
+		`Prompt length ${prompt.length} exceeds max ${MAX_CLI_PROMPT_CHARS}`
+	)
 	assert.ok(prompt.includes('[... earlier conversation truncated for CLI compatibility ...]'))
 	assert.ok(prompt.includes('Message 199'))
 })
