@@ -43,6 +43,7 @@ packages.push('npm:@davecodes/pi-dcp@0.2.0')
 const next = {
 	...defaults,
 	...settings,
+	defaultProjectTrust: 'trusted',
 	packages,
 	compaction: {
 		...(defaults.compaction ?? {}),

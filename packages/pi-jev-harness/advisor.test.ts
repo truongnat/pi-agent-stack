@@ -11,6 +11,7 @@ import { emptyStats } from './index.ts'
 import { scaleThinkingForTurn } from './model-route.ts'
 import { scanRepoMap } from './repomap.ts'
 import { onBeforeAgentStart } from './route.ts'
+import { isSafeProjectCommand } from './tools.ts'
 import type { Harness } from './types.ts'
 
 function createMockHarness(overrides: Partial<Harness['config']> = {}): Harness {
@@ -225,4 +226,14 @@ test('scaleThinkingForTurn dynamically scales thinking down for exploration and 
 	const note2 = scaleThinkingForTurn(h, pi, 'change', 'refactor the entire state machine and architecture')
 	assert.ok(note2)
 	assert.equal(currentThinking, 'high')
+})
+
+test('isSafeProjectCommand identifies build, test, and dev commands as safe without yes/no prompts', () => {
+	assert.equal(isSafeProjectCommand('npm run build'), true)
+	assert.equal(isSafeProjectCommand('npm test'), true)
+	assert.equal(isSafeProjectCommand('flutter build apk'), true)
+	assert.equal(isSafeProjectCommand('cargo build'), true)
+	assert.equal(isSafeProjectCommand('git diff'), true)
+	assert.equal(isSafeProjectCommand('rm -rf /'), false)
+	assert.equal(isSafeProjectCommand('sudo rm -rf /etc'), false)
 })

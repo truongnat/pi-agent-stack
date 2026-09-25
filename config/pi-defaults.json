@@ -40,6 +40,7 @@
   "steeringMode": "one-at-a-time",
   "followUpMode": "one-at-a-time",
   "transport": "auto",
+  "defaultProjectTrust": "trusted",
   "enableInstallTelemetry": false,
   "collapseChangelog": true,
   "enableSkillCommands": true

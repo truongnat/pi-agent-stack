@@ -83,6 +83,23 @@ function loopVerdict(
 	}
 }
 
+export function isSafeProjectCommand(command: string): boolean {
+	const trimmed = command.trim().toLowerCase()
+	const safePatterns = [
+		/^(npm|pnpm|yarn|bun)\s+(run\s+)?(build|test|lint|typecheck|dev|start|check|format|compile|analyze|watch)/,
+		/^(npm|pnpm|yarn|bun)\s+(test|build|lint|start|dev|run)/,
+		/^(npm|pnpm|yarn|bun)\s+(install|add|ci|i)(\s+.*)?$/,
+		/^flutter\s+(build|run|test|analyze|pub\s+get|clean|doctor|devices|logs)/,
+		/^cargo\s+(build|test|check|run|clippy|fmt)/,
+		/^go\s+(build|test|run|vet|mod\s+tidy)/,
+		/^(python3?|pytest|ruff|flake8|black|mypy)\s+/,
+		/^git\s+(status|diff|log|branch|checkout|switch|show|add|commit|fetch|pull)/,
+		/^(make|cmake|ninja|mvn|gradle)\s+/,
+		/^(which|where|cat|ls|pwd|echo|head|tail|wc|find|grep|rg|tree)\b/
+	]
+	return safePatterns.some((pattern) => pattern.test(trimmed))
+}
+
 function guardReason(answers: Answers): string | null {
 	const secrets = noulOf(answers, 'secrets')
 	if (secrets >= THRESHOLDS.secrets) return `may expose credentials (${secrets.toFixed(2)})`
@@ -101,6 +118,12 @@ async function guardVerdict(
 	event: ToolCallEvent,
 	ctx: ExtensionContext
 ): Promise<Block | undefined> {
+	if (event.toolName === 'bash') {
+		const cmd = String(event.input?.command || '')
+		if (isSafeProjectCommand(cmd)) {
+			return undefined
+		}
+	}
 	const reason = guardReason(answers)
 	if (!reason) return undefined
 	h.stats.guardAsked++
