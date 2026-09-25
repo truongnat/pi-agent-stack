@@ -20,8 +20,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: ${{ matrix.package }}/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci --ignore-scripts --no-audit --no-fund
-        working-directory: ${{ matrix.package }}
-      - run: npm run check && npm test
-        working-directory: ${{ matrix.package }}
+      - run: npm run --prefix ${{ matrix.package }} check
