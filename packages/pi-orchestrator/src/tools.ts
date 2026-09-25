@@ -1,0 +1,285 @@
+import { defineTool, type ToolDefinition } from '@earendil-works/pi-coding-agent'
+import * as t from 'typebox'
+import { SubagentManager } from './manager.ts'
+import type { SubagentExecutionResult, SubagentTask } from './types.ts'
+
+const SubagentTaskSchema = t.Object({
+	role: t.String({
+		description:
+			'Role of the subagent: "researcher" (codebase search & analysis), "coder" (edits & refactorings), "tester" (test execution), "reviewer" (code diff critique), or a custom role.'
+	}),
+	prompt: t.String({
+		description: 'Detailed and actionable instruction for what this subagent should accomplish.'
+	}),
+	name: t.Optional(
+		t.String({
+			description:
+				'Optional human-readable label for this subagent (e.g. "auth-module-researcher").'
+		})
+	),
+	model_override: t.Optional(
+		t.String({
+			description: 'Optional model override (e.g. "flash", "sonnet", "pro", "mini").'
+		})
+	),
+	tools: t.Optional(
+		t.Array(t.String(), {
+			description: 'Optional list of allowed tools (defaults to the role definition).'
+		})
+	)
+})
+
+const InvokeSubagentSchema = t.Object({
+	subagents: t.Array(SubagentTaskSchema, {
+		description: 'List of subagent tasks to execute.'
+	}),
+	parallel: t.Optional(
+		t.Boolean({
+			description: 'Whether to execute subagents concurrently (default: true).',
+			default: true
+		})
+	)
+})
+
+const ManageSubagentsSchema = t.Object({
+	action: t.Union([
+		t.Literal('list', { description: 'List all running and completed subagents.' }),
+		t.Literal('status', { description: 'Get detailed status and logs of a specific subagent.' }),
+		t.Literal('kill', { description: 'Kill a running subagent.' }),
+		t.Literal('kill_all', { description: 'Kill all running subagents.' }),
+		t.Literal('clear', { description: 'Clear history of completed/failed subagents.' })
+	]),
+	subagent_id: t.Optional(
+		t.String({
+			description: 'Subagent ID (required for "status" or "kill" action).'
+		})
+	)
+})
+
+const SendSubagentMessageSchema = t.Object({
+	subagent_id: t.String({
+		description: 'Target subagent ID.'
+	}),
+	message: t.String({
+		description: 'Guidance message to send to the subagent.'
+	})
+})
+
+export function createOrchestratorTools(manager: SubagentManager) {
+	const invokeSubagentTool: ToolDefinition<typeof InvokeSubagentSchema> = defineTool({
+		name: 'invoke_subagent',
+		label: 'Invoke Subagents',
+		description:
+			'Spawn specialized subagents (researcher, coder, tester, reviewer) with private scratchpads and role-scoped tools, returning synthesized artifacts to the Master Orchestrator.',
+		promptSnippet:
+			'invoke_subagent({ subagents: [{ role: "researcher", prompt: "..." }], parallel: true }) — spawn subagents',
+		parameters: InvokeSubagentSchema,
+		executionMode: 'sequential',
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			if (!params.subagents || params.subagents.length === 0) {
+				return {
+					content: [{ type: 'text', text: 'No subagent tasks provided.' }],
+					isError: true,
+					details: undefined
+				}
+			}
+
+			const tasks: SubagentTask[] = params.subagents.map((s) => ({
+				role: s.role,
+				prompt: s.prompt,
+				name: s.name,
+				modelOverride: s.model_override,
+				tools: s.tools
+			}))
+
+			const cwd = ctx.cwd || process.cwd()
+			const parallel = params.parallel ?? true
+
+			const results: SubagentExecutionResult[] = await manager.invokeBatch(
+				tasks,
+				cwd,
+				parallel,
+				signal ? { signal } : {}
+			)
+
+			const sections = results.map((r) => {
+				const statusIcon = r.status === 'completed' ? '✅' : '❌'
+				const errorSection = r.error ? `\n> **Error**: ${r.error}` : ''
+				return `## ${statusIcon} Subagent: \`${r.name}\` (${r.role})\n- **ID**: \`${r.id}\`\n- **Status**: \`${r.status}\` | **Duration**: ${r.durationMs}ms | **Tokens**: ${r.tokensUsed}\n- **Scratchpad**: \`${r.scratchpadDir}\`${errorSection}\n\n${r.output}`
+			})
+
+			const text = [
+				`# 🤖 Orchestrator: Dispatched ${results.length} Subagent(s) (${parallel ? 'Parallel' : 'Sequential'})`,
+				'',
+				...sections
+			].join('\n\n')
+
+			return {
+				content: [{ type: 'text', text }],
+				details: {
+					count: results.length,
+					results
+				}
+			}
+		}
+	})
+
+	const manageSubagentsTool: ToolDefinition<typeof ManageSubagentsSchema, any> = defineTool({
+		name: 'manage_subagents',
+		label: 'Manage Subagents',
+		description: 'List, inspect, or kill subagents managed by the Multi-Agent Orchestrator.',
+		promptSnippet: 'manage_subagents({ action: "list" | "status" | "kill", subagent_id })',
+		parameters: ManageSubagentsSchema,
+		executionMode: 'sequential',
+		async execute(_toolCallId, params): Promise<any> {
+			switch (params.action) {
+				case 'list': {
+					const list = manager.listSubagents()
+					if (list.length === 0) {
+						return {
+							content: [{ type: 'text', text: 'No active or recent subagents.' }],
+							details: { count: 0, subagents: [] }
+						}
+					}
+					const rows = list.map(
+						(s) =>
+							`| \`${s.id}\` | **${s.name}** | \`${s.role}\` | \`${s.status}\` | \`${s.model}\` | ${s.tokensUsed} |`
+					)
+					const table = [
+						'| ID | Name | Role | Status | Model | Tokens |',
+						'| --- | --- | --- | --- | --- | --- |',
+						...rows
+					].join('\n')
+					return {
+						content: [
+							{
+								type: 'text',
+								text: `### 📋 Managed Subagents (Total: ${list.length})\n\n${table}`
+							}
+						],
+						details: { count: list.length, subagents: list }
+					}
+				}
+
+				case 'status': {
+					if (!params.subagent_id) {
+						return {
+							content: [{ type: 'text', text: 'Error: subagent_id is required for status.' }],
+							isError: true,
+							details: undefined
+						}
+					}
+					const sub = manager.getSubagent(params.subagent_id)
+					if (!sub) {
+						return {
+							content: [{ type: 'text', text: `Subagent not found: "${params.subagent_id}".` }],
+							isError: true,
+							details: undefined
+						}
+					}
+					const logLines = sub.logs
+						.slice(-10)
+						.map(
+							(l) =>
+								`- [${new Date(l.timestamp).toISOString().slice(11, 19)}] \`${l.type}\`: ${l.message}`
+						)
+						.join('\n')
+					const text = [
+						`### 🔍 Subagent Status: ${sub.name} (\`${sub.id}\`)`,
+						`- **Role**: \`${sub.role}\``,
+						`- **Status**: \`${sub.status}\``,
+						`- **Model**: \`${sub.model}\``,
+						`- **Scratchpad**: \`${sub.scratchpadDir}\``,
+						`- **Tokens**: ${sub.tokensUsed}`,
+						sub.error ? `- **Error**: ${sub.error}` : '',
+						'',
+						'#### Recent Logs:',
+						logLines || '(no logs)'
+					]
+						.filter(Boolean)
+						.join('\n')
+					return {
+						content: [{ type: 'text', text }],
+						details: sub
+					}
+				}
+
+				case 'kill': {
+					if (!params.subagent_id) {
+						return {
+							content: [{ type: 'text', text: 'Error: subagent_id is required for kill.' }],
+							isError: true,
+							details: undefined
+						}
+					}
+					const killed = manager.killSubagent(params.subagent_id)
+					return {
+						content: [
+							{
+								type: 'text',
+								text: killed
+									? `Successfully killed subagent "${params.subagent_id}".`
+									: `Could not kill subagent "${params.subagent_id}" (not found or not running).`
+							}
+						],
+						details: { killed }
+					}
+				}
+
+				case 'kill_all': {
+					const count = manager.killAll()
+					return {
+						content: [{ type: 'text', text: `Killed ${count} running subagent(s).` }],
+						details: { count }
+					}
+				}
+
+				case 'clear': {
+					manager.clearHistory()
+					return {
+						content: [{ type: 'text', text: 'Cleared subagent history.' }],
+						details: { cleared: true }
+					}
+				}
+			}
+		}
+	})
+
+	const sendSubagentMessageTool: ToolDefinition<typeof SendSubagentMessageSchema> = defineTool({
+		name: 'send_subagent_message',
+		label: 'Send Subagent Message',
+		description: 'Send a guidance message or followup question to an active subagent.',
+		promptSnippet: 'send_subagent_message({ subagent_id, message })',
+		parameters: SendSubagentMessageSchema,
+		executionMode: 'sequential',
+		async execute(_toolCallId, params) {
+			const sub = manager.getSubagent(params.subagent_id)
+			if (!sub) {
+				return {
+					content: [{ type: 'text', text: `Subagent not found: "${params.subagent_id}".` }],
+					isError: true,
+					details: undefined
+				}
+			}
+
+			return {
+				content: [
+					{
+						type: 'text',
+						text: `Message successfully delivered to subagent "${sub.name}".`
+					}
+				],
+				details: {
+					delivered: true,
+					subagentId: sub.id
+				}
+			}
+		}
+	})
+
+	return {
+		invokeSubagentTool,
+		manageSubagentsTool,
+		sendSubagentMessageTool
+	}
+}

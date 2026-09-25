@@ -26,6 +26,7 @@ check_file "$HOME/.agents/typesafe-harness/gate.py"
 check_file "$HOME/.agents/typesafe-harness/pre-tool.sh"
 check_file "$AGENT_DIR/pi-agent-stack/packages/pi-rl-engine/package.json"
 check_file "$AGENT_DIR/pi-agent-stack/packages/pi-goal/package.json"
+check_file "$AGENT_DIR/pi-agent-stack/packages/pi-orchestrator/package.json"
 
 SOL_PI_DIR="$AGENT_DIR/git/github.com/NVlabs/SoL-Pi"
 if [[ -d "$SOL_PI_DIR/.git" ]]; then

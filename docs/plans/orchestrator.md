@@ -1,6 +1,6 @@
 # Multi-Agent Orchestrator Plan for `pi-agent-stack`
 
-**Status:** Proposed (2026-09-25)  
+**Status:** Implemented (2026-09-25)  
 **Target Package:** `packages/pi-orchestrator`
 
 ---

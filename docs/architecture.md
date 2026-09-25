@@ -14,7 +14,10 @@ Pi
 ├── Goal loop (native extension)
 │   ├── multi-turn loop: autonomous execution until complete, budget-limited, or stopped
 │   ├── self-report: update_goal tool with requirement-by-requirement audit
-│   └── JEV evaluator: independent check before declaring complete
+├── Multi-Agent Orchestrator (native extension)
+│   ├── supervisor-worker: isolated subagent scratchpads with role-scoped tools
+│   ├── predefined roster: researcher (flash), coder (sonnet), tester (mini), reviewer (pro)
+│   └── tools & control: invoke_subagent, manage_subagents, /agents command
 ├── Subscription providers (native extension)
 │   ├── account pools: switch on quota/login failure, then Pi's retry or a resend
 │   ├── cursor-agent -> readiness/model metadata cache
