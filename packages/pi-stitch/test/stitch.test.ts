@@ -180,3 +180,54 @@ test("oversized JSON results are slimmed, not cut mid-document", () => {
   assert.equal(parsed.projects.length, 5, "every project survives");
   assert.match(parsed.projects[4]?.designMd ?? "", /\+19800 chars/);
 });
+
+test("design skills are found by SKILL.md name and listed in the guide", async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { findDesignSkills, stitchGuide } = await import("../src/guide.ts");
+  const root = mkdtempSync(join(tmpdir(), "skills-"));
+  for (const [dir, name] of [
+    ["taste-skill", "design-taste-frontend"],
+    ["impeccable", "impeccable"],
+    ["other", "unrelated"],
+  ] as const) {
+    mkdirSync(join(root, dir));
+    writeFileSync(join(root, dir, "SKILL.md"), `---\nname: ${name}\n---\n`);
+  }
+  const found = findDesignSkills([root]);
+  assert.deepEqual(
+    found.map((s) => s.name),
+    ["design-taste-frontend", "impeccable"],
+  );
+  const guide = stitchGuide(found);
+  assert.match(guide, /taste-skill\/SKILL\.md/);
+  assert.match(guide, /Build the prompt, then send it/);
+  assert.match(stitchGuide([]), /run scripts\/install\.sh/);
+});
+
+test("prompt tools carry the build-prompt hint; others do not", () => {
+  const described = new Map<string, string>();
+  const pi = {
+    registerTool: (t: { name: string; description: string }) =>
+      described.set(t.name, t.description),
+    getActiveTools: () => [],
+    setActiveTools: () => {},
+    on: () => {},
+    registerCommand: () => {},
+  };
+  // SAFETY: the extension only uses the members stubbed above.
+  registerStitchExtension(pi as never, {
+    cachedTools: () => TOOLS,
+    list: async () => TOOLS,
+    saveCache: () => {},
+  });
+  assert.match(
+    described.get("stitch_generate_screen_from_text") ?? "",
+    /^Before calling: follow the stitch_design workflow/,
+  );
+  assert.doesNotMatch(
+    described.get("stitch_list_projects") ?? "",
+    /Before calling/,
+  );
+});

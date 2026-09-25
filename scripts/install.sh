@@ -71,6 +71,24 @@ rsync -a \
 	"$ROOT_DIR/typesafe-harness/" "$TYPESAFE_DIR/"
 chmod +x "$TYPESAFE_DIR"/*.sh "$TYPESAFE_DIR"/*.py 2>/dev/null || true
 
+# Design skills in the shared ~/.agents/skills (Pi reads it; pi-stitch refers to them before
+# sending prompts to Stitch). Loaded on demand, so they cost no tokens outside design work.
+# A skill already present under the same `name:` is kept, so manual copies are not duplicated.
+SKILLS_DIR="$HOME/.agents/skills"
+install_skill() {
+	local repo="$1" name="$2"
+	if grep -qsx "name: $name" "$SKILLS_DIR"/*/SKILL.md; then
+		echo "skill $name: already installed"
+	else
+		npx -y skills add "$repo" -s "$name" -g -y -a codex >/dev/null ||
+			echo "warning: could not install skill $name from $repo" >&2
+	fi
+}
+install_skill pbakaus/impeccable impeccable
+install_skill nextlevelbuilder/ui-ux-pro-max-skill ui-ux-pro-max
+install_skill Leonxlnx/taste-skill design-taste-frontend
+install_skill Leonxlnx/taste-skill stitch-design-taste
+
 echo
 echo "Pi agent stack installed."
 echo "  settings: $AGENT_DIR/settings.json"

@@ -13,6 +13,13 @@ import type {
 import { Type } from "typebox";
 
 import {
+  findDesignSkills,
+  PROMPT_HINT,
+  PROMPT_TOOLS,
+  stitchGuide,
+} from "./guide.ts";
+
+import {
   callTool,
   listTools,
   readApiKey,
@@ -139,7 +146,12 @@ export function registerStitchExtension(
       pi.registerTool({
         name: PREFIX + tool.name,
         label: `Stitch ${tool.name.replaceAll("_", " ")}`,
-        description: tool.description ?? `Google Stitch ${tool.name}`,
+        description: [
+          PROMPT_TOOLS.has(tool.name) ? PROMPT_HINT : "",
+          tool.description ?? `Google Stitch ${tool.name}`,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
         // SAFETY: Stitch publishes JSON Schema; TypeBox Unsafe passes it through unchanged.
         parameters: Type.Unsafe<Record<string, unknown>>(
           tool.inputSchema ?? { type: "object" },
@@ -184,7 +196,7 @@ export function registerStitchExtension(
         content: [
           {
             type: "text",
-            text: `Enabled: ${activeStitch().join(", ")}${key}`,
+            text: `Enabled: ${activeStitch().join(", ")}\n\n${stitchGuide(findDesignSkills())}${key}`,
           },
         ],
         details: { tools: activeStitch() },
