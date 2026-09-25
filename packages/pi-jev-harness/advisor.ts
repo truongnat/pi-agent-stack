@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 
 import { advisorQuestions, choiceOf, noulOf } from './jev.ts'
+import { scanRepoMap } from './repomap.ts'
 import { active, type Harness } from './types.ts'
 
 export type AdvisorBriefingResult = {
@@ -20,6 +21,7 @@ export type AdvisorBriefingResult = {
 	guidance: string
 	invariantsScore: number
 	focusPaths: string[]
+	repoMap?: string | null
 	briefingText: string
 	summaryNote: string
 }
@@ -85,13 +87,15 @@ export function evaluateOfflineAdvisor(
 
 	const focusPaths = candidatePaths.slice(0, 3)
 	const invariantsScore = category === 'refactor' || category === 'bugfix' ? 0.7 : 0.3
+	const repoMap = scanRepoMap(cwd)
 
 	const briefingText = formatAdvisorBriefingText({
 		category,
 		verification,
 		guidance,
 		invariantsScore,
-		focusPaths
+		focusPaths,
+		repoMap
 	})
 
 	const summaryNote = `advisor: ${category} · ${guidance.replace('_', ' ')} · ${verification}`
@@ -102,6 +106,7 @@ export function evaluateOfflineAdvisor(
 		guidance,
 		invariantsScore,
 		focusPaths,
+		repoMap,
 		briefingText,
 		summaryNote
 	}
@@ -116,6 +121,7 @@ export function formatAdvisorBriefingText(params: {
 	guidance: string
 	invariantsScore: number
 	focusPaths: string[]
+	repoMap?: string | null
 }): string {
 	const categoryLabels: Record<string, string> = {
 		bugfix: 'Bugfix / Regression Resolution',
@@ -143,6 +149,9 @@ export function formatAdvisorBriefingText(params: {
 	}
 
 	const lines = ['[Harness Advisor Briefing]']
+	if (params.repoMap) {
+		lines.push(`• Monorepo Map: ${params.repoMap}`)
+	}
 	lines.push(`• Objective: ${categoryLabels[params.category] ?? params.category}`)
 	lines.push(`• Verification Target: ${verificationLabels[params.verification] ?? params.verification}`)
 	lines.push(`• Engineering Guidance: ${guidanceLabels[params.guidance] ?? params.guidance}`)
@@ -204,13 +213,15 @@ export async function generateAdvisorBriefing(
 				const guidance = choiceOf(result.answers, 'skill_guidance').choice
 				const invariantsScore = noulOf(result.answers, 'invariants')
 				const focusPaths = candidatePaths.slice(0, 3)
+				const repoMap = scanRepoMap(ctx.cwd)
 
 				const briefingText = formatAdvisorBriefingText({
 					category,
 					verification,
 					guidance,
 					invariantsScore,
-					focusPaths
+					focusPaths,
+					repoMap
 				})
 
 				const summaryNote = `advisor: ${category} · ${guidance.replace('_', ' ')} · ${verification}`
@@ -223,6 +234,7 @@ export async function generateAdvisorBriefing(
 					guidance,
 					invariantsScore,
 					focusPaths,
+					repoMap,
 					briefingText,
 					summaryNote
 				}

@@ -160,9 +160,10 @@ export async function onToolCall(
 export async function onToolResult(h: Harness, event: ToolResultEvent, ctx: ExtensionContext) {
 	try {
 		if (!active(h) || !h.config.trim || event.isError) return undefined
-		// Clean file reads are what the model asked for; only long command, search and listing output gets judged.
-		if (!['bash', 'grep', 'find', 'ls'].includes(event.toolName)) return undefined
+		// Clean file reads under 8000 chars are left intact; commands, searches, listings and large outputs get trimmed.
+		if (!['bash', 'exec', 'grep', 'find', 'ls', 'fetch', 'read'].includes(event.toolName)) return undefined
 		const full = resultText(event)
+		if (event.toolName === 'read' && full.length < 8000) return undefined
 		if (full.length < h.config.trimMinChars) return undefined
 		const state = {
 			task: h.task,
@@ -173,7 +174,20 @@ export async function onToolResult(h: Harness, event: ToolResultEvent, ctx: Exte
 			tail: full.slice(-500)
 		}
 		const result = await h.jev('result', state, resultQuestions, ctx)
-		if (!result) return undefined
+		if (!result) {
+			// Fast offline trimming fallback for large tool outputs to prevent context bloat
+			if (full.length > Math.max(h.config.trimMinChars, 3500)) {
+				const saved = spill(full, event.toolName)
+				const cut = full.length - h.config.keepHeadChars
+				const recover = saved ? spillHint(saved) : 'Re-run with a narrower filter if you need them.'
+				const replacement = `${full.slice(0, h.config.keepHeadChars)}\n[jev-harness cut ${cut} chars to protect context window. ${recover}]`
+				h.stats.trimmed++
+				h.stats.charsSaved += full.length - replacement.length
+				if (h.config.mode !== 'on') return undefined
+				return { content: [{ type: 'text' as const, text: replacement }] }
+			}
+			return undefined
+		}
 		const keep = choiceOf(result.answers, 'keep')
 		const relevant = noulOf(result.answers, 'relevant')
 		const succeeded = noulOf(result.answers, 'succeeded') >= 0.5 ? 'successfully' : 'with problems'

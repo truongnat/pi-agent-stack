@@ -8,6 +8,8 @@ import {
 	generateAdvisorBriefing
 } from './advisor.ts'
 import { emptyStats } from './index.ts'
+import { scaleThinkingForTurn } from './model-route.ts'
+import { scanRepoMap } from './repomap.ts'
 import { onBeforeAgentStart } from './route.ts'
 import type { Harness } from './types.ts'
 
@@ -198,4 +200,29 @@ test('onBeforeAgentStart injects advisor briefing into systemPrompt', async () =
 	assert.ok(res.systemPrompt.includes('Base system prompt instructions.'))
 	assert.ok(res.systemPrompt.includes('[Harness Advisor Briefing]'))
 	assert.ok(res.systemPrompt.includes('Bugfix / Regression Resolution'))
+})
+
+test('scanRepoMap detects packages and frameworks in workspace', () => {
+	const map = scanRepoMap(process.cwd())
+	assert.ok(map)
+	assert.ok(map.includes('packages/pi-jev-harness') || map.includes('Single Project'))
+})
+
+test('scaleThinkingForTurn dynamically scales thinking down for exploration and up for complex tasks', () => {
+	const h = createMockHarness()
+	let currentThinking = 'high'
+	const pi = {
+		getThinkingLevel: () => currentThinking,
+		setThinkingLevel: (lvl: string) => { currentThinking = lvl }
+	} as any
+
+	// Exploration scaled down
+	const note1 = scaleThinkingForTurn(h, pi, 'explore', 'find where the booking mapper is located')
+	assert.ok(note1)
+	assert.equal(currentThinking, 'low')
+
+	// Complex change scaled up
+	const note2 = scaleThinkingForTurn(h, pi, 'change', 'refactor the entire state machine and architecture')
+	assert.ok(note2)
+	assert.equal(currentThinking, 'high')
 })

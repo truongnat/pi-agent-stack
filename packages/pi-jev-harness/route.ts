@@ -8,7 +8,7 @@ import type {
 
 import { generateAdvisorBriefing } from './advisor.ts'
 import { choiceOf, noulOf, relevanceQuestions, routingQuestions, THRESHOLDS } from './jev.ts'
-import { applyModelPolicy, routeModels } from './model-route.ts'
+import { applyModelPolicy, routeModels, scaleThinkingForTurn } from './model-route.ts'
 import { active, short, THRESHOLD_ALWAYS_KEEP, type Candidate, type Harness } from './types.ts'
 
 
@@ -397,6 +397,18 @@ export async function onBeforeAgentStart(
 		h.log({ what: 'error', error: err instanceof Error ? err.message : String(err) })
 		return [null, null, null] as const
 	})
+
+	if (h.config.modelRouting !== false && !routed?.note?.includes('thinking')) {
+		const thinkingScaled = scaleThinkingForTurn(
+			h,
+			pi,
+			routed?.kind ?? advised?.category ?? 'unclear',
+			event.prompt
+		)
+		if (thinkingScaled) {
+			h.log({ what: 'thinking_scale', note: thinkingScaled })
+		}
+	}
 
 	const notes = [advised?.summaryNote, routed?.note, fetched?.note].filter(
 		(note): note is string => !!note

@@ -230,6 +230,51 @@ function applyThinkingPolicy(h: Harness, pi: ExtensionAPI, answers: Answers): st
 }
 
 /**
+ * Dynamic Thinking Scaler for offline or fast execution turns.
+ * Prevents 10-20s CoT thinking pauses on simple exploration, grep, and file inspection.
+ */
+export function scaleThinkingForTurn(
+	h: Harness,
+	pi: ExtensionAPI,
+	kind: string,
+	prompt: string
+): string | undefined {
+	const currentThinking = pi.getThinkingLevel()
+	if (!currentThinking) return undefined
+
+	let targetLevel: 'off' | 'minimal' | 'low' | 'medium' | 'high' = currentThinking as any
+	const lower = prompt.toLowerCase()
+
+	const isExplorationOrInspect =
+		kind === 'explore' ||
+		kind === 'run' ||
+		kind === 'research' ||
+		/\b(find|grep|search|where|list|show|check log|xem log|log|ls|inspect)\b/i.test(prompt)
+
+	const isComplexTask =
+		kind === 'change' &&
+		/\b(refactor|architect|redesign|migrate|rewrite|deadlock|concurrency)\b/i.test(prompt)
+
+	if (isExplorationOrInspect) {
+		// During exploration or routine lookups, cap thinking at low to avoid heavy CoT latency
+		if (currentThinking === 'high' || currentThinking === 'xhigh' || currentThinking === 'medium') {
+			targetLevel = 'low'
+		}
+	} else if (isComplexTask) {
+		if (currentThinking === 'low' || currentThinking === 'minimal' || currentThinking === 'off') {
+			targetLevel = 'high'
+		}
+	}
+
+	if (targetLevel !== currentThinking) {
+		void automatic(() => pi.setThinkingLevel(targetLevel))
+		h.stats.thinkingSwitches++
+		return `thinking scaled ${currentThinking} -> ${targetLevel}`
+	}
+	return undefined
+}
+
+/**
  * Shadow row per decided turn: the plain route (the model already selected, as without JEV)
  * next to JEV's pick and the model that actually runs, so savings and agreement are measured
  * rather than assumed. Pattern from KiroCrew decisions/outcomes.py (Apache-2.0).
