@@ -1,6 +1,6 @@
 # Plan: `/goal` for Pi
 
-Status: proposed (2026-09-25). Nothing is built yet.
+Status: implemented (2026-09-25). Shipped in `packages/pi-goal`.
 
 We build our own `/goal` as a Pi extension in `packages/pi-goal`. It combines the two designs that already ship. From Codex we take the self-reported `update_goal` tool, the continuation prompt with its completion audit, and the automatic stop rules. From Claude Code we take the independent evaluator, run on Jev. It lives at the Pi level because the provider-native goals cannot reach Pi. Codex and Claude Code run behind Pi as answer-only CLI routes, so their own goal loops never fire. Pi 0.87.1 has no goal feature. The community packages would add a dependency we do not control, so we skip them.
 

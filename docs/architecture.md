@@ -11,6 +11,10 @@ Pi
 │   └── trim: removes low-relevance tool output before generation, full text spilled to disk
 ├── RL engine (native extension)
 │   └── lessons: verified task lessons; model facts and model pins are refused
+├── Goal loop (native extension)
+│   ├── multi-turn loop: autonomous execution until complete, budget-limited, or stopped
+│   ├── self-report: update_goal tool with requirement-by-requirement audit
+│   └── JEV evaluator: independent check before declaring complete
 ├── Subscription providers (native extension)
 │   ├── account pools: switch on quota/login failure, then Pi's retry or a resend
 │   ├── cursor-agent -> readiness/model metadata cache

@@ -14,7 +14,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 
-import { ask } from './jev.ts'
+import { ask, choiceOf, goalQuestions, noulOf } from './jev.ts'
 import { onBeforeAgentStart } from './route.ts'
 import { onToolCall, onToolResult, withReminder } from './tools.ts'
 import { active, type Config, type Harness, type Stats } from './types.ts'
@@ -169,6 +169,35 @@ export function shadowSummary(s: Stats): string {
 
 export default function (pi: ExtensionAPI) {
 	const h = createHarness()
+
+	// Expose goal evaluator bridge for packages/pi-goal
+	;(globalThis as any).piAgentStackJev = {
+		evaluateGoal: async (params: {
+			objective: string
+			lastAssistantMessage: string
+			toolSummary: string
+		}): Promise<{ met: boolean; confidence: number; reason: string }> => {
+			if (!active(h)) return { met: true, confidence: 1, reason: 'jev inactive' }
+			try {
+				const result = await h.jev('goal_eval', params, goalQuestions, {
+					cwd: process.cwd(),
+					hasUI: false,
+					signal: undefined
+				} as unknown as ExtensionContext)
+				if (!result) return { met: true, confidence: 0.5, reason: 'no jev response' }
+				const metScore = noulOf(result.answers, 'objective_met')
+				const reasonChoice = choiceOf(result.answers, 'reason')
+				const isMet = metScore >= 0.7 && reasonChoice.choice === 'met'
+				return {
+					met: isMet,
+					confidence: Math.max(metScore, reasonChoice.confidence),
+					reason: reasonChoice.choice
+				}
+			} catch (err) {
+				return { met: true, confidence: 0.5, reason: err instanceof Error ? err.message : String(err) }
+			}
+		}
+	}
 
 	pi.on('session_start', (_event, ctx) => {
 		Object.assign(h.config, loadConfig())

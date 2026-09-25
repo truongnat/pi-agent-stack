@@ -83,9 +83,9 @@ export type Harness = {
 	) => Promise<Result | null>
 }
 
-// DCP's compression tool must remain available so JEV's tool routing does not
-// accidentally disable context pruning on long turns.
-export const THRESHOLD_ALWAYS_KEEP = ['read', 'compress'] // never hide these, whatever Jev says
+// DCP's compression tool and Goal tools must remain available so JEV's tool routing does not
+// accidentally disable context pruning or goal tracking on long turns.
+export const THRESHOLD_ALWAYS_KEEP = ['read', 'compress', 'get_goal', 'update_goal']
 
 export const READ_TOOLS = ['read', 'grep', 'find', 'ls']
 

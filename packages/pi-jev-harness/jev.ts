@@ -209,6 +209,19 @@ export const guardQuestions: Record<string, Question> = {
 	)
 }
 
+// ---- 6. goal evaluation: independent check whether the objective is met ----
+export const goalQuestions: Record<string, Question> = {
+	objective_met: noul(
+		'Looking at `objective`, `lastAssistantMessage`, and `toolSummary`, is the stated goal or objective completely achieved and verified?'
+	),
+	reason: choice('What is the completion state of `objective`?', {
+		met: 'All requirements of the objective are completely met and verified',
+		partially_met: 'Progress was made but some requirements, checks, or fixes remain incomplete',
+		blocked_or_stuck: 'The agent is blocked, stuck in an error loop, or failed critical checks',
+		not_started: 'The objective has not been meaningfully started or addressed yet'
+	})
+}
+
 export const THRESHOLDS = {
 	toolNeeded: 0.35, // keep a tool if Jev gives it at least this much
 	prefetchFile: 0.6, // read a candidate file at or above this
@@ -217,3 +230,4 @@ export const THRESHOLDS = {
 	secrets: 0.7,
 	askConfidence: 0.5 // hard_to_reverse or destructive needs this much confidence to prompt
 }
+
