@@ -35,6 +35,7 @@ echo "export { default } from '../pi-agent-stack/packages/pi-subscription-provid
 echo "export { default } from '../pi-agent-stack/packages/pi-rl-engine/index.ts'" > "$AGENT_DIR/extensions/pi-rl-engine.ts"
 echo "export { default } from '../pi-agent-stack/packages/pi-redmine/index.ts'" > "$AGENT_DIR/extensions/pi-redmine.ts"
 echo "export { default } from '../pi-agent-stack/packages/pi-xlsx2md/index.ts'" > "$AGENT_DIR/extensions/pi-xlsx2md.ts"
+echo "export { default } from '../pi-agent-stack/packages/pi-gdrive/index.ts'" > "$AGENT_DIR/extensions/pi-gdrive.ts"
 
 cp "$AGENT_DIR/pi-agent-stack/config/jev-harness.json" "$AGENT_DIR/jev-harness.json"
 cp "$AGENT_DIR/pi-agent-stack/config/subscription-providers.json" "$AGENT_DIR/subscription-providers.json"
