@@ -150,5 +150,10 @@ if [[ -f "$HOME/.keys/typesafe.env" ]]; then
 else
 	echo "  TypeSafe key file: missing; add API_KEY to ~/.keys/typesafe.env"
 fi
+if [[ -f "$HOME/.keys/stitch.key" || -f "$HOME/.keys/stitch.env" || -f "$HOME/.keys/stitch-api-key" ]]; then
+	echo "  Stitch key file: found in ~/.keys/"
+else
+	echo "  Stitch key file: missing; add STITCH_API_KEY to ~/.keys/stitch.key or run /stitch key"
+fi
 
 echo "Run: pi list"

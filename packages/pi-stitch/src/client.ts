@@ -10,7 +10,13 @@ import { dirname, join } from "node:path";
 
 /** Google's official remote MCP server for Stitch (stateless, plain JSON responses). */
 export const STITCH_MCP_URL = "https://stitch.googleapis.com/mcp";
-export const DEFAULT_KEY_FILE = join(homedir(), ".keys", "stitch-api-key");
+export const DEFAULT_KEY_FILE = join(homedir(), ".keys", "stitch.key");
+export const KEY_FILES = [
+  join(homedir(), ".keys", "stitch.key"),
+  join(homedir(), ".keys", "stitch.env"),
+  join(homedir(), ".keys", "stitch-api-key"),
+  join(homedir(), ".stitch", "api-key"),
+];
 export const DEFAULT_TOOLS_CACHE = join(
   homedir(),
   ".pi",
@@ -41,15 +47,23 @@ export interface McpCallResult {
 
 export type Fetch = typeof fetch;
 
-/** `STITCH_API_KEY`, else the key file (created by `/stitch key`). */
-export function readApiKey(file = DEFAULT_KEY_FILE): string | undefined {
+/** `STITCH_API_KEY`, else candidate key files in ~/.keys/ (stitch.key, stitch.env, stitch-api-key). */
+export function readApiKey(file?: string): string | undefined {
   const fromEnv = process.env.STITCH_API_KEY?.trim();
   if (fromEnv) return parseKey(fromEnv);
-  try {
-    return parseKey(readFileSync(file, "utf8"));
-  } catch {
-    return undefined;
+
+  const filesToTry = file ? [file] : KEY_FILES;
+  for (const f of filesToTry) {
+    try {
+      if (existsSync(f)) {
+        const parsed = parseKey(readFileSync(f, "utf8"));
+        if (parsed) return parsed;
+      }
+    } catch {
+      // Continue to next key file candidate
+    }
   }
+  return undefined;
 }
 
 /** Accept a bare key or an env-style line: `[export] STITCH_API_KEY="…"`. */

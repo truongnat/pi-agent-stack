@@ -34,9 +34,10 @@ Keys live in `~/.keys/` and are never committed:
 mkdir -p ~/.keys
 cp config/jev.env.example ~/.keys/jev.env      # edit, then source it from your shell startup
 echo 'export API_KEY="…"' >> ~/.keys/typesafe.env  # TypeSafe harness
+echo 'STITCH_API_KEY="…"' >> ~/.keys/stitch.key    # Google Stitch MCP key
 ```
 
-Google Stitch takes its key from `/stitch key` inside Pi (stored at `~/.keys/stitch-api-key`, mode 600).
+Google Stitch reads its key from `~/.keys/stitch.key`, `~/.keys/stitch.env`, `STITCH_API_KEY`, or via `/stitch key` inside Pi.
 
 Verify:
 
