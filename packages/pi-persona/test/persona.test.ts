@@ -72,9 +72,12 @@ test('extractPreferencesFromPrompt detects user corrections and habits', () => {
 	const signals2 = extractPreferencesFromPrompt('trả lời ngắn gọn, bỏ chào hỏi, áp dụng tdd')
 	assert.ok(signals2.some((s) => s.key === 'direct_no_fluff'))
 	assert.ok(signals2.some((s) => s.key === 'tdd_and_verification'))
+
+	const signals3 = extractPreferencesFromPrompt('hãy xem log trước, bắt exception đừng đoán mò')
+	assert.ok(signals3.some((s) => s.key === 'direct_root_cause_triaging'))
 })
 
-test('synthesizePersonaPrompt generates targeted steering instructions', () => {
+test('synthesizePersonaPrompt generates targeted steering instructions and prioritizes root cause for bugs', () => {
 	const { storePath, markdownPath } = createTempPaths()
 	try {
 		const store = new PersonaStore({ storePath, markdownPath })
@@ -84,6 +87,11 @@ test('synthesizePersonaPrompt generates targeted steering instructions', () => {
 		assert.ok(prompt.includes('[Developer Persona & Taste Constraints]'))
 		assert.ok(prompt.includes('Coding Style:'))
 		assert.ok(prompt.includes('Workflow:'))
+
+		// Bug prompt prioritizes root cause triaging
+		const bugPrompt = synthesizePersonaPrompt(store, 'fix app crash không load được')
+		assert.ok(bugPrompt)
+		assert.ok(bugPrompt.includes('direct_root_cause_triaging') || bugPrompt.includes('identify target app/surface first'))
 	} finally {
 		if (existsSync(storePath)) rmSync(storePath)
 		if (existsSync(markdownPath)) rmSync(markdownPath)

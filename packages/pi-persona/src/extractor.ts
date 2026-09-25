@@ -70,6 +70,16 @@ export function extractPreferencesFromPrompt(prompt: string): ExtractedPreferenc
 		})
 	}
 
+	// 6. Direct Root-Cause / Check Log First
+	if (/(root cause|xem log|check log|lấy stack trace|kiểm tra log|đừng đoán mò|bắt exception|investigate error|error trace)/i.test(prompt)) {
+		signals.push({
+			category: 'workflow',
+			key: 'direct_root_cause_triaging',
+			rule: 'When diagnosing bugs or UI/app loading issues in monorepos: identify target app/surface first, then extract unhandled exception or network logs before modifying code/DB.',
+			isCorrection: true,
+			confidence: 0.95
+		})
+	}
 
 	return signals
 }

@@ -46,6 +46,17 @@ export const DEFAULT_CONFIG: PersonaConfig = {
 			lastAppliedAt: Date.now()
 		},
 		{
+			id: 'habit_direct_root_cause',
+			category: 'workflow',
+			key: 'direct_root_cause_triaging',
+			rule: 'When diagnosing bugs or UI/app loading issues in monorepos: identify target app/surface first, then extract unhandled exception or network logs before modifying code/DB.',
+			weight: 0.95,
+			reinforcements: 5,
+			rejections: 0,
+			createdAt: Date.now(),
+			lastAppliedAt: Date.now()
+		},
+		{
 			id: 'habit_tdd_verification',
 			category: 'workflow',
 			key: 'tdd_and_verification',
@@ -77,6 +88,17 @@ export class PersonaStore {
 			if (existsSync(this.storePath)) {
 				const raw = JSON.parse(readFileSync(this.storePath, 'utf8')) as PersonaProfile
 				if (Array.isArray(raw.preferences)) {
+					// Auto-merge any new default habits if not present
+					let modified = false
+					for (const def of this.config.defaults ?? DEFAULT_CONFIG.defaults ?? []) {
+						if (!raw.preferences.some((p) => p.id === def.id || p.key === def.key)) {
+							raw.preferences.push({ ...def })
+							modified = true
+						}
+					}
+					if (modified) {
+						this.saveProfile(raw)
+					}
 					return raw
 				}
 			}

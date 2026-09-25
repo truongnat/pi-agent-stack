@@ -18,7 +18,16 @@ export function synthesizePersonaPrompt(
 
 	// Pick top preferences per category
 	const coding = allPrefs.filter((p) => p.category === 'coding').slice(0, 2)
-	const workflow = allPrefs.filter((p) => p.category === 'workflow').slice(0, 1)
+	
+	const isBugOrIssue = /\b(bug|fix|error|fail|broken|crash|load|issue|lỗi|không)\b/i.test(task)
+	const workflowSorted = [...allPrefs.filter((p) => p.category === 'workflow')].sort((a, b) => {
+		if (isBugOrIssue) {
+			if (a.key.includes('root_cause')) return -1
+			if (b.key.includes('root_cause')) return 1
+		}
+		return b.weight - a.weight
+	})
+	const workflow = workflowSorted.slice(0, 2)
 	const comm = allPrefs.filter((p) => p.category === 'communication').slice(0, 1)
 
 	const selected = [...coding, ...workflow, ...comm]

@@ -72,7 +72,11 @@ export function evaluateOfflineAdvisor(
 	// 3. Engineering Guidance
 	let guidance = 'minimal_diff'
 	if (category === 'bugfix') {
-		guidance = 'tdd_first'
+		if (/\b(test|spec|tdd|reproduce|failing test)\b/i.test(prompt)) {
+			guidance = 'tdd_first'
+		} else {
+			guidance = 'root_cause_first'
+		}
 	} else if (/\b(type|schema|interface|contract)\b/i.test(prompt)) {
 		guidance = 'type_safety'
 	} else if (category === 'feature') {
@@ -122,6 +126,7 @@ export function formatAdvisorBriefingText(params: {
 	}
 
 	const guidanceLabels: Record<string, string> = {
+		root_cause_first: 'Root-cause triaging: Identify target surface & inspect error logs/trace first before speculative changes',
 		tdd_first: 'TDD: Reproduce/verify with failing test first before modifying implementation',
 		type_safety: 'Strict typing: Adhere strictly to TypeScript interfaces and contracts',
 		minimal_diff: 'Minimal diff: Preserve existing styles, comments, and structure',

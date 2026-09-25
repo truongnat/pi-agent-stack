@@ -81,8 +81,8 @@ function createMockExtensionAPI(): ExtensionAPI {
 	} as unknown as ExtensionAPI
 }
 
-test('evaluateOfflineAdvisor classifies bugfix and selects TDD guidance', () => {
-	const result = evaluateOfflineAdvisor('fix the failing null check in auth service', process.cwd(), [
+test('evaluateOfflineAdvisor classifies bugfix and selects TDD guidance for failing tests', () => {
+	const result = evaluateOfflineAdvisor('fix the failing test in auth service', process.cwd(), [
 		'src/auth.ts'
 	])
 	assert.equal(result.category, 'bugfix')
@@ -91,6 +91,15 @@ test('evaluateOfflineAdvisor classifies bugfix and selects TDD guidance', () => 
 	assert.deepEqual(result.focusPaths, ['src/auth.ts'])
 	assert.ok(result.briefingText.includes('[Harness Advisor Briefing]'))
 	assert.ok(result.briefingText.includes('TDD: Reproduce/verify with failing test'))
+})
+
+test('evaluateOfflineAdvisor classifies bugfix and selects root_cause_first for runtime failures', () => {
+	const result = evaluateOfflineAdvisor('app vẫn không load được hoặc bị crash', process.cwd(), [
+		'apps/mobile'
+	])
+	assert.equal(result.category, 'bugfix')
+	assert.equal(result.guidance, 'root_cause_first')
+	assert.ok(result.briefingText.includes('Root-cause triaging: Identify target surface & inspect error logs/trace'))
 })
 
 test('evaluateOfflineAdvisor classifies refactor and sets invariant caution', () => {
