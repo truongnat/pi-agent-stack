@@ -241,3 +241,15 @@ void test('claude-code is a subscription provider; old status files without it s
 	assert.equal(needsForcedSubscriptionExit('change', 'claude-code'), true)
 	assert.equal(needsForcedSubscriptionExit('answer', 'claude-code'), false)
 })
+
+void test('automatic() marks JEV changes until the events they trigger have run', async () => {
+	const { automatic } = await import('./model-route.ts')
+	let seenDuring = 0
+	await automatic(async () => {
+		seenDuring = globalThis.piAgentStackAutomaticChange ?? 0
+	})
+	assert.equal(seenDuring, 1)
+	assert.equal(globalThis.piAgentStackAutomaticChange, 1, 'still marked right after the call')
+	await new Promise((resolve) => setTimeout(resolve, 5))
+	assert.equal(globalThis.piAgentStackAutomaticChange, 0, 'cleared on the next macrotask')
+})

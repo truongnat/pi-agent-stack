@@ -42,6 +42,30 @@ function pickNativeFallback(
 	return toRoutingModel(luna, { billingMode: 'api', toolMode: 'native' })
 }
 
+/**
+ * Marks the model and thinking changes JEV makes by itself, so extensions that remember the
+ * user's own choices (saved defaults, per-provider memory) can skip them. The mark outlives the
+ * call by one macrotask, so the select events the harness emits for it still see it.
+ */
+declare global {
+	/** Count of model/thinking changes JEV is making right now (read by pi-subscription-providers). */
+	var piAgentStackAutomaticChange: number | undefined
+}
+
+export async function automatic<T>(change: () => T | Promise<T>): Promise<T> {
+	globalThis.piAgentStackAutomaticChange = (globalThis.piAgentStackAutomaticChange ?? 0) + 1
+	try {
+		return await change()
+	} finally {
+		setTimeout(() => {
+			globalThis.piAgentStackAutomaticChange = Math.max(
+				0,
+				(globalThis.piAgentStackAutomaticChange ?? 1) - 1
+			)
+		}, 0)
+	}
+}
+
 async function setRoutedModel(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
@@ -51,7 +75,7 @@ async function setRoutedModel(
 		candidate.provider,
 		candidate.key.slice(candidate.provider.length + 1)
 	)
-	return !!(model && (await pi.setModel(model)))
+	return !!(model && (await automatic(() => pi.setModel(model))))
 }
 
 async function forceExitSubscription(
@@ -199,7 +223,8 @@ function applyThinkingPolicy(h: Harness, pi: ExtensionAPI, answers: Answers): st
 	) {
 		return undefined
 	}
-	pi.setThinkingLevel(thinking.choice)
+	const level = thinking.choice
+	void automatic(() => pi.setThinkingLevel(level))
 	h.stats.thinkingSwitches++
 	return `thinking ${thinking.choice}`
 }
