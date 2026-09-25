@@ -13,6 +13,9 @@
  * allowNetwork=false. That path must return the in-memory snapshot only — never
  * probe CLIs or call publishProviders again (that caused a refresh cascade).
  */
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import type { ExtensionAPI, ProviderModelConfig } from '@earendil-works/pi-coding-agent'
 
 import { loadConfig } from './config.ts'
@@ -23,6 +26,20 @@ import type { ProviderId, Readiness, RootConfig, StatusSnapshot } from './types.
 
 const CURSOR_API = 'cursor-cli-compat'
 const ANTIGRAVITY_API = 'antigravity-cli-compat'
+
+function autoPersistDefault(patch: Record<string, unknown>): void {
+	const settingsPath = join(homedir(), '.pi', 'agent', 'settings.json')
+	try {
+		let current: Record<string, unknown> = {}
+		if (existsSync(settingsPath)) {
+			current = JSON.parse(readFileSync(settingsPath, 'utf8'))
+		}
+		const updated = { ...current, ...patch }
+		writeFileSync(settingsPath, `${JSON.stringify(updated, null, 2)}\n`, { mode: 0o600 })
+	} catch {
+		// ignore
+	}
+}
 
 let snapshot: StatusSnapshot | null = null
 
@@ -155,6 +172,24 @@ export default function (pi: ExtensionAPI): void {
 			publishProviders(pi, snapshot)
 			const summaries = compactSummaries(snapshot)
 			ctx.ui.notify(`${summaries.cursor}\n${summaries.antigravity}`, 'info')
+		}
+	})
+
+	pi.on('model_select', (event: any) => {
+		if (event.source === 'restore') return
+		if (event.model?.provider && event.model?.id) {
+			autoPersistDefault({
+				defaultProvider: event.model.provider,
+				defaultModel: event.model.id
+			})
+		}
+	})
+
+	pi.on('thinking_level_select', (event: any) => {
+		if (event.level) {
+			autoPersistDefault({
+				defaultThinkingLevel: event.level
+			})
 		}
 	})
 }
