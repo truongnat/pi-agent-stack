@@ -561,10 +561,13 @@ test('claude-code readiness: logged in vs logged out', async () => {
 	}
 	const ready = await checkClaudeCodeReadiness(config, runnerFor('{"loggedIn":true}'))
 	assert.equal(ready.ready, true)
-	assert.deepEqual(
-		ready.models.map((m) => m.id),
-		['sonnet', 'opus', 'haiku']
+	const ids = ready.models.map((m) => m.id)
+	assert.ok(
+		ids.includes('claude-sonnet-5') && ids.includes('claude-opus-5-5'),
+		'real Anthropic ids'
 	)
+	assert.ok(!ids.some((id) => /-\d{8}$/.test(id)), 'dated snapshots skipped')
+	assert.equal(ids[0], 'claude-opus-5-5', 'newest first')
 	const out = await checkClaudeCodeReadiness(config, runnerFor('{"loggedIn":false}', 1))
 	assert.equal(out.ready, false)
 	assert.match(out.reason, /not logged in/)

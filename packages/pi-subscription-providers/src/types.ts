@@ -32,6 +32,8 @@ export type DiscoveredModel = {
 	id: string
 	name: string
 	reasoning: boolean
+	contextWindow?: number | undefined
+	maxTokens?: number | undefined
 }
 
 export type Readiness = {

@@ -60,6 +60,7 @@ pi -p 'Reply with exactly pong.'
 | [`NVlabs/SoL-Pi`](https://github.com/NVlabs/SoL-Pi)                        | Context-cost optimizers (Observation Pack, Action Fusion, Evidence-Preserving Reducer, Online Context Compact). Cloned by the installer; config in `config/sol-pi.json`.           |
 | `@davecodes/pi-dcp@0.2.0`                                                  | Pinned DCP (dynamic context pruning) from npm; config in `config/dcp.json`, source mirrored in `vendor/pi-dcp` for audit.                                                          |
 | [`typesafe-harness/`](typesafe-harness)                                    | Shared PreToolUse gate, skill prompter, and Stop claim verifier for Pi, Codex, Antigravity, Claude, and Grok.                                                                      |
+| [`extensions/ember-ui.ts`](extensions/ember-ui.ts)                         | Ember chrome: `ember \| provider/model \| jev` rail above the editor (repaints on every model change), copper spinner, window title.                                               |
 | [`config/`](config)                                                        | Portable templates: Pi defaults, JEV, providers, DCP, SoL-Pi, Antigravity hooks, and the skill checklist.                                                                          |
 | [`scripts/`](scripts)                                                      | `install.sh` (setup), `doctor.sh` (health check), `sync-settings.mjs` (settings merge).                                                                                            |
 
@@ -91,6 +92,15 @@ codex plus   5h ▰▱▱▱▱▱▱▱ 10% (2h08m)   week ▰▰▰▰▰▰�
 | DeepSeek    | account balance endpoint (API key)                                        |
 
 When every quota pool of Cursor or Antigravity is spent, the provider is marked `quotaAvailable: false` so JEV skips it instead of paying for a failing request.
+
+## Multiple accounts
+
+Log in as usual; every account you log in with is kept, and a provider with more than one rotates by itself.
+
+- **Saving:** `/login <provider>` (or `claude` → `/login`, `cursor-agent login`) with another account adds it to that provider's pool in `~/.pi/agent/accounts.json` (mode 600) instead of replacing the previous one. Refreshed tokens follow automatically.
+- **Rotating:** before each turn, an active account whose quota is spent is swapped for another one in the same pool; after a turn that fails with a usage-limit or login error, the account is benched and the next one takes over (send the message again). Quota is checked per account for ChatGPT/Codex and Claude; other providers rotate on the error.
+- **Pools:** every entry in Pi's `auth.json` (`openai-codex`, `anthropic`, `xai`, `deepseek`, …), plus Claude Code (`~/.claude/.credentials.json` with its `oauthAccount`) and cursor-agent (`~/.config/cursor/auth.json`). Accounts are identified from the login data itself (token claims, Claude's account id); API keys by fingerprint. Antigravity keeps its login in the OS keyring and is not pooled.
+- **Picking an account:** `/accounts` opens one menu listing every saved account, grouped by provider, with plan and quota; `●` marks the single account in use. Picking one from another provider also moves the session to that provider: back to the model and thinking level you last used there (kept in `~/.pi/agent/provider-memory.json`), or, the first time, to a balanced model (codex `gpt-6-luna`, cursor `auto`, grok `grok-4.6`, claude the newest Sonnet; override with `balancedModels` in `subscription-providers.json`). It also removes accounts. Switching happens only while idle (no request or tool running); automatic rotation also waits for the start of the next turn.
 
 ## Google Stitch
 
@@ -146,30 +156,32 @@ The RL engine updates its Q-table only when a turn changed the worktree and the 
 
 ## Commands
 
-| Command                                | Purpose                                                       |
-| -------------------------------------- | ------------------------------------------------------------- |
-| `/usage [refresh]`                     | Plan quota, balance, and account for every signed-in provider |
-| `/subscription-providers [refresh]`    | Readiness of the Cursor, Antigravity, and Claude Code routes  |
-| `/stitch [status\|key\|on\|off]`       | Stitch status, API key, and tool activation                   |
-| `/jev-harness [on\|off]`               | JEV counters and savings, or toggle the harness               |
-| `/dcp context`, `/dcp stats`           | Context usage and pruning savings                             |
-| `/rl [on\|off\|passive\|stats]`        | RL engine mode and statistics                                 |
-| `/rl-verify`                           | Run the ground-truth test verifier and compute the reward     |
-| `/lessons [list\|search <q>\|summary]` | Learned lessons and episodic reflections                      |
-| `/reflect <note>`                      | Record a lesson or rule for this repository                   |
+| Command                                | Purpose                                                                               |
+| -------------------------------------- | ------------------------------------------------------------------------------------- |
+| `/usage [refresh]`                     | Plan quota, balance, and account for every signed-in provider                         |
+| `/subscription-providers [refresh]`    | Readiness of the Cursor, Antigravity, and Claude Code routes                          |
+| `/accounts`                            | Pick the account in use from every saved login, or remove one (menu; only while idle) |
+| `/stitch [status\|key\|on\|off]`       | Stitch status, API key, and tool activation                                           |
+| `/jev-harness [on\|off]`               | JEV counters and savings, or toggle the harness                                       |
+| `/dcp context`, `/dcp stats`           | Context usage and pruning savings                                                     |
+| `/rl [on\|off\|passive\|stats]`        | RL engine mode and statistics                                                         |
+| `/rl-verify`                           | Run the ground-truth test verifier and compute the reward                             |
+| `/lessons [list\|search <q>\|summary]` | Learned lessons and episodic reflections                                              |
+| `/reflect <note>`                      | Record a lesson or rule for this repository                                           |
 
 ## Where things live
 
-| Path                                             | Content                                           |
-| ------------------------------------------------ | ------------------------------------------------- |
-| `~/.pi/agent/pi-agent-stack/`                    | Staged copy of this repo that Pi loads            |
-| `~/.pi/agent/settings.json`                      | Pi settings (merged, never overwritten wholesale) |
-| `~/.pi/agent/subscription-providers.json`        | Provider config (from `config/`)                  |
-| `~/.pi/agent/subscription-providers-status.json` | Readiness and quota cache, read by JEV            |
-| `~/.pi/agent/stitch-tools.json`                  | Cached Stitch tool catalog                        |
-| `~/.agents/skills/`                              | Global skills shared by all agents                |
-| `~/.jev-harness/log.jsonl`                       | JEV decision log                                  |
-| `~/.keys/`                                       | API keys (JEV, TypeSafe, Stitch)                  |
+| Path                                             | Content                                             |
+| ------------------------------------------------ | --------------------------------------------------- |
+| `~/.pi/agent/pi-agent-stack/`                    | Staged copy of this repo that Pi loads              |
+| `~/.pi/agent/settings.json`                      | Pi settings (merged, never overwritten wholesale)   |
+| `~/.pi/agent/subscription-providers.json`        | Provider config (from `config/`)                    |
+| `~/.pi/agent/subscription-providers-status.json` | Readiness and quota cache, read by JEV              |
+| `~/.pi/agent/accounts.json`                      | Saved accounts per provider (credentials, mode 600) |
+| `~/.pi/agent/stitch-tools.json`                  | Cached Stitch tool catalog                          |
+| `~/.agents/skills/`                              | Global skills shared by all agents                  |
+| `~/.jev-harness/log.jsonl`                       | JEV decision log                                    |
+| `~/.keys/`                                       | API keys (JEV, TypeSafe, Stitch)                    |
 
 ## Development
 

@@ -28,7 +28,7 @@ function toModel(
 			cacheRead: readiness.marginalInputCost * 0.1,
 			cacheWrite: readiness.marginalInputCost * 0.25
 		},
-		contextWindow: 200_000,
-		maxTokens: 16_384
+		contextWindow: model.contextWindow ?? 200_000,
+		maxTokens: model.maxTokens ?? 16_384
 	}
 }

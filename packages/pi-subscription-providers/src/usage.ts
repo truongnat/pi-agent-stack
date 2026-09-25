@@ -611,7 +611,7 @@ export function severity(percent: number): Severity {
 
 /** Subset of Pi's Theme used for rendering; identity in tests. */
 export type Paint = {
-	fg(color: Severity | 'accent' | 'muted' | 'dim' | 'borderMuted', text: string): string
+	fg(color: Severity | 'accent' | 'muted' | 'dim' | 'text' | 'borderMuted', text: string): string
 	bold(text: string): string
 }
 
@@ -637,16 +637,18 @@ function pct(percent: number, paint: Paint): string {
 	return paint.fg(severity(percent), `${Math.round(percent)}%`)
 }
 
-/** One-line status for the footer: `codex plus  5h ▰▱▱▱▱▱▱▱ 10% (2h08m)   week … · account`. */
+/** One-line status for the footer: `codex plus me@x.com (2/2)   5h ▰▱▱▱▱▱▱▱ 10% (2h08m)   week …`. */
 export function formatStatusLine(
 	provider: string,
 	quota: Quota,
 	paint: Paint = PLAIN,
 	now = Date.now()
 ): string {
+	// Account right after the provider: it is what tells the user which login is being used.
 	const head =
 		paint.fg('accent', displayName(provider)) +
-		(quota.plan ? ` ${paint.fg('muted', quota.plan)}` : '')
+		(quota.plan ? ` ${paint.fg('muted', quota.plan)}` : '') +
+		(quota.account ? ` ${paint.fg('text', quota.account)}` : '')
 	const parts = quota.windows.map((w) => {
 		const reset = w.resetsAt ? ` ${paint.fg('dim', `(${formatDuration(w.resetsAt - now)})`)}` : ''
 		return `${paint.fg('muted', w.label)} ${bar(w.usedPercent, paint, 8, '▰', '▱')} ${pct(w.usedPercent, paint)}${reset}`
@@ -655,7 +657,6 @@ export function formatStatusLine(
 		parts.push(`${paint.fg('muted', 'balance')} ${paint.fg('success', formatBalance(b))}`)
 	}
 	if (quota.alert) parts.push(paint.fg('error', `⚠ ${quota.alert}`))
-	if (quota.account) parts.push(paint.fg('dim', `· ${quota.account}`))
 	return [head, ...parts].join('   ')
 }
 

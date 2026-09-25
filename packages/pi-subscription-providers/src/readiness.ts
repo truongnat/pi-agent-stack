@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { getModels } from '@earendil-works/pi-ai/compat'
 
 import { loadConfig, providerConfig, STATUS_PATH } from './config.ts'
 import { resolveAntigravityCommand, resolveCursorCommand, which } from './detect.ts'
@@ -193,12 +194,64 @@ export async function checkAntigravityReadiness(
 	}
 }
 
-/** Claude Code aliases resolve to the newest model of each tier on Claude's side. */
-export const CLAUDE_CODE_MODELS: DiscoveredModel[] = [
+/** Aliases, used only if Pi's Anthropic catalog is unavailable. */
+const CLAUDE_CODE_ALIASES: DiscoveredModel[] = [
 	{ id: 'sonnet', name: 'Claude Sonnet (Claude Code)', reasoning: true },
 	{ id: 'opus', name: 'Claude Opus (Claude Code)', reasoning: true },
 	{ id: 'haiku', name: 'Claude Haiku (Claude Code)', reasoning: false }
 ]
+
+/** Version tuple from an id: "claude-opus-5-5" → [5, 5], "claude-haiku-4-5" → [4, 5]. */
+function versionOf(id: string): number[] {
+	return (id.match(/\d+/g) ?? []).map(Number)
+}
+
+function newerFirst(x: DiscoveredModel, y: DiscoveredModel): number {
+	const a = versionOf(x.id)
+	const b = versionOf(y.id)
+	for (let i = 0; i < Math.max(a.length, b.length); i++) {
+		const d = (b[i] ?? 0) - (a[i] ?? 0)
+		if (d !== 0) return d
+	}
+	return x.id.localeCompare(y.id)
+}
+
+/**
+ * Claude Code takes the same model ids as Anthropic's API, so mirror Pi's Anthropic catalog
+ * (it tracks Pi upgrades). Dated snapshots duplicate their undated ids and are skipped.
+ */
+export function claudeCodeModels(): DiscoveredModel[] {
+	let catalog: Array<{
+		id: string
+		name: string
+		reasoning: boolean
+		contextWindow: number
+		maxTokens: number
+	}> = []
+	try {
+		catalog = getModels('anthropic')
+	} catch {
+		// Catalog unavailable: fall back to Claude Code's aliases.
+	}
+	const models = catalog
+		.filter((m) => !/-\d{8}$/.test(m.id))
+		.map((m) => ({
+			id: m.id,
+			name: `${m.name.replace(/\s*\(latest\)$/, '')} (Claude Code)`,
+			reasoning: m.reasoning,
+			contextWindow: m.contextWindow,
+			maxTokens: m.maxTokens
+		}))
+		.toSorted(newerFirst)
+	return models.length ? models : CLAUDE_CODE_ALIASES
+}
+
+export const CLAUDE_CODE_MODELS: DiscoveredModel[] = claudeCodeModels()
+
+/** Newest Claude Code model of a tier ("sonnet", "opus", "haiku"). */
+export function newestClaudeCode(tier: string): string | undefined {
+	return CLAUDE_CODE_MODELS.find((m) => m.id === tier || m.id.includes(`-${tier}-`))?.id
+}
 
 /**
  * Claude Code CLI: uses the machine's existing Claude Code login. Anthropic rejects direct

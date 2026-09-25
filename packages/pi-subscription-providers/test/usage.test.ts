@@ -41,7 +41,7 @@ test('codex app-server status becomes the footer line', () => {
 	})
 	assert.equal(
 		formatStatusLine('openai-codex', quota ?? { windows: [] }, undefined, NOW),
-		'codex plus   5h ▰▱▱▱▱▱▱▱ 10% (1h00m)   week ▰▰▰▰▰▰▱▱ 74% (1d0h)   · me@example.com'
+		'codex plus me@example.com   5h ▰▱▱▱▱▱▱▱ 10% (1h00m)   week ▰▰▰▰▰▰▱▱ 74% (1d0h)'
 	)
 	assert.equal(parseCodexStatus({ account: { account: null } }), undefined, 'logged out')
 	assert.equal(
@@ -160,7 +160,7 @@ test('cursor plan and account come from cursor-agent about JSON', async () => {
 		},
 		true
 	)
-	assert.equal(formatStatusLine('cursor', result?.quota ?? { windows: [] }), 'cursor pro   · c@d.e')
+	assert.equal(formatStatusLine('cursor', result?.quota ?? { windows: [] }), 'cursor pro c@d.e')
 })
 
 test('cursor dashboard usage: auto and API pools, limit message', () => {
