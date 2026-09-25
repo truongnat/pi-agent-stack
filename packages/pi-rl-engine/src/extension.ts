@@ -32,11 +32,15 @@ function workspaceFingerprint(cwd: string): string | undefined {
 		hash.update(
 			execFileSync('git', ['diff', 'HEAD', '--binary'], {
 				cwd,
+				// git errors (not a repo, no commits yet) must not spill into the TUI.
+				stdio: ['ignore', 'pipe', 'ignore'],
 				maxBuffer: MAX_WORKSPACE_DIFF_BYTES
 			})
 		)
 		const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
 			cwd,
+			// git errors (not a repo, no commits yet) must not spill into the TUI.
+			stdio: ['ignore', 'pipe', 'ignore'],
 			encoding: 'utf8'
 		})
 		for (const relativePath of untracked.split('\0').filter(Boolean)) {
@@ -58,12 +62,16 @@ function getChangedFiles(cwd: string): string[] {
 	try {
 		const diffFiles = execFileSync('git', ['diff', '--name-only', 'HEAD'], {
 			cwd,
+			// git errors (not a repo, no commits yet) must not spill into the TUI.
+			stdio: ['ignore', 'pipe', 'ignore'],
 			encoding: 'utf8'
 		})
 			.split('\n')
 			.filter(Boolean)
 		const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard'], {
 			cwd,
+			// git errors (not a repo, no commits yet) must not spill into the TUI.
+			stdio: ['ignore', 'pipe', 'ignore'],
 			encoding: 'utf8'
 		})
 			.split('\n')
