@@ -47,8 +47,10 @@ cp "$AGENT_DIR/pi-agent-stack/extensions/ember-ui.ts" "$AGENT_DIR/extensions/emb
 
 cp "$AGENT_DIR/pi-agent-stack/config/jev-harness.json" "$AGENT_DIR/jev-harness.json"
 cp "$AGENT_DIR/pi-agent-stack/config/subscription-providers.json" "$AGENT_DIR/subscription-providers.json"
+cp "$AGENT_DIR/pi-agent-stack/config/orchestrator.json" "$AGENT_DIR/orchestrator.json"
 mkdir -p "$HOME/.pi-dcp"
 cp "$AGENT_DIR/pi-agent-stack/config/dcp.json" "$HOME/.pi-dcp/config.json"
+
 
 # SoL-Pi (NVlabs) — clone if absent, then register user-wide
 SOL_PI_DIR="$AGENT_DIR/git/github.com/NVlabs/SoL-Pi"

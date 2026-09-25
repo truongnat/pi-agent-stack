@@ -1,7 +1,9 @@
 import { defineTool, type ToolDefinition } from '@earendil-works/pi-coding-agent'
 import * as t from 'typebox'
+import { checkOrchestratorGuard } from './guard.ts'
 import { SubagentManager } from './manager.ts'
 import type { SubagentExecutionResult, SubagentTask } from './types.ts'
+
 
 const SubagentTaskSchema = t.Object({
 	role: t.String({
@@ -76,6 +78,24 @@ export function createOrchestratorTools(manager: SubagentManager) {
 		parameters: InvokeSubagentSchema,
 		executionMode: 'sequential',
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			const guardCheck = checkOrchestratorGuard(manager.config)
+			if (!guardCheck.allowed) {
+				return {
+					content: [
+						{
+							type: 'text',
+							text: guardCheck.reason ?? 'Multi-Agent Orchestrator guard blocked execution.'
+						}
+					],
+					isError: true,
+					details: {
+						guardBlocked: true,
+						providers: guardCheck.providers,
+						minRequired: manager.config.minProvidersRequired
+					}
+				}
+			}
+
 			if (!params.subagents || params.subagents.length === 0) {
 				return {
 					content: [{ type: 'text', text: 'No subagent tasks provided.' }],

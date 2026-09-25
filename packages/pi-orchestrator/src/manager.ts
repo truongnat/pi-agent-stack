@@ -1,6 +1,7 @@
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { loadOrchestratorConfig, type OrchestratorConfig } from './config.ts'
 import { getRoleDefinition } from './roster.ts'
 import type {
 	SubagentExecutionResult,
@@ -9,19 +10,22 @@ import type {
 	SubagentTask
 } from './types.ts'
 
-const BASE_DIR = join(homedir(), '.pi-orchestrator')
-const SCRATCHPAD_ROOT = join(BASE_DIR, 'scratchpads')
-
 export class SubagentManager {
 	private instances = new Map<string, SubagentInstance>()
+	public config: OrchestratorConfig
+	public scratchpadRoot: string
 
-	constructor() {
+	constructor(config?: Partial<OrchestratorConfig>) {
+		this.config = { ...loadOrchestratorConfig(), ...(config ?? {}) }
+		this.scratchpadRoot =
+			this.config.scratchpadRoot ?? join(homedir(), '.pi-orchestrator', 'scratchpads')
 		try {
-			mkdirSync(SCRATCHPAD_ROOT, { recursive: true })
+			mkdirSync(this.scratchpadRoot, { recursive: true })
 		} catch {
 			// Directory creation fallback
 		}
 	}
+
 
 	public getSubagent(id: string): SubagentInstance | undefined {
 		return this.instances.get(id)
@@ -81,7 +85,7 @@ export class SubagentManager {
 		const roleDef = getRoleDefinition(task.role)
 		const model = task.modelOverride || roleDef.defaultModelTier
 		const name = task.name || `${task.role}_${id.slice(-4)}`
-		const scratchpadDir = join(SCRATCHPAD_ROOT, id)
+		const scratchpadDir = join(this.scratchpadRoot, id)
 
 		mkdirSync(scratchpadDir, { recursive: true })
 

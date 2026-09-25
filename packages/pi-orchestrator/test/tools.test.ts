@@ -4,8 +4,9 @@ import { SubagentManager } from '../src/manager.ts'
 import { createOrchestratorTools } from '../src/tools.ts'
 
 test('invoke_subagent tool executes tasks and returns structured markdown artifact', async () => {
-	const manager = new SubagentManager()
+	const manager = new SubagentManager({ guard: false })
 	const { invokeSubagentTool } = createOrchestratorTools(manager)
+
 
 	const result = await invokeSubagentTool.execute(
 		'1',

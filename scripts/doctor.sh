@@ -20,7 +20,9 @@ command -v python3 >/dev/null 2>&1 && echo "OK   python3 $(python3 --version | c
 check_file "$AGENT_DIR/settings.json"
 check_file "$AGENT_DIR/jev-harness.json"
 check_file "$AGENT_DIR/subscription-providers.json"
+check_file "$AGENT_DIR/orchestrator.json"
 check_file "$HOME/.pi-dcp/config.json"
+
 check_file "$AGENT_DIR/sol-pi.json"
 check_file "$HOME/.agents/typesafe-harness/gate.py"
 check_file "$HOME/.agents/typesafe-harness/pre-tool.sh"

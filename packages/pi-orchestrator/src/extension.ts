@@ -1,10 +1,16 @@
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
+import { loadOrchestratorConfig } from './config.ts'
+import { checkOrchestratorGuard } from './guard.ts'
 import { SubagentManager } from './manager.ts'
 import { DEFAULT_ROSTER } from './roster.ts'
 import { createOrchestratorTools } from './tools.ts'
 
 export function createOrchestratorExtension(pi: ExtensionAPI) {
 	const manager = new SubagentManager()
+
+	pi.on('session_start', () => {
+		manager.config = loadOrchestratorConfig()
+	})
 
 	function updateStatus(ctx: ExtensionContext) {
 		if (!ctx.hasUI) return
@@ -26,9 +32,25 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 
 	// 2. Register Slash Command: /agents
 	pi.registerCommand('agents', {
-		description: 'Multi-Agent Orchestrator: /agents [list|roster|kill <id>|kill-all|clear]',
+		description: 'Multi-Agent Orchestrator: /agents [status|list|roster|kill <id>|kill-all|clear]',
 		handler: async (args, ctx) => {
 			const input = (args ?? '').trim()
+
+			if (input === 'status') {
+				const guard = checkOrchestratorGuard(manager.config)
+				const providers = guard.providers.length > 0 ? guard.providers.join(', ') : 'none'
+				const statusText = [
+					'### 🤖 Multi-Agent Orchestrator Status:',
+					`- **Enabled**: \`${manager.config.enabled}\``,
+					`- **Guard Active**: \`${manager.config.guard}\` (Min Providers Required: ${manager.config.minProvidersRequired})`,
+					`- **Providers Discovered (${guard.providers.length})**: [${providers}]`,
+					`- **Guard Passed**: ${guard.allowed ? '✅ Ready to dispatch' : `⚠️ Blocked (${guard.reason})`}`,
+					`- **Active Subagents**: ${manager.listSubagents().filter((s) => s.status === 'running').length} running`
+				].join('\n')
+				ctx.ui.notify(statusText, guard.allowed ? 'info' : 'warning')
+				return
+			}
+
 
 			if (input === 'roster') {
 				const roles = Object.values(DEFAULT_ROSTER).map(
