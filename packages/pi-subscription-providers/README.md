@@ -5,7 +5,8 @@ Local Pi package that registers **Cursor** and **Google Antigravity** as custom 
 ## Security
 
 - Never scrapes browser cookies.
-- Never reads or prints OAuth tokens, API keys, `~/.pi/agent/auth.json`, `~/.cursor` credentials, or Antigravity credential files.
+- Never prints OAuth tokens or API keys, and never reads `~/.pi/agent/auth.json`, `~/.cursor` credentials, or Antigravity credential files.
+- Exception, usage display only: Grok's and Cursor's `/usage` are TUI-only (print mode sends them to the model), so the endpoints those modals call are used with the CLI's own unexpired token from `~/.grok/auth.json` / `~/.config/cursor/auth.json` (Pi's xAI OAuth first for Grok). Nothing is refreshed, written, logged, or used for inference.
 - Auth is delegated to:
   - Cursor: `cursor-agent` / verified Cursor `agent` (`status`, `models`, print/stream-json)
   - Antigravity: `agy` stream-json only today. ACP binaries (`agy-acp` / `antigravity-acp`) are detected but reported **not ready** until an ACP stream adapter ships — they are never registered with a fake `default` model.
@@ -56,6 +57,24 @@ pi install ./packages/pi-subscription-providers
 ```
 
 4. Slash command: `/subscription-providers` or `/subscription-providers refresh`
+
+## Usage and quota
+
+One format for every provider, no extra packages. Each provider is read through its own official tool whenever one exists:
+
+- Footer next to the input: the active provider's plan, quota, and account, e.g. `codex plus   5h ▰▱▱▱▱▱▱▱ 10% (3h19m)   week ▰▰▰▰▰▰▱▱ 74% (2d22h)   · me@example.com`, colored at ≥70% / ≥90%. Refreshed on session start, model switch, and after each agent run (cached 1–10 min per provider).
+- `/usage`: one block per provider with the same header, quota bars, reset times, balances, and alerts. Uses cached results (1–10 min); `/usage refresh` bypasses the cache.
+- JEV routing: Cursor/Antigravity quota is written into the status cache as `quotaAvailable`; when every pool of a provider is spent (e.g. Cursor auto + API at 100%), JEV skips it instead of paying for a failing request. Refreshed at session start and after each agent run (cached, no model call).
+- A provider appears only when its tool is installed and signed in; otherwise it is hidden, not reported as an error.
+
+| Provider    | Source                                                                                                                                                                                                                                     |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Codex       | `codex app-server` JSON-RPC (`account/rateLimits/read`, `account/read`), the data behind `/status`                                                                                                                                         |
+| Claude      | `claude auth status` + `claude -p /usage --settings '{"disableAllHooks":true}' --no-session-persistence` (local slash command: no model call, no hooks, no session history)                                                                |
+| Antigravity | `agy -p /usage` (agy's own slash command); remaining % per model group, shown as used %                                                                                                                                                    |
+| Grok        | `/usage` is TUI-only (print mode sends it to the model), so the billing endpoint it calls: `cli-chat-proxy.grok.com/v1/billing?format=credits` + `/v1/settings`, with Pi's xAI OAuth or the Grok CLI login; `XAI_API_KEY` shows `api` only |
+| DeepSeek    | `api.deepseek.com/user/balance` with Pi's API key                                                                                                                                                                                          |
+| Cursor      | `DashboardService/GetCurrentPeriodUsage` (what the TUI `/usage` calls; auto and API pools per billing month) + `cursor-agent about --format json` (plan + account)                                                                         |
 
 ## Costs
 
