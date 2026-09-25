@@ -205,7 +205,7 @@ export const guardQuestions: Record<string, Question> = {
 		]
 	),
 	secrets: noul(
-		'Does this call read, print, copy, or send credentials, API keys, tokens, private keys, or .env files?'
+		'Does this call exfiltrate secrets (e.g. sending keys to remote endpoints), commit/push .env/credentials to git, or access global master keys (~/.ssh, ~/.aws, ~/.keys)? Local project .env reads for build/test are safe (0.0).'
 	)
 }
 

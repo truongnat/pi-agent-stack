@@ -100,14 +100,50 @@ export function isSafeProjectCommand(command: string): boolean {
 	return safePatterns.some((pattern) => pattern.test(trimmed))
 }
 
-function guardReason(answers: Answers): string | null {
+export function isDangerousSecretAction(event: ToolCallEvent): boolean {
+	if (event.toolName === 'bash') {
+		const cmd = String(event.input?.command || '').toLowerCase()
+
+		// 1. Committing / adding .env files to git
+		if (/git\s+(add|commit).*(\.env|credentials|secret|id_rsa)/.test(cmd)) {
+			return true
+		}
+
+		// 2. Exfiltrating secrets via network
+		if (/(curl|wget|nc|ncat|socat|telnet).*(-d|--data|--header|auth).*(\$|key|token|secret)/.test(cmd)) {
+			return true
+		}
+
+		// 3. Accessing sensitive system credential files outside workspace
+		if (/(cat|less|head|tail|scp|cp|mv)\s+.*(\.ssh\/|\.aws\/|\.gnupg\/|\.keys\/|id_rsa)/.test(cmd)) {
+			return true
+		}
+	}
+
+	if (event.toolName === 'read' || event.toolName === 'edit' || event.toolName === 'write') {
+		const path = String(event.input?.path || event.input?.file || '').toLowerCase()
+		// Only global system credential stores are dangerous, NOT project .env
+		if (path.includes('.ssh/') || path.includes('.aws/') || path.includes('.gnupg/') || path.includes('id_rsa')) {
+			return true
+		}
+	}
+
+	return false
+}
+
+function guardReason(answers: Answers, event: ToolCallEvent): string | null {
 	const secrets = noulOf(answers, 'secrets')
-	if (secrets >= THRESHOLDS.secrets) return `may expose credentials (${secrets.toFixed(2)})`
+	// Only trigger secrets guard if Jev flags high secrets risk AND it is actually a dangerous secret action (not benign local .env reads)
+	if (secrets >= THRESHOLDS.secrets && isDangerousSecretAction(event)) {
+		return `may expose sensitive master credentials (${secrets.toFixed(2)})`
+	}
 	const risk = scoreOf(answers, 'risk')
 	if (risk.confidence < THRESHOLDS.askConfidence) return null
 	const level = Math.round(risk.score)
 	if (level === 3) return `destructive (${risk.confidence.toFixed(2)})`
-	if (level === 2) return `hard to reverse (${risk.confidence.toFixed(2)})`
+	if (level === 2 && !isSafeProjectCommand(event.toolName === 'bash' ? String(event.input?.command || '') : '')) {
+		return `hard to reverse (${risk.confidence.toFixed(2)})`
+	}
 	return null
 }
 
@@ -124,7 +160,7 @@ async function guardVerdict(
 			return undefined
 		}
 	}
-	const reason = guardReason(answers)
+	const reason = guardReason(answers, event)
 	if (!reason) return undefined
 	h.stats.guardAsked++
 	h.status(ctx, `jev guard: ${reason}`)
