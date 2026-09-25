@@ -24,6 +24,8 @@ rsync -a --delete \
 	--exclude 'decisions.jsonl' \
 	"$ROOT_DIR/" "$AGENT_DIR/pi-agent-stack/"
 
+(cd "$AGENT_DIR/pi-agent-stack" && npm install --no-audit --no-fund --ignore-scripts)
+
 cd "$AGENT_DIR"
 pi install npm:@davecodes/pi-dcp@0.2.0
 node "$AGENT_DIR/pi-agent-stack/scripts/sync-settings.mjs"

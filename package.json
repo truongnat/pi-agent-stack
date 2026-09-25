@@ -1,0 +1,23 @@
+{
+	"name": "pi-agent-stack",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Pi Coding Agent Stack: Harness, Providers, RL Engine, Tools, and Extensions",
+	"type": "module",
+	"workspaces": [
+		"packages/*"
+	],
+	"dependencies": {
+		"typebox": "^1.1.2"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-coding-agent": "^0.87.1",
+		"@types/node": "^24.0.0",
+		"oxlint": "1.78.0",
+		"prettier": "3.9.6",
+		"typescript": "^5.9.0"
+	},
+	"scripts": {
+		"test": "node --test packages/*/test/*.test.ts"
+	}
+}
