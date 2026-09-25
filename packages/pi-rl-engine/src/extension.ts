@@ -6,6 +6,8 @@ import { join } from 'node:path'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 
 import { ContextualBandit } from './bandit.ts'
+import { LessonStore } from './lessons.ts'
+import { synthesizeLessonFromTrajectory } from './reflection.ts'
 import type { RLConfig, RLStats } from './types.ts'
 import { computeRewardAsync } from './verifier.ts'
 
@@ -49,6 +51,26 @@ function workspaceFingerprint(cwd: string): string | undefined {
 		return hash.digest('hex')
 	} catch {
 		return undefined
+	}
+}
+
+function getChangedFiles(cwd: string): string[] {
+	try {
+		const diffFiles = execFileSync('git', ['diff', '--name-only', 'HEAD'], {
+			cwd,
+			encoding: 'utf8'
+		})
+			.split('\n')
+			.filter(Boolean)
+		const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard'], {
+			cwd,
+			encoding: 'utf8'
+		})
+			.split('\n')
+			.filter(Boolean)
+		return Array.from(new Set([...diffFiles, ...untracked]))
+	} catch {
+		return []
 	}
 }
 
@@ -132,6 +154,7 @@ function recordVerification(
 export function registerRLExtension(pi: ExtensionAPI): void {
 	const config = loadConfig()
 	const bandit = new ContextualBandit()
+	const lessonStore = new LessonStore()
 	const stats: RLStats = {
 		verifications: 0,
 		skippedVerifications: 0,
@@ -141,6 +164,7 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 	}
 
 	let currentTaskType = 'general'
+	let currentPrompt = ''
 	let taskStartFingerprint: string | undefined
 
 	pi.on('session_start', (_event, ctx) => {
@@ -152,6 +176,7 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 	})
 
 	pi.on('before_agent_start', (event, ctx) => {
+		currentPrompt = event.prompt
 		if (config.mode === 'off') return
 		taskStartFingerprint = workspaceFingerprint(ctx.cwd)
 		currentTaskType = taskTypeForPrompt(event.prompt)
@@ -159,6 +184,20 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 		if (ctx.hasUI) {
 			ctx.ui.setStatus('pi-rl', `RL: ${config.mode} [${currentTaskType}]`)
 		}
+
+		// Semantic RL: Find and inject relevant learned lessons for this codebase
+		const repoName = lessonStore.sanitizeRepoName(ctx.cwd)
+		const relevantLessons = lessonStore.findRelevantLessons(event.prompt, repoName, 3)
+
+		if (relevantLessons.length > 0) {
+			const lessonContext = lessonStore.formatLessonsForPrompt(relevantLessons)
+			const basePrompt = event.systemPrompt || ''
+			return {
+				systemPrompt: basePrompt ? `${basePrompt}\n\n${lessonContext}` : lessonContext
+			}
+		}
+
+		return undefined
 	})
 
 	pi.on('agent_end', (_event, ctx) => {
@@ -181,10 +220,33 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 		}
 		const currentModel = ctx.model
 		const thinking = pi.getThinkingLevel()
+		const changedFiles = getChangedFiles(ctx.cwd)
+		const repoName = lessonStore.sanitizeRepoName(ctx.cwd)
+
 		void computeRewardAsync(ctx.cwd, verificationOptions)
-			.then((result) =>
+			.then((result) => {
 				recordVerification(result, stats, bandit, currentTaskType, currentModel, thinking)
-			)
+
+				// Semantic RL: Synthesize and record lesson on passed verification with changes
+				if (result.passed && changedFiles.length > 0) {
+					const lesson = synthesizeLessonFromTrajectory({
+						taskType: currentTaskType,
+						prompt: currentPrompt,
+						repo: repoName,
+						modifiedFiles: changedFiles,
+						verificationPassed: true,
+						testOutput: result.details.test?.output
+					})
+					lessonStore.saveLesson(lesson)
+					logRL({
+						event: 'lesson_synthesized',
+						lessonId: lesson.id,
+						repo: repoName,
+						taskSummary: lesson.taskSummary,
+						ruleLearned: lesson.ruleLearned
+					})
+				}
+			})
 			.catch((error: unknown) => {
 				logRL({
 					event: 'verification_error',
@@ -193,6 +255,7 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 			})
 	})
 
+	// 1. Command: /rl
 	pi.registerCommand('rl', {
 		description: 'RL Engine controls: /rl [on|off|passive|stats]',
 		handler: async (args, ctx) => {
@@ -219,16 +282,97 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 				)
 				.join('\n')
 
+			const repoName = lessonStore.sanitizeRepoName(ctx.cwd)
+			const lessonCount = lessonStore.getLessons(repoName).length
+
 			const report = [
 				`=== Pi RL Engine (${config.mode}) ===`,
 				`Verifications: ${stats.verifications} (Passed: ${stats.passedVerifications}, Failed: ${stats.failedVerifications}, Skipped: ${stats.skippedVerifications})`,
 				`Avg Reward: ${avgReward}`,
-				'Exploration: disabled (candidate generation is not connected)',
+				`Learned Lessons for "${repoName}": ${lessonCount} lesson(s) stored`,
 				`Q-Table Highlights:`,
 				qSummary || '  (no Q-table trials recorded yet)'
 			].join('\n')
 
 			ctx.ui.notify(report, 'info')
+		}
+	})
+
+	// 2. Command: /lessons
+	pi.registerCommand('lessons', {
+		description: 'Manage learned lessons & episodic reflections: /lessons [list|search <query>|summary]',
+		handler: async (args, ctx) => {
+			const input = (args ?? '').trim()
+			const repoName = lessonStore.sanitizeRepoName(ctx.cwd)
+			const lessons = lessonStore.getLessons(repoName)
+
+			if (input.startsWith('search ')) {
+				const query = input.replace('search ', '').trim()
+				const matched = lessonStore.findRelevantLessons(query, repoName, 5)
+				if (matched.length === 0) {
+					ctx.ui.notify(`No lessons found matching query: "${query}"`, 'warning')
+					return
+				}
+				const lines = matched.map(
+					(l) => `• **${l.taskSummary}**\n  - *Rule*: ${l.ruleLearned}\n  - *Tags*: [${(l.tags || []).join(', ')}]`
+				)
+				ctx.ui.notify(`### Matched Lessons for "${query}":\n\n${lines.join('\n\n')}`, 'info')
+				return
+			}
+
+			if (input === 'summary') {
+				const summaryPath = lessonStore.getRepoSummaryPath(repoName)
+				ctx.ui.notify(`Lesson summary report: ${summaryPath}`, 'info')
+				return
+			}
+
+			if (lessons.length === 0) {
+				ctx.ui.notify(
+					`No lessons recorded yet for "${repoName}". Lessons are automatically learned when code edits pass verification tests, or via /reflect <note>.`,
+					'info'
+				)
+				return
+			}
+
+			const items = lessons
+				.slice(-10)
+				.reverse()
+				.map((l) => `• \`${l.id}\` **${l.taskSummary}**\n  💡 *${l.ruleLearned}*`)
+				.join('\n\n')
+
+			ctx.ui.notify(
+				`### 📚 Learned Lessons for "${repoName}" (Total: ${lessons.length})\n\n${items}\n\n*Use \`/lessons search <term>\` or check \`${lessonStore.getRepoSummaryPath(repoName)}\`*`,
+				'info'
+			)
+		}
+	})
+
+	// 3. Command: /reflect
+	pi.registerCommand('reflect', {
+		description: 'Explicitly record a lesson or rule learned for this repository: /reflect <lesson/note>',
+		handler: async (args, ctx) => {
+			const note = (args ?? '').trim()
+			if (!note) {
+				ctx.ui.notify('Usage: /reflect <lesson or rule learned from this session>', 'warning')
+				return
+			}
+
+			const repoName = lessonStore.sanitizeRepoName(ctx.cwd)
+			const changedFiles = getChangedFiles(ctx.cwd)
+			const lesson = synthesizeLessonFromTrajectory({
+				taskType: currentTaskType,
+				prompt: currentPrompt || note,
+				repo: repoName,
+				modifiedFiles: changedFiles,
+				verificationPassed: true,
+				customNote: note
+			})
+
+			lessonStore.saveLesson(lesson)
+			ctx.ui.notify(
+				`✓ Saved lesson \`${lesson.id}\` to "${repoName}" knowledge store:\n"${note}"`,
+				'info'
+			)
 		}
 	})
 
@@ -248,16 +392,6 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 			ctx.ui.notify(
 				`RL Verification:\n${outcome}\nCommand: ${res.details.test?.command || 'none'}\nLatency: ${res.details.latencyMs ?? 0}ms`,
 				res.status === 'failed' ? 'warning' : 'info'
-			)
-		}
-	})
-
-	pi.registerCommand('rl-explore', {
-		description: 'Explain reinforcement-learning exploration availability',
-		handler: async (_args, ctx) => {
-			ctx.ui.notify(
-				'Candidate generation is not connected, so RL exploration is disabled. JEV still chooses the model using verified history; use /rl-verify to run a manual check.',
-				'warning'
 			)
 		}
 	})
