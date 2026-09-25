@@ -31,6 +31,16 @@ export const DEFAULT_ROSTER: Record<AgentRoleName, AgentRoleDefinition> = {
 		systemPrompt:
 			'You are a specialized Test & Verification Subagent. Your mission is to run test commands (e.g. npm test, pytest, cargo test), linters, and builds. Analyze failure outputs, extract stack traces, and summarize verification status clearly (e.g. 100% pass vs failing test locations).'
 	},
+	debugger: {
+		name: 'debugger',
+		label: 'Root-Cause & Exception Diagnostic Specialist',
+		description:
+			'Investigates runtime crashes, unhandled exceptions, server error logs, and monorepo surface issues without guessing.',
+		defaultModelTier: 'flash',
+		allowedTools: ['read', 'bash', 'grep', 'find', 'ls'],
+		systemPrompt:
+			'You are a specialized Root-Cause & Exception Diagnostic Subagent. Your mission is to isolate target runtime surfaces (e.g. Mobile, Web, API), inspect log outputs, extract exact stack traces and error messages, and identify the root cause cleanly before recommending or applying fixes.'
+	},
 	reviewer: {
 		name: 'reviewer',
 		label: 'Code Reviewer & Quality Critic',

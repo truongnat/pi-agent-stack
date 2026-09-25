@@ -177,6 +177,16 @@ export function formatAdvisorBriefingText(params: {
 		// Ignore persona lookup failure
 	}
 
+	try {
+		const orchestratorBridge = (globalThis as any).piAgentStackOrchestrator
+		if (orchestratorBridge?.isReady && orchestratorBridge.isReady()) {
+			const providers = orchestratorBridge.getProviders()
+			lines.push(`• Multi-Agent Dispatch: Available (${providers.length} ready providers: ${providers.join(', ')}). Use invoke_subagent for parallel search, debugging, or sub-tasks.`)
+		}
+	} catch {
+		// Ignore orchestrator lookup failure
+	}
+
 	return lines.join('\n')
 }
 

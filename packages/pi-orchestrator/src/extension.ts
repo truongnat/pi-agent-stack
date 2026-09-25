@@ -30,6 +30,35 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 	pi.registerTool(manageSubagentsTool)
 	pi.registerTool(sendSubagentMessageTool)
 
+	// Expose global bridge
+	;(globalThis as any).piAgentStackOrchestrator = {
+		isReady: () => checkOrchestratorGuard(manager.config).allowed,
+		getProviders: () => checkOrchestratorGuard(manager.config).providers,
+		listSubagents: () => manager.listSubagents()
+	}
+
+	// 2. Lifecycle Hooks
+	pi.on('before_agent_start', (event, ctx) => {
+		const guard = checkOrchestratorGuard(manager.config)
+		if (!guard.allowed) return undefined
+
+		const providerList = guard.providers.join(', ')
+		const orchestratorBlock = [
+			'[Multi-Agent Orchestrator Steering]',
+			`• Status: Active (${guard.providers.length} ready providers: ${providerList})`,
+			'• Subagent Delegation: You have autonomous subagents available via `invoke_subagent`.',
+			'• When to Delegate:',
+			'  - Broad codebase search / multi-file research: dispatch `researcher` subagent to search in background.',
+			'  - Bug diagnosis across monorepos: dispatch `debugger` subagent to isolate logs and stack traces.',
+			'  - Parallel tasks: run multiple sub-tasks concurrently across providers (e.g. testing + auditing).',
+			'• Available Roles: researcher, debugger, coder, reviewer (or custom role name).'
+		].join('\n')
+
+		return {
+			systemPrompt: `${event.systemPrompt}\n\n${orchestratorBlock}`
+		}
+	})
+
 	// 2. Register Slash Command: /agents
 	pi.registerCommand('agents', {
 		description: 'Multi-Agent Orchestrator: /agents [status|list|roster|kill <id>|kill-all|clear]',
