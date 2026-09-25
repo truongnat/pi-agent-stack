@@ -120,9 +120,6 @@ if command -v ai-memory >/dev/null 2>&1 && ! have_skill ai-memory-retrieval; the
 	ai-memory install-instructions --target "$(mktemp)" --skills-scope global --skills-agent agents \
 		>/dev/null || echo "warning: ai-memory skills not installed" >&2
 fi
-if command -v bsk >/dev/null 2>&1 && ! have_skill browser-skill; then
-	bsk install-skill -H codex -y --quiet || echo "warning: browser-skill not installed" >&2
-fi
 
 npx -y skills update -g -y >/dev/null || echo "warning: skills update failed" >&2
 

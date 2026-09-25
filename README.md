@@ -6,7 +6,7 @@ A portable, reproducible setup for the [Pi](https://pi.dev) coding agent: cost-a
 - **Uses the logins you already have.** Cursor, Antigravity, and Claude Code run through their official CLIs, so subscription usage counts against your plans.
 - **Shows plan quota where you type.** A footer line for the active provider, and `/usage` for every signed-in one, without spending model tokens.
 - **Designs UI with Google Stitch.** Stitch's MCP tools, loaded only when design work starts, with design skills consulted before each prompt.
-- **Installs one skill library for all agents.** 83 skills in `~/.agents/skills`, read by Pi, Codex, Cursor, and agy.
+- **Installs one skill library for all agents.** 84 skills in `~/.agents/skills`, read by Pi, Codex, Cursor, and agy.
 
 The repo holds code and portable configuration only: no API keys, Pi auth, session history, caches, `node_modules`, or personal absolute paths.
 
@@ -104,31 +104,32 @@ Oversized results (embedded DESIGN.md, HTML) are slimmed while staying valid JSO
 
 ## Global skills
 
-`install.sh` installs the checklist in [`config/skills.json`](config/skills.json), 83 skills, into `~/.agents/skills`. Skills load on demand and cost no tokens until a task matches one. A skill already present under the same `SKILL.md` name is kept, so local edits are never overwritten.
+`install.sh` installs the checklist in [`config/skills.json`](config/skills.json), 84 skills, into `~/.agents/skills`. Skills load on demand and cost no tokens until a task matches one. A skill already present under the same `SKILL.md` name is kept, so local edits are never overwritten.
 
 <details>
-<summary><b>Public repos</b> (71 skills, <code>npx skills add</code>)</summary>
+<summary><b>Public repos</b> (72 skills, <code>npx skills add</code>)</summary>
 
-| Repo                                                                                            | Skills                                                                                                          |
-| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| [mattpocock/skills](https://github.com/mattpocock/skills)                                       | 36: `tdd`, `diagnosing-bugs`, `code-review`, `research`, `grilling`, `domain-modeling`, `writing-for-agents`, … |
-| [iOfficeAI/OfficeCLI](https://github.com/iOfficeAI/OfficeCLI)                                   | 11: `officecli`, `officecli-docx/-pptx/-xlsx/…`, `morph-ppt`, `morph-ppt-3d`                                    |
-| [truongnat/clean-code-skills](https://github.com/truongnat/clean-code-skills)                   | 7: `clean-code`, `clean-architecture`, `clean-code-review`, …                                                   |
-| [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)                           | 6: `ponytail`, `ponytail-audit`, `-debt`, `-gain`, `-help`, `-review`                                           |
-| [stablyai/orca](https://github.com/stablyai/orca)                                               | `orca-cli`, `orchestration`, `computer-use`                                                                     |
-| [Leonxlnx/taste-skill](https://github.com/Leonxlnx/taste-skill)                                 | `design-taste-frontend`, `stitch-design-taste`                                                                  |
-| [pbakaus/impeccable](https://github.com/pbakaus/impeccable)                                     | `impeccable`                                                                                                    |
-| [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) | `ui-ux-pro-max`                                                                                                 |
-| [multica-ai/andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills)       | `karpathy-guidelines`                                                                                           |
-| [blader/humanizer](https://github.com/blader/humanizer)                                         | `humanizer`                                                                                                     |
-| [typesafe-ai/skills](https://github.com/typesafe-ai/skills)                                     | `typesafe-ai`                                                                                                   |
-| [vercel-labs/skills](https://github.com/vercel-labs/skills)                                     | `find-skills`                                                                                                   |
+| Repo                                                                                            | Skills                                                                                                                                       |
+| ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| [mattpocock/skills](https://github.com/mattpocock/skills)                                       | 36: `tdd`, `diagnosing-bugs`, `code-review`, `research`, `grilling`, `domain-modeling`, `writing-for-agents`, …                              |
+| [iOfficeAI/OfficeCLI](https://github.com/iOfficeAI/OfficeCLI)                                   | 11: `officecli`, `officecli-docx/-pptx/-xlsx/…`, `morph-ppt`, `morph-ppt-3d`                                                                 |
+| [truongnat/clean-code-skills](https://github.com/truongnat/clean-code-skills)                   | 7: `clean-code`, `clean-architecture`, `clean-code-review`, …                                                                                |
+| [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)                           | 6: `ponytail`, `ponytail-audit`, `-debt`, `-gain`, `-help`, `-review`                                                                        |
+| [stablyai/orca](https://github.com/stablyai/orca)                                               | `orca-cli`, `orchestration`, `computer-use`                                                                                                  |
+| [Leonxlnx/taste-skill](https://github.com/Leonxlnx/taste-skill)                                 | `design-taste-frontend`, `stitch-design-taste`                                                                                               |
+| [pbakaus/impeccable](https://github.com/pbakaus/impeccable)                                     | `impeccable`                                                                                                                                 |
+| [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) | `ui-ux-pro-max`                                                                                                                              |
+| [multica-ai/andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills)       | `karpathy-guidelines`                                                                                                                        |
+| [blader/humanizer](https://github.com/blader/humanizer)                                         | `humanizer`                                                                                                                                  |
+| [typesafe-ai/skills](https://github.com/typesafe-ai/skills)                                     | `typesafe-ai`                                                                                                                                |
+| [vercel-labs/skills](https://github.com/vercel-labs/skills)                                     | `find-skills`                                                                                                                                |
+| [Tencent/BrowserSkill](https://github.com/Tencent/BrowserSkill)                                 | `browser-skill` (drives it through the `bsk` CLI: `curl -fsSL https://raw.githubusercontent.com/Tencent/BrowserSkill/main/install.sh \| sh`) |
 
 </details>
 
-- **Vendored in [`skills/`](skills):** `master-writer` (with its learned `USER-VOICE.md`), `reflect`, `remake`, `solution-intelligence`, `xlsx2md`. No public source; copied only when missing.
-- **Installed by their own CLI**, when it is on PATH: `ai-memory-*` ×6 (`ai-memory install-instructions`) and `browser-skill` (`bsk install-skill`).
-- **Not included:** company skills (`bsn-*`, `redmine`, `get-dev-token`, `get-spec`).
+- **Vendored in [`skills/`](skills):** `master-writer` (with its learned `USER-VOICE.md`), `reflect`, `remake`, `solution-intelligence`, `xlsx2md`, `redmine`. No public source; copied only when missing.
+- **Installed by their own CLI**, when it is on PATH: `ai-memory-*` ×6 (`ai-memory install-instructions`).
+- **Not included:** company skills (`bsn-*`, `get-dev-token`, `get-spec`).
 
 ```bash
 npx -y skills update -g -y                                   # update everything later

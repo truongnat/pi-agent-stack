@@ -110,6 +110,12 @@
 			]
 		},
 		{
+			"repo": "Tencent/BrowserSkill",
+			"skills": [
+				"browser-skill"
+			]
+		},
+		{
 			"repo": "truongnat/clean-code-skills",
 			"skills": [
 				"clean-architecture",
@@ -136,6 +142,7 @@
 	],
 	"vendored": [
 		"master-writer",
+		"redmine",
 		"reflect",
 		"remake",
 		"solution-intelligence",
@@ -151,12 +158,6 @@
 				"ai-memory-messaging",
 				"ai-memory-retrieval",
 				"ai-memory-routing-install"
-			]
-		},
-		{
-			"cli": "bsk",
-			"skills": [
-				"browser-skill"
 			]
 		}
 	]
