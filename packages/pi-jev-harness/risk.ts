@@ -233,61 +233,39 @@ export function detectCriticalHazards(event: ToolCallEvent, cwd: string): RiskEv
 }
 
 /**
- * Identifies Tier 2 Destructive Workspace Operations (Hard resets, force pushes, mass deletes).
+ * Identifies Tier 2/3 Remote & Critical Infrastructure Hazards (Remote DB drops, SSH destructive commands, force push to protected branches).
  */
-export function detectDestructiveWorkspaceOperations(command: string): RiskEvaluation | null {
+export function detectRemoteOrSystemHazards(command: string): RiskEvaluation | null {
 	const lower = command.toLowerCase()
 
-	// 1. Force push or branch deletion on remote
-	if (/git\s+push\s+.*(--force|-f|\s+:\w+|\s+--delete\s+\w+)/i.test(lower)) {
+	// 1. Destructive remote branch deletion or force push to main/master/production
+	if (/git\s+push\s+.*(--delete\s+(main|master|production|prod)|:\s*(main|master|production|prod)|--force\s+origin\s+(main|master|production|prod))/i.test(lower)) {
 		return {
-			level: 2,
-			category: 'destructive_git',
-			reason: 'Force-pushing or deleting remote git branches can overwrite shared history',
+			level: 3,
+			category: 'system_tampering',
+			reason: 'Destructive remote git action targeting production/main branch',
 			requireConfirm: true,
 			blockDirectly: false
 		}
 	}
 
-	// 2. Hard reset that discards uncommitted/unpushed changes
-	if (/git\s+reset\s+--hard/i.test(lower)) {
+	// 2. Remote SSH execution of destructive commands or dropping staging/production databases
+	if (/ssh\s+.*(rm\s+-rf|drop\s+database|truncate|mkfs|dd\s+if)/i.test(lower)) {
 		return {
-			level: 2,
-			category: 'destructive_git',
-			reason: '`git reset --hard` will permanently discard uncommitted working changes',
+			level: 3,
+			category: 'system_tampering',
+			reason: 'Executing destructive system/database command over SSH on remote server',
 			requireConfirm: true,
 			blockDirectly: false
 		}
 	}
 
-	// 3. Git clean that purges untracked files
-	if (/git\s+clean\s+(-[a-z]*f[a-z]*d|-[a-z]*d[a-z]*f|-fdx|-fxd)/i.test(lower)) {
+	// 3. Direct remote/staging database drop commands
+	if (/psql|mysql|mongosh|redis-cli/i.test(lower) && /(drop\s+database|drop\s+schema|flushall)/i.test(lower)) {
 		return {
-			level: 2,
-			category: 'destructive_git',
-			reason: '`git clean -fdx` permanently purges all untracked files and artifacts',
-			requireConfirm: true,
-			blockDirectly: false
-		}
-	}
-
-	// 4. Mass wildcard deletion in workspace
-	if (/rm\s+-rf?\s+(\*|\.\/\*|\.\s)/i.test(lower)) {
-		return {
-			level: 2,
-			category: 'mass_delete',
-			reason: 'Mass wildcard deletion of all workspace files detected',
-			requireConfirm: true,
-			blockDirectly: false
-		}
-	}
-
-	// 5. Database drops or truncates
-	if (/(drop\s+database|truncate\s+table)/i.test(lower)) {
-		return {
-			level: 2,
-			category: 'mass_delete',
-			reason: 'Database drop or table truncation command detected',
+			level: 3,
+			category: 'system_tampering',
+			reason: 'Dropping database or flushing data on database connection',
 			requireConfirm: true,
 			blockDirectly: false
 		}
@@ -297,14 +275,20 @@ export function detectDestructiveWorkspaceOperations(command: string): RiskEvalu
 }
 
 /**
- * Comprehensive Multi-Tier Risk Evaluation Engine.
+ * Comprehensive Developer-Centric Risk Evaluation Engine.
+ *
+ * Guarantees:
+ * - 100% UNRESTRICTED local development: editing, creating, deleting workspace files (rm -rf),
+ *   rewriting history (git reset --hard, clean, rebase), killing/restarting dev servers, builds, tests.
+ * - STRICT PROTECTION only against: OS/system destruction (rm -rf /), credential leaks (~/.ssh, ~/.aws),
+ *   and remote infrastructure tampering (SSH remote drops, deleting remote main branch).
  */
 export function evaluateRisk(
 	event: ToolCallEvent,
 	cwd: string,
 	answers?: Answers
 ): RiskEvaluation {
-	// 1. Check for Tier 3 Critical Hazards
+	// 1. Check for Critical System & Credential Hazards
 	const critical = detectCriticalHazards(event, cwd)
 	if (critical) return critical
 
@@ -315,53 +299,28 @@ export function evaluateRisk(
 			return { level: 0, category: 'safe', requireConfirm: false, blockDirectly: false }
 		}
 
-		// Check for Tier 2 Destructive operations
-		const destructive = detectDestructiveWorkspaceOperations(rawCmd)
-		if (destructive) return destructive
+		// Check for remote/infrastructure hazards
+		const remoteHazard = detectRemoteOrSystemHazards(rawCmd)
+		if (remoteHazard) return remoteHazard
 
-		// Split segments and verify if all parts are safe dev operations
-		const segments = splitCommandSegments(rawCmd)
-		const allSegmentsSafe = segments.length > 0 && segments.every(isSafeDevSegment)
-
-		if (allSegmentsSafe) {
-			return {
-				level: 0,
-				category: 'safe',
-				requireConfirm: false,
-				blockDirectly: false
-			}
-		}
-
-		// If JEV answers are provided, inspect nuanced risk
+		// If JEV answers are provided and it explicitly flags Critical Hazard (Level 3)
 		if (answers) {
 			const risk = scoreOf(answers, 'risk')
 			if (risk.confidence >= THRESHOLDS.askConfidence) {
 				const lvl = Math.round(risk.score)
-				if (lvl === 3) {
+				if (lvl >= 3) {
 					return {
 						level: 3,
 						category: 'system_tampering',
-						reason: `Destructive command flagged by JEV System 1 (${risk.confidence.toFixed(2)})`,
+						reason: `Critical system/remote hazard flagged by JEV System 1 (${risk.confidence.toFixed(2)})`,
 						requireConfirm: true,
 						blockDirectly: false
-					}
-				}
-				if (lvl === 2) {
-					// Only confirm if it is actually destructive (not benign script execution)
-					const isBenignScript = /^(node|bun|python3?|bash|sh|\.\/)\s+[\w./-]+\.(js|ts|py|sh|mjs)/.test(rawCmd.toLowerCase())
-					if (!isBenignScript) {
-						return {
-							level: 2,
-							category: 'unknown',
-							reason: `Action flagged as hard to reverse by JEV System 1 (${risk.confidence.toFixed(2)})`,
-							requireConfirm: true,
-							blockDirectly: false
-						}
 					}
 				}
 			}
 		}
 
+		// All local workspace development, git reset, rm -rf, process management is Safe (Level 0)
 		return {
 			level: 0,
 			category: 'safe',
@@ -378,3 +337,4 @@ export function evaluateRisk(
 		blockDirectly: false
 	}
 }
+

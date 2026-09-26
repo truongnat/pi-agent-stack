@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
 	detectCriticalHazards,
-	detectDestructiveWorkspaceOperations,
+	detectRemoteOrSystemHazards,
 	evaluateRisk,
 	isSafeDevSegment,
 	isSensitiveSystemPath
@@ -68,52 +68,41 @@ test('detectCriticalHazards blocks root destruction and credential leaks directl
 	assert.equal(exfiltrate.level, 3)
 })
 
-test('detectDestructiveWorkspaceOperations requires confirmation for hard resets and force pushes', () => {
-	// 1. Hard reset
-	const hardReset = detectDestructiveWorkspaceOperations('git reset --hard HEAD~1')
-	assert.ok(hardReset)
-	assert.equal(hardReset.level, 2)
-	assert.equal(hardReset.requireConfirm, true)
+test('detectRemoteOrSystemHazards guards remote DB drops and deleting remote production branch', () => {
+	// 1. Delete main branch on remote
+	const deleteMain = detectRemoteOrSystemHazards('git push origin --delete main')
+	assert.ok(deleteMain)
+	assert.equal(deleteMain.level, 3)
+	assert.equal(deleteMain.requireConfirm, true)
 
-	// 2. Force push
-	const forcePush = detectDestructiveWorkspaceOperations('git push origin main --force')
-	assert.ok(forcePush)
-	assert.equal(forcePush.level, 2)
-
-	// 3. Clean fdx
-	const cleanFdx = detectDestructiveWorkspaceOperations('git clean -fdx')
-	assert.ok(cleanFdx)
-	assert.equal(cleanFdx.level, 2)
+	// 2. SSH remote destructive command
+	const sshDrop = detectRemoteOrSystemHazards('ssh staging-server "drop database app_staging"')
+	assert.ok(sshDrop)
+	assert.equal(sshDrop.level, 3)
 })
 
-test('evaluateRisk produces clean Level 0 for chained dev server restart command', () => {
+test('evaluateRisk allows all standard workspace developer operations freely (Tier 0)', () => {
 	const cwd = '/Users/test/workspace/my-app'
-	const devCmd = 'kill 17974 && sleep 1; nohup target/debug/db-pro-native >/tmp/db-pro-native.log 2>&1 </dev/null & echo $!'
 
-	const res = evaluateRisk(
-		{ toolName: 'bash', input: { command: devCmd } },
-		cwd
-	)
+	// 1. Git reset hard & clean
+	const resetHard = evaluateRisk({ toolName: 'bash', input: { command: 'git reset --hard HEAD~1' } }, cwd)
+	assert.equal(resetHard.level, 0)
+	assert.equal(resetHard.requireConfirm, false)
 
-	assert.equal(res.level, 0)
-	assert.equal(res.category, 'safe')
-	assert.equal(res.requireConfirm, false)
-	assert.equal(res.blockDirectly, false)
-})
+	const cleanFdx = evaluateRisk({ toolName: 'bash', input: { command: 'git clean -fdx' } }, cwd)
+	assert.equal(cleanFdx.level, 0)
+	assert.equal(cleanFdx.requireConfirm, false)
 
-test('evaluateRisk handles complex dev server restart with conditional checks and subshells', () => {
-	const cwd = '/Users/test/workspace/my-app'
-	const complexCmd =
+	// 2. rm -rf within workspace
+	const rmRf = evaluateRisk({ toolName: 'bash', input: { command: 'rm -rf target/ dist/ node_modules/ tmp/' } }, cwd)
+	assert.equal(rmRf.level, 0)
+	assert.equal(rmRf.requireConfirm, false)
+
+	// 3. Complex dev server restart
+	const devCmd =
 		"kill 21761; sleep 1; if ps -p 21761 -o pid= >/dev/null; then echo 'App did not exit'; exit 1; fi; (target/debug/db-pro-native >/tmp/db-pro-native.log 2>&1 & echo \"Started db-pro-native PID $!\")"
-
-	const res = evaluateRisk(
-		{ toolName: 'bash', input: { command: complexCmd } },
-		cwd
-	)
-
-	assert.equal(res.level, 0)
-	assert.equal(res.category, 'safe')
-	assert.equal(res.requireConfirm, false)
-	assert.equal(res.blockDirectly, false)
+	const restartRes = evaluateRisk({ toolName: 'bash', input: { command: devCmd } }, cwd)
+	assert.equal(restartRes.level, 0)
+	assert.equal(restartRes.requireConfirm, false)
 })
 

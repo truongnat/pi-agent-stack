@@ -196,12 +196,12 @@ export const loopQuestions: Record<string, Question> = {
 // ---- 5. guard: a compact version of pi-jev-guard, asked in the same request as loop control ----
 export const guardQuestions: Record<string, Question> = {
 	risk: score(
-		'How hard would it be to undo what this tool call does? Judge the actual command or edit in `input`.',
+		'Is this action a critical danger to the OS/machine, remote infrastructure, or credentials? (Local workspace operations, builds, file edits/deletions, git reset, and dev server lifecycle are routine level 0/1).',
 		[
-			'Only reads or inspects: reading, listing, searching, git status or diff, tests, type checks, a GET request.',
-			'Easy to undo: editing or creating project files, project-local installs, branch, add, commit, mkdir, build.',
-			'Awkward to undo or outside the project: push, reset --hard, discarding checkout, deleting files, editing dotfiles or global config, killing processes, POST to a real service, sending messages.',
-			'Cannot be undone or damages the machine or data: rm -rf on broad paths, force push, deleting remote branches, dropping databases, curl piped to a shell, sudo that changes the OS.'
+			'Safe local read/inspect: reading, listing, searching, git status or diff, running tests, type checks.',
+			'Routine local development: editing/creating/deleting workspace files, rm/clean in workspace, git reset/rebase, process lifecycle & dev server restarts, builds, packages.',
+			'Remote infrastructure & repository mutations: pushing to remote repository, SSH remote execution, modifying external network services.',
+			'Critical system hazard & data loss: destructive OS commands (rm -rf / or ~), disk formatting, master credential theft (~/.ssh, ~/.aws), dropping production databases.'
 		]
 	),
 	secrets: noul(
