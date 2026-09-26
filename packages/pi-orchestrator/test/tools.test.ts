@@ -127,3 +127,50 @@ test('invoke_subagent tool executes with require_consensus and returns consensus
 	assert.match(firstText, /Multi-Agent Consensus:/)
 	assert.match(firstText, /Primary Task/)
 })
+
+test('invoke_subagent renderCall and renderResult render clean TUI components with markdown support', async () => {
+	const manager = new SubagentManager({ guard: false })
+	const { invokeSubagentTool, manageSubagentsTool } = createOrchestratorTools(manager)
+
+	const mockTheme = {
+		fg: (_color: string, text: string) => text,
+		bg: (_color: string, text: string) => text,
+		bold: (text: string) => text,
+		underline: (text: string) => text,
+		heading: (text: string) => text,
+		listBullet: (text: string) => text,
+		code: (text: string) => text
+	}
+
+	// 1. Call rendering
+	const callComp = (invokeSubagentTool as any).renderCall(
+		{ subagents: [{ role: 'researcher' }, { role: 'coder' }], parallel: true },
+		mockTheme
+	)
+	assert.ok(callComp)
+	assert.match(callComp.text, /Dispatch 2 subagents/)
+	assert.match(callComp.text, /researcher/)
+
+	// 2. Result rendering (collapsed)
+	const result = await invokeSubagentTool.execute(
+		'1',
+		{ subagents: [{ role: 'researcher', prompt: 'Find auth files' }], parallel: true },
+		new AbortController().signal,
+		() => {},
+		{ cwd: process.cwd() } as any
+	)
+
+	const collapsedComp = (invokeSubagentTool as any).renderResult(result, { expanded: false }, mockTheme)
+	assert.ok(collapsedComp)
+	assert.match(collapsedComp.text, /Orchestrator: Dispatched 1 Subagent/)
+
+	// 3. Result rendering (expanded with Markdown)
+	const expandedComp = (invokeSubagentTool as any).renderResult(result, { expanded: true }, mockTheme)
+	assert.ok(expandedComp)
+
+	// 4. Manage subagents call & result renderers
+	const manageCallComp = (manageSubagentsTool as any).renderCall({ action: 'list' }, mockTheme)
+	assert.ok(manageCallComp)
+	assert.match(manageCallComp.text, /manage_subagents/)
+})
+
