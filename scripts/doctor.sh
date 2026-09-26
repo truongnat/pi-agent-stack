@@ -22,6 +22,8 @@ check_file "$AGENT_DIR/jev-harness.json"
 check_file "$AGENT_DIR/subscription-providers.json"
 check_file "$AGENT_DIR/orchestrator.json"
 check_file "$AGENT_DIR/persona-config.json"
+check_file "$AGENT_DIR/themes/ember.json"
+check_file "$AGENT_DIR/themes/ember-light.json"
 check_file "$HOME/.pi-dcp/config.json"
 
 check_file "$AGENT_DIR/sol-pi.json"
@@ -51,6 +53,12 @@ if [[ -f "$HOME/.keys/typesafe.env" ]]; then
 	echo "OK   ~/.keys/typesafe.env"
 else
 	echo "WARN ~/.keys/typesafe.env not found; TypeSafe harness will run in offline/fallback mode"
+fi
+
+if [[ -f "$HOME/.keys/stitch.env" || -f "$HOME/.keys/stitch.key" || -f "$HOME/.keys/stitch-api-key" ]]; then
+	echo "OK   ~/.keys/stitch.env"
+else
+	echo "INFO ~/.keys/stitch.env not found; Google Stitch tools will stay inactive (or run /stitch key)"
 fi
 
 if [[ -f "$HOME/.claude/.credentials.json" ]]; then

@@ -24,7 +24,7 @@ rsync -a --delete \
 	--exclude 'decisions.jsonl' \
 	"$ROOT_DIR/" "$AGENT_DIR/pi-agent-stack/"
 
-(cd "$AGENT_DIR/pi-agent-stack" && npm install --no-audit --no-fund --ignore-scripts)
+(cd "$AGENT_DIR/pi-agent-stack" && bun install --ignore-scripts)
 
 cd "$AGENT_DIR"
 pi install npm:@davecodes/pi-dcp@0.2.0
@@ -46,6 +46,10 @@ cp "$AGENT_DIR/pi-agent-stack/config/typesafe-gate.ts" "$AGENT_DIR/extensions/ty
 # Ember chrome: model rail above the editor (repaints on every model change), spinner, title.
 cp "$AGENT_DIR/pi-agent-stack/extensions/ember-ui.ts" "$AGENT_DIR/extensions/ember-ui.ts"
 
+# Themes (ember, ember-light)
+mkdir -p "$AGENT_DIR/themes"
+cp "$AGENT_DIR/pi-agent-stack/themes/"*.json "$AGENT_DIR/themes/"
+
 cp "$AGENT_DIR/pi-agent-stack/config/jev-harness.json" "$AGENT_DIR/jev-harness.json"
 cp "$AGENT_DIR/pi-agent-stack/config/subscription-providers.json" "$AGENT_DIR/subscription-providers.json"
 cp "$AGENT_DIR/pi-agent-stack/config/orchestrator.json" "$AGENT_DIR/orchestrator.json"
@@ -65,7 +69,7 @@ if [[ ! -d "$SOL_PI_DIR/.git" ]]; then
 else
 	echo "SoL-Pi already cloned at $SOL_PI_DIR"
 fi
-(cd "$SOL_PI_DIR" && npm ci --ignore-scripts --no-audit --no-fund)
+(cd "$SOL_PI_DIR" && bun install --ignore-scripts)
 pi install "$SOL_PI_DIR" --approve
 
 # Write user-wide sol-pi.json config (observationPack + actionFusion enabled)
@@ -112,8 +116,8 @@ while IFS=$'\t' read -r repo depth names; do
 		echo "skills from $repo: installing ${missing[*]}"
 		flags=(-g -y -a codex)
 		[[ "$depth" == 1 ]] && flags+=(--full-depth)
-		# </dev/null: npx must not read the remaining manifest lines from this loop's stdin.
-		npx -y skills add "$repo" -s "${missing[@]}" "${flags[@]}" </dev/null >/dev/null ||
+		# </dev/null: bunx must not read the remaining manifest lines from this loop's stdin.
+		bunx skills add "$repo" -s "${missing[@]}" "${flags[@]}" </dev/null >/dev/null ||
 			echo "warning: could not install skills from $repo" >&2
 	fi
 done < <(manifest 'for (const s of require(process.argv[1]).sources)
@@ -131,7 +135,7 @@ if command -v ai-memory >/dev/null 2>&1 && ! have_skill ai-memory-retrieval; the
 		>/dev/null || echo "warning: ai-memory skills not installed" >&2
 fi
 
-npx -y skills update -g -y >/dev/null || echo "warning: skills update failed" >&2
+bunx skills update -g -y >/dev/null || echo "warning: skills update failed" >&2
 
 echo
 echo "Pi agent stack installed."
@@ -149,12 +153,12 @@ fi
 if [[ -f "$HOME/.keys/typesafe.env" ]]; then
 	echo "  TypeSafe key file: found at ~/.keys/typesafe.env"
 else
-	echo "  TypeSafe key file: missing; add API_KEY to ~/.keys/typesafe.env"
+	echo "  TypeSafe key file: missing; copy config/typesafe.env.example to ~/.keys/typesafe.env"
 fi
-if [[ -f "$HOME/.keys/stitch.key" || -f "$HOME/.keys/stitch.env" || -f "$HOME/.keys/stitch-api-key" ]]; then
-	echo "  Stitch key file: found in ~/.keys/"
+if [[ -f "$HOME/.keys/stitch.env" || -f "$HOME/.keys/stitch.key" || -f "$HOME/.keys/stitch-api-key" ]]; then
+	echo "  Stitch key file: found at ~/.keys/stitch.env"
 else
-	echo "  Stitch key file: missing; add STITCH_API_KEY to ~/.keys/stitch.key or run /stitch key"
+	echo "  Stitch key file: missing; copy config/stitch.env.example to ~/.keys/stitch.env or run /stitch key"
 fi
 
 echo "Run: pi list"

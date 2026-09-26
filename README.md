@@ -28,16 +28,16 @@ model:    gpt-5.6-luna
 thinking: high
 ```
 
-Keys live in `~/.keys/` and are never committed:
+Keys live in `~/.keys/` as `.env` files and are never committed:
 
 ```bash
 mkdir -p ~/.keys
-cp config/jev.env.example ~/.keys/jev.env      # edit, then source it from your shell startup
-echo 'export API_KEY="…"' >> ~/.keys/typesafe.env  # TypeSafe harness
-echo 'STITCH_API_KEY="…"' >> ~/.keys/stitch.key    # Google Stitch MCP key
+cp config/jev.env.example ~/.keys/jev.env           # JEV routing (source from shell startup or ~/.keys/jev.env)
+cp config/typesafe.env.example ~/.keys/typesafe.env # TypeSafe harness
+cp config/stitch.env.example ~/.keys/stitch.env     # Google Stitch MCP key
 ```
 
-Google Stitch reads its key from `~/.keys/stitch.key`, `~/.keys/stitch.env`, `STITCH_API_KEY`, or via `/stitch key` inside Pi.
+Google Stitch reads its key from `~/.keys/stitch.env`, `STITCH_API_KEY`, or via `/stitch key` inside Pi.
 
 Verify:
 
@@ -188,17 +188,17 @@ The RL engine updates its Q-table only when a turn changed the worktree and the 
 | `~/.agents/skills/`                              | Global skills shared by all agents                  |
 | `~/.jev-harness/log.jsonl`                       | JEV decision log, including `route-shadow` rows     |
 | `~/.jev-harness/spill/`                          | Full text of trimmed tool results (24 h)            |
-| `~/.keys/`                                       | API keys (JEV, TypeSafe, Stitch)                    |
+| `~/.keys/`                                       | API keys as `.env` files (jev.env, typesafe.env, stitch.env) |
 
 ## Development
 
 Each package checks on its own (typecheck, lint, format, tests):
 
 ```bash
-cd packages/pi-jev-harness && npm ci && npm run check
-cd ../pi-subscription-providers && npm ci && npm run check
-cd ../pi-stitch && npm ci && npm run check
-cd ../pi-rl-engine && npm ci && npm run check
+cd packages/pi-jev-harness && bun install && bun run check
+cd ../pi-subscription-providers && bun install && bun run check
+cd ../pi-stitch && bun install && bun run check
+cd ../pi-rl-engine && bun install && bun run check
 cd ../../tools/xlsx2md && python3 -m pytest -q
 ```
 

@@ -10,10 +10,10 @@ import { dirname, join } from "node:path";
 
 /** Google's official remote MCP server for Stitch (stateless, plain JSON responses). */
 export const STITCH_MCP_URL = "https://stitch.googleapis.com/mcp";
-export const DEFAULT_KEY_FILE = join(homedir(), ".keys", "stitch.key");
+export const DEFAULT_KEY_FILE = join(homedir(), ".keys", "stitch.env");
 export const KEY_FILES = [
-  join(homedir(), ".keys", "stitch.key"),
   join(homedir(), ".keys", "stitch.env"),
+  join(homedir(), ".keys", "stitch.key"),
   join(homedir(), ".keys", "stitch-api-key"),
   join(homedir(), ".stitch", "api-key"),
 ];
@@ -47,7 +47,7 @@ export interface McpCallResult {
 
 export type Fetch = typeof fetch;
 
-/** `STITCH_API_KEY`, else candidate key files in ~/.keys/ (stitch.key, stitch.env, stitch-api-key). */
+/** `STITCH_API_KEY`, else candidate key files in ~/.keys/ (stitch.env, stitch.key, stitch-api-key). */
 export function readApiKey(file?: string): string | undefined {
   const fromEnv = process.env.STITCH_API_KEY?.trim();
   if (fromEnv) return parseKey(fromEnv);
@@ -69,7 +69,7 @@ export function readApiKey(file?: string): string | undefined {
 /** Accept a bare key or an env-style line: `[export] STITCH_API_KEY="…"`. */
 export function parseKey(raw: string): string | undefined {
   const line = raw.trim();
-  const m = /^(?:export\s+)?STITCH_API_KEY\s*=\s*(.*)$/.exec(line);
+  const m = /^(?:export\s+)?STITCH_API_KEY\s*=\s*(.*)$/m.exec(line);
   const value = (m ? (m[1] ?? "") : line)
     .trim()
     .replace(/^(["'])(.*)\1$/, "$2");
@@ -78,7 +78,7 @@ export function parseKey(raw: string): string | undefined {
 
 export function saveApiKey(key: string, file = DEFAULT_KEY_FILE): void {
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-  writeFileSync(file, `${key.trim()}\n`, { mode: 0o600 });
+  writeFileSync(file, `export STITCH_API_KEY="${key.trim()}"\n`, { mode: 0o600 });
   chmodSync(file, 0o600);
 }
 

@@ -228,7 +228,7 @@ export function registerStitchExtension(
         );
         if (!key?.trim()) return;
         saveApiKey(key);
-        ctx.ui.notify("Stitch API key saved to ~/.keys/stitch-api-key", "info");
+        ctx.ui.notify("Stitch API key saved to ~/.keys/stitch.env", "info");
         return;
       }
       if (cmd === "on" || cmd === "off") {
