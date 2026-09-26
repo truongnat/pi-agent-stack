@@ -113,19 +113,44 @@ function loopVerdict(
 
 export function isSafeProjectCommand(command: string): boolean {
 	const trimmed = command.trim().toLowerCase()
+
+	// Pure local safe commands or sub-commands in chains (&&, ;, |)
 	const safePatterns = [
 		/^(npm|pnpm|yarn|bun)\s+(run\s+)?(build|test|lint|typecheck|dev|start|check|format|compile|analyze|watch)/,
 		/^(npm|pnpm|yarn|bun)\s+(test|build|lint|start|dev|run)/,
 		/^(npm|pnpm|yarn|bun)\s+(install|add|ci|i)(\s+.*)?$/,
 		/^flutter\s+(build|run|test|analyze|pub\s+get|clean|doctor|devices|logs)/,
-		/^cargo\s+(build|test|check|run|clippy|fmt)/,
+		/^cargo\s+(build|test|check|run|clippy|fmt|bench)/,
 		/^go\s+(build|test|run|vet|mod\s+tidy)/,
 		/^(python3?|pytest|ruff|flake8|black|mypy)\s+/,
-		/^git\s+(status|diff|log|branch|checkout|switch|show|add|commit|fetch|pull)/,
+		/^git\s+(status|diff|log|branch|checkout|switch|show|add|commit|fetch|pull|stash)/,
 		/^(make|cmake|ninja|mvn|gradle)\s+/,
-		/^(which|where|cat|ls|pwd|echo|head|tail|wc|find|grep|rg|tree)\b/
+		/^(which|where|cat|ls|pwd|echo|head|tail|wc|find|grep|rg|tree|mkdir|touch|cp|mv)\b/,
+		// Process & local dev server lifecycle management
+		/^(kill|pkill|killall|pgrep|ps|lsof|sleep|nohup|wait|source|\.)\b/,
+		// Executing local workspace / target binaries
+		/^(\.\/|target\/(debug|release)\/|dist\/|build\/|bin\/)/,
+		// Local HTTP probes
+		/^curl\s+.*(localhost|127\.0\.0\.1|0\.0\.0\.0)/,
+		/^wget\s+.*(localhost|127\.0\.0\.1|0\.0\.0\.0)/
 	]
-	return safePatterns.some((pattern) => pattern.test(trimmed))
+
+	// Check if entire command matches or if all chained subcommands match
+	if (safePatterns.some((pattern) => pattern.test(trimmed))) {
+		return true
+	}
+
+	// Split by chaining operators (&&, ;, ||) and verify each segment
+	const segments = trimmed.split(/&&|;|\|\|/).map((s) => s.trim().replace(/^nohup\s+/, '')).filter(Boolean)
+	if (segments.length > 1) {
+		const allSafe = segments.every((seg) => {
+			const cleanSeg = seg.replace(/&$/, '').trim()
+			return safePatterns.some((pattern) => pattern.test(cleanSeg))
+		})
+		if (allSafe) return true
+	}
+
+	return false
 }
 
 export function isDangerousSecretAction(event: ToolCallEvent): boolean {
@@ -169,8 +194,18 @@ function guardReason(answers: Answers, event: ToolCallEvent): string | null {
 	if (risk.confidence < THRESHOLDS.askConfidence) return null
 	const level = Math.round(risk.score)
 	if (level === 3) return `destructive (${risk.confidence.toFixed(2)})`
-	if (level === 2 && !isSafeProjectCommand(event.toolName === 'bash' ? String(event.input?.command || '') : '')) {
-		return `hard to reverse (${risk.confidence.toFixed(2)})`
+
+	// Level 2: only block truly hazardous filesystem actions, not dev process/server runs
+	if (level === 2 && event.toolName === 'bash') {
+		const cmd = String(event.input?.command || '')
+		if (isSafeProjectCommand(cmd)) {
+			return null
+		}
+		// Explicitly check for hazardous patterns (force push, hard reset, drop database, recursive remove)
+		if (/(git\s+push.*--force|git\s+reset\s+--hard|rm\s+-rf?\s+[~/]|drop\s+database|truncate)/i.test(cmd)) {
+			return `hard to reverse (${risk.confidence.toFixed(2)})`
+		}
+		return null
 	}
 	return null
 }
