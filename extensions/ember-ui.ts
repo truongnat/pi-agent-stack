@@ -31,6 +31,26 @@ function hasJevKey(): boolean {
 	return false;
 }
 
+const BG_RECESSED = "\x1b[48;2;30;32;48m";
+const BG_ROUTER = "\x1b[48;2;36;39;58m";
+
+function getSubscriptionChip(): string {
+	try {
+		const statusFile = join(homedir(), ".pi", "agent", "subscription-providers-status.json");
+		if (existsSync(statusFile)) {
+			const snap = JSON.parse(readFileSync(statusFile, "utf8"));
+			const chips: string[] = [];
+			if (snap.cursor?.ready) chips.push(`${MUTE}cur:${RESET}${EMERALD}ok${RESET}`);
+			if (snap.antigravity?.ready) chips.push(`${MUTE}agy:${RESET}${EMERALD}ok${RESET}`);
+			if (snap["claude-code"]?.ready) chips.push(`${MUTE}cld:${RESET}${EMERALD}ok${RESET}`);
+			if (chips.length > 0) return chips.join(" ");
+		}
+	} catch {
+		// Ignore
+	}
+	return `${MUTE}routes:ready${RESET}`;
+}
+
 function rail(ctx: {
 	model?: { id?: string; provider?: string };
 	sessionManager?: { getModel?: () => { id?: string } };
@@ -41,25 +61,26 @@ function rail(ctx: {
 		ctx.model?.id ||
 		ctx.sessionManager?.getModel?.()?.id ||
 		"default";
-	const provider = ctx.model?.provider || "";
-	const modelLabel = provider
-		? `${MUTE}${provider}/${RESET}${BOLD_TEXT}${model}${RESET}`
-		: `${BOLD_TEXT}${model}${RESET}`;
+	const provider = ctx.model?.provider || "custom";
+	const providerBadge = `${MUTE}[${RESET}${BOLD_COPPER}${provider}${RESET}${MUTE}]${RESET}`;
+	const modelLabel = `${BOLD_TEXT}${model}${RESET}`;
 
 	const thinking =
 		ctx.thinkingLevel ||
 		ctx.getThinkingLevel?.() ||
 		"high";
-	const thinkBadge = `${MAUVE}think: ${thinking}${RESET}`;
+	const thinkBadge = `${MAUVE}⚡ ${thinking}${RESET}`;
 
 	const jevActive = hasJevKey();
 	const jevBadge = jevActive
-		? `${EMERALD}jev: active${RESET}`
-		: `${AMBER}jev: offline${RESET}`;
+		? `${EMERALD}🛡️ jev${RESET}`
+		: `${AMBER}🛡️ off${RESET}`;
 
-	const brand = `${BOLD_COPPER}● ember${RESET}`;
+	const subChip = getSubscriptionChip();
+	const brand = `${BOLD_COPPER}● EMBER${RESET}`;
 
-	return [` ${brand}${SEP}${modelLabel}${SEP}${thinkBadge}${SEP}${jevBadge}`];
+	const line1 = ` ┌─[ ${brand} ]──[ ${providerBadge} ${modelLabel} ]──[ ${thinkBadge} ]──[ ${jevBadge} ]──[ ${subChip} ]`;
+	return [line1];
 }
 
 export default function emberUi(pi: {
