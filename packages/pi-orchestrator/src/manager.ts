@@ -287,10 +287,11 @@ export class SubagentManager {
 		cwd: string,
 		signal?: AbortSignal,
 		onChunk?: (chunk: string) => void,
-		timeoutMs = 180_000
+		timeoutMs = 180_000,
+		extraEnv: Record<string, string> = {}
 	): Promise<{ stdout: string; stderr: string; code: number | null }> {
 		const envPath = `${homedir()}/.bun/bin:${homedir()}/.local/bin:${process.env.PATH || ''}`
-		const env = { ...process.env, PATH: envPath }
+		const env = { ...process.env, PATH: envPath, ...extraEnv }
 
 		return new Promise((resolve) => {
 			try {
@@ -379,9 +380,9 @@ export class SubagentManager {
 		)
 
 		// 1. Try Native Pi Subagent Execution (Primary & Most Capable)
-		// Crucial: Pass --no-extensions --no-skills --no-themes to avoid recursive plugin overhead
+		// Crucial: Load extensions so custom providers (antigravity, cursor, claude) are available,
+		// but set PI_SUBAGENT_WORKER=1 to prevent recursive orchestrator nesting.
 		const piArgs = [
-			'--no-extensions',
 			'--no-skills',
 			'--no-themes',
 			'--tools',
@@ -396,7 +397,7 @@ export class SubagentManager {
 		this.logToScratchpad(instance, {
 			timestamp: Date.now(),
 			type: 'info',
-			message: `Dispatching native pi worker with tools: [${builtInAllowed.join(', ')}]`
+			message: `Dispatching native pi worker with model "${instance.model}" and tools: [${builtInAllowed.join(', ')}]`
 		})
 
 		let streamedBytes = 0
@@ -458,7 +459,8 @@ export class SubagentManager {
 				cwd,
 				options.signal,
 				handleChunk,
-				180_000
+				180_000,
+				{ PI_SUBAGENT_WORKER: '1' }
 			)
 			if (piResult.code === 0 && piResult.stdout) {
 				return {

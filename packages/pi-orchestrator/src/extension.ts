@@ -11,6 +11,13 @@ import { DEFAULT_ROSTER } from './roster.ts'
 import { createOrchestratorTools, getRoleIcon } from './tools.ts'
 
 export function createOrchestratorExtension(pi: ExtensionAPI) {
+	// If running as a spawned subagent worker, disable recursive orchestrator registration
+	if (process.env.PI_SUBAGENT_WORKER === '1') {
+		return {
+			manager: null
+		}
+	}
+
 	const manager = new SubagentManager()
 
 	pi.on('session_start', () => {
