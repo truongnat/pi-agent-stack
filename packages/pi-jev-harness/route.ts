@@ -7,6 +7,7 @@ import type {
 } from '@earendil-works/pi-coding-agent'
 
 import { generateAdvisorBriefing } from './advisor.ts'
+import { compactHistory } from './compactor.ts'
 import { choiceOf, noulOf, relevanceQuestions, routingQuestions, THRESHOLDS } from './jev.ts'
 import { applyModelPolicy, routeModels, scaleThinkingForTurn } from './model-route.ts'
 import { active, short, THRESHOLD_ALWAYS_KEEP, type Candidate, type Harness } from './types.ts'
@@ -418,6 +419,22 @@ export async function onBeforeAgentStart(
 	if (fetched?.message && ctx.hasUI) ctx.ui.notify(`jev ${fetched.note}`, 'info')
 	h.status(ctx, notes[0] ? `jev: ${notes.join(' · ')}` : `jev ${h.config.mode}`)
 	if (h.config.mode !== 'on') return undefined
+
+	// Automatic Context Compaction on message history when enabled
+	if (h.config.contextCompaction !== false && (event as any).messages && Array.isArray((event as any).messages)) {
+		const compactionRes = compactHistory((event as any).messages, {
+			thresholdChars: h.config.compactThresholdChars ?? 24_000
+		})
+		if (compactionRes.compactedCount > 0) {
+			h.stats.compactionRuns++
+			h.stats.compactionCharsSaved += compactionRes.charsSaved
+			h.log({
+				what: 'context_compaction',
+				compactedCount: compactionRes.compactedCount,
+				charsSaved: compactionRes.charsSaved
+			})
+		}
+	}
 
 	const messageParts: string[] = []
 	if (advised?.briefingText) {

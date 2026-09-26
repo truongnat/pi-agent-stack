@@ -28,6 +28,8 @@ export type Config = {
 	routeMinSchemaChars: number
 	prefetchMaxCandidates: number
 	compactionReserveTokens: number
+	contextCompaction: boolean
+	compactThresholdChars: number
 	subscriptionRouting: boolean
 	subscriptionMaxLatencyMs: number
 	subscriptionStatusTtlMs: number

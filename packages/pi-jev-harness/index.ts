@@ -42,6 +42,8 @@ const DEFAULTS: Config = {
 	routeMinSchemaChars: 4500,
 	prefetchMaxCandidates: 20,
 	compactionReserveTokens: 16384,
+	contextCompaction: true,
+	compactThresholdChars: 24_000,
 	subscriptionRouting: true,
 	subscriptionMaxLatencyMs: 20_000,
 	subscriptionStatusTtlMs: 5 * 60_000,
