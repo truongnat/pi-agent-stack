@@ -8,12 +8,20 @@ export interface FileEntry {
 	size: number
 }
 
+export interface SearchMatch {
+	path: string
+	line_number: number
+	line_text: string
+}
+
 export interface NativeBridge {
 	isAvailable: boolean
 	version: string
 	countTokens: (text: string, modelFamily?: string) => number
+	countTokensBPE: (text: string, encoding?: string) => number
 	hashToolSignature: (toolName: string, canonicalArgs: string) => string
 	scanDirectory: (dirPath: string, maxDepth?: number) => FileEntry[]
+	searchWorkspace: (dirPath: string, query: string, maxResults?: number) => SearchMatch[]
 }
 
 // Fallback implementations in pure TypeScript
@@ -32,6 +40,10 @@ function fallbackHashToolSignature(toolName: string, canonicalArgs: string): str
 }
 
 function fallbackScanDirectory(): FileEntry[] {
+	return []
+}
+
+function fallbackSearchWorkspace(): SearchMatch[] {
 	return []
 }
 
@@ -76,32 +88,40 @@ function findNativeLibrary(): string | null {
 
 let nativeLib: any = null
 let isNative = false
-let nativeVersion = '0.1.0-ts-fallback'
+let nativeVersion = '0.2.0-ts-fallback'
 
 try {
 	const libPath = findNativeLibrary()
 	if (libPath && typeof (globalThis as any).Bun !== 'undefined') {
-		const { dlopen, FFIType, ptr, CString } = (globalThis as any).Bun.FFI
+		const { dlopen, CString } = (globalThis as any).Bun.FFI
 		nativeLib = dlopen(libPath, {
 			pi_core_version: {
 				args: [],
-				returns: FFIType.ptr
+				returns: 'ptr'
 			},
 			pi_count_tokens: {
-				args: [FFIType.ptr, FFIType.ptr],
-				returns: FFIType.u32
+				args: ['ptr', 'ptr'],
+				returns: 'u32'
+			},
+			pi_count_tokens_bpe: {
+				args: ['ptr', 'ptr'],
+				returns: 'u32'
 			},
 			pi_hash_tool_signature: {
-				args: [FFIType.ptr, FFIType.ptr],
-				returns: FFIType.u64
+				args: ['ptr', 'ptr'],
+				returns: 'u64'
 			},
 			pi_scan_directory: {
-				args: [FFIType.ptr, FFIType.u32],
-				returns: FFIType.ptr
+				args: ['ptr', 'u32'],
+				returns: 'ptr'
+			},
+			pi_search_workspace: {
+				args: ['ptr', 'ptr', 'u32'],
+				returns: 'ptr'
 			},
 			pi_free_string: {
-				args: [FFIType.ptr],
-				returns: FFIType.void
+				args: ['ptr'],
+				returns: 'void'
 			}
 		})
 
@@ -134,6 +154,21 @@ export function countTokens(text: string, modelFamily = 'generic'): number {
 		const familyBuf = Buffer.from(`${modelFamily}\0`, 'utf8')
 		const { ptr } = (globalThis as any).Bun.FFI
 		return nativeLib.symbols.pi_count_tokens(ptr(textBuf), ptr(familyBuf))
+	} catch {
+		return fallbackCountTokens(text)
+	}
+}
+
+export function countTokensBPE(text: string, encoding = 'cl100k_base'): number {
+	if (!isNative || !nativeLib) {
+		return fallbackCountTokens(text)
+	}
+
+	try {
+		const textBuf = Buffer.from(`${text}\0`, 'utf8')
+		const encBuf = Buffer.from(`${encoding}\0`, 'utf8')
+		const { ptr } = (globalThis as any).Bun.FFI
+		return nativeLib.symbols.pi_count_tokens_bpe(ptr(textBuf), ptr(encBuf))
 	} catch {
 		return fallbackCountTokens(text)
 	}
@@ -173,12 +208,33 @@ export function scanDirectory(dirPath: string, maxDepth = 6): FileEntry[] {
 	}
 }
 
+export function searchWorkspace(dirPath: string, query: string, maxResults = 50): SearchMatch[] {
+	if (!isNative || !nativeLib) {
+		return fallbackSearchWorkspace()
+	}
+
+	try {
+		const pathBuf = Buffer.from(`${dirPath}\0`, 'utf8')
+		const queryBuf = Buffer.from(`${query}\0`, 'utf8')
+		const { ptr, CString } = (globalThis as any).Bun.FFI
+		const resPtr = nativeLib.symbols.pi_search_workspace(ptr(pathBuf), ptr(queryBuf), maxResults)
+		if (!resPtr) return []
+		const jsonStr = new CString(resPtr).toString()
+		nativeLib.symbols.pi_free_string(resPtr)
+		return JSON.parse(jsonStr)
+	} catch {
+		return fallbackSearchWorkspace()
+	}
+}
+
 export const bridge: NativeBridge = {
 	isAvailable: isNative,
 	version: nativeVersion,
 	countTokens,
+	countTokensBPE,
 	hashToolSignature,
-	scanDirectory
+	scanDirectory,
+	searchWorkspace
 }
 
 export default bridge

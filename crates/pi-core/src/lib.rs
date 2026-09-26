@@ -11,11 +11,11 @@ use std::path::Path;
 /// Returns the version string of pi-core.
 #[no_mangle]
 pub extern "C" fn pi_core_version() -> *mut c_char {
-    let s = CString::new("0.1.0").unwrap();
+    let s = CString::new("0.2.0").unwrap();
     s.into_raw()
 }
 
-/// Counts tokens in a given null-terminated UTF-8 text for a specified model family.
+/// Counts tokens in a given null-terminated UTF-8 text for a specified model family using BPE.
 #[no_mangle]
 pub extern "C" fn pi_count_tokens(text: *const c_char, model_family: *const c_char) -> u32 {
     if text.is_null() {
@@ -38,6 +38,29 @@ pub extern "C" fn pi_count_tokens(text: *const c_char, model_family: *const c_ch
     tokenizer::count_tokens(text_slice, family_slice.into()) as u32
 }
 
+/// Counts tokens in a given text using explicit BPE encoding (e.g. "cl100k_base", "o200k_base", "p50k_base").
+#[no_mangle]
+pub extern "C" fn pi_count_tokens_bpe(text: *const c_char, encoding: *const c_char) -> u32 {
+    if text.is_null() {
+        return 0;
+    }
+
+    let c_str = unsafe { CStr::from_ptr(text) };
+    let Ok(text_slice) = c_str.to_str() else {
+        return 0;
+    };
+
+    let enc_slice = if !encoding.is_null() {
+        unsafe { CStr::from_ptr(encoding) }
+            .to_str()
+            .unwrap_or("cl100k_base")
+    } else {
+        "cl100k_base"
+    };
+
+    tokenizer::count_tokens_with_encoding(text_slice, enc_slice) as u32
+}
+
 /// Calculates an ultra-fast XXHash64 signature for a tool name + canonical arguments.
 #[no_mangle]
 pub extern "C" fn pi_hash_tool_signature(
@@ -58,7 +81,7 @@ pub extern "C" fn pi_hash_tool_signature(
     dcp::hash_tool_signature(t_name, args)
 }
 
-/// Scans a directory and returns JSON serialized array of FileEntry.
+/// Scans a directory and returns JSON serialized array of FileEntry using Ripgrep engine.
 #[no_mangle]
 pub extern "C" fn pi_scan_directory(dir_path: *const c_char, max_depth: u32) -> *mut c_char {
     if dir_path.is_null() {
@@ -71,6 +94,32 @@ pub extern "C" fn pi_scan_directory(dir_path: *const c_char, max_depth: u32) -> 
 
     let entries = scanner::scan_directory(Path::new(path_str), max_depth as usize);
     let json_str = serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string());
+
+    CString::new(json_str)
+        .unwrap_or_else(|_| CString::new("[]").unwrap())
+        .into_raw()
+}
+
+/// Searches files matching substring across workspace using parallel Rayon threads.
+#[no_mangle]
+pub extern "C" fn pi_search_workspace(
+    dir_path: *const c_char,
+    query: *const c_char,
+    max_results: u32,
+) -> *mut c_char {
+    if dir_path.is_null() || query.is_null() {
+        return CString::new("[]").unwrap().into_raw();
+    }
+
+    let Ok(path_str) = (unsafe { CStr::from_ptr(dir_path) }).to_str() else {
+        return CString::new("[]").unwrap().into_raw();
+    };
+    let Ok(query_str) = (unsafe { CStr::from_ptr(query) }).to_str() else {
+        return CString::new("[]").unwrap().into_raw();
+    };
+
+    let matches = scanner::search_workspace(Path::new(path_str), query_str, max_results as usize);
+    let json_str = serde_json::to_string(&matches).unwrap_or_else(|_| "[]".to_string());
 
     CString::new(json_str)
         .unwrap_or_else(|_| CString::new("[]").unwrap())
