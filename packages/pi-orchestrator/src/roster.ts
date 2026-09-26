@@ -10,7 +10,7 @@ export const DEFAULT_ROSTER: Record<AgentRoleName, AgentRoleDefinition> = {
 		description:
 			'Explores files, searches codebase and documentation, navigates repositories, and extracts synthesized insights without making edits.',
 		defaultModelTier: 'flash',
-		allowedTools: ['read', 'grep', 'find', 'ls', 'web_search'],
+		allowedTools: ['read', 'grep', 'find', 'ls'],
 		systemPrompt: `You are a specialized Codebase & Documentation Research Subagent. Your mission is to explore repositories, search files, read documentation, and provide clear, well-structured, fact-based markdown reports. Do NOT edit or write code files. Return concise summaries, relevant code excerpts with line numbers, and actionable architecture findings to the Master Orchestrator. ${LANGUAGE_DIRECTIVE}`
 	},
 	coder: {

@@ -240,7 +240,8 @@ export class SubagentManager {
 		args: string[],
 		cwd: string,
 		signal?: AbortSignal,
-		onChunk?: (chunk: string) => void
+		onChunk?: (chunk: string) => void,
+		timeoutMs = 180_000
 	): Promise<{ stdout: string; stderr: string; code: number | null }> {
 		const envPath = `${homedir()}/.bun/bin:${homedir()}/.local/bin:${process.env.PATH || ''}`
 		const env = { ...process.env, PATH: envPath }
@@ -268,10 +269,10 @@ export class SubagentManager {
 					child.kill('SIGTERM')
 					resolve({
 						stdout: stdout.trim(),
-						stderr: stderr.trim() || 'Process timed out after 60s',
+						stderr: stderr.trim() || `Process timed out after ${Math.round(timeoutMs / 1000)}s`,
 						code: -1
 					})
-				}, 60000)
+				}, timeoutMs)
 
 				signal?.addEventListener('abort', () => {
 					clearTimeout(timer)
@@ -327,9 +328,21 @@ export class SubagentManager {
 		const fullPrompt = `${systemPrompt}\n\nTask:\n${instance.prompt}`
 		const roleDef = getRoleDefinition(instance.role)
 		const allowedTools = roleDef.allowedTools || ['read', 'grep', 'find', 'ls']
+		const builtInAllowed = allowedTools.filter((t) =>
+			['read', 'edit', 'write', 'bash', 'grep', 'find', 'ls'].includes(t)
+		)
 
 		// 1. Try Native Pi Subagent Execution (Primary & Most Capable)
-		const piArgs = ['--tools', allowedTools.join(','), '-p', fullPrompt]
+		// Crucial: Pass --no-extensions --no-skills --no-themes to avoid recursive plugin overhead
+		const piArgs = [
+			'--no-extensions',
+			'--no-skills',
+			'--no-themes',
+			'--tools',
+			builtInAllowed.join(','),
+			'-p',
+			fullPrompt
+		]
 		if (
 			instance.model &&
 			instance.model !== 'flash' &&
@@ -343,7 +356,7 @@ export class SubagentManager {
 		this.logToScratchpad(instance, {
 			timestamp: Date.now(),
 			type: 'info',
-			message: `Dispatching native pi worker with tools: [${allowedTools.join(', ')}]`
+			message: `Dispatching native pi worker with tools: [${builtInAllowed.join(', ')}]`
 		})
 
 		options.onProgress?.({
@@ -351,7 +364,7 @@ export class SubagentManager {
 			role: instance.role,
 			name: instance.name,
 			status: 'running',
-			currentActivity: `Running Pi worker (${allowedTools.length} tools)...`
+			currentActivity: `Running Pi worker (${builtInAllowed.length} tools)...`
 		})
 
 		const handleChunk = (chunkStr: string) => {
@@ -371,7 +384,14 @@ export class SubagentManager {
 			}
 		}
 
-		const piResult = await this.execSubprocessWorker('pi', piArgs, cwd, options.signal, handleChunk)
+		const piResult = await this.execSubprocessWorker(
+			'pi',
+			piArgs,
+			cwd,
+			options.signal,
+			handleChunk,
+			180_000
+		)
 		if (piResult.code === 0 && piResult.stdout) {
 			return {
 				output: piResult.stdout,

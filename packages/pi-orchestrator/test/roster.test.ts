@@ -13,13 +13,7 @@ test('DEFAULT_ROSTER defines standard 4 agent roles with proper tool scoping', (
 	assert.equal(DEFAULT_ROSTER.tester.defaultModelTier, 'mini')
 	assert.equal(DEFAULT_ROSTER.reviewer.defaultModelTier, 'pro')
 
-	assert.deepEqual(DEFAULT_ROSTER.researcher.allowedTools, [
-		'read',
-		'grep',
-		'find',
-		'ls',
-		'web_search'
-	])
+	assert.deepEqual(DEFAULT_ROSTER.researcher.allowedTools, ['read', 'grep', 'find', 'ls'])
 	assert.ok(DEFAULT_ROSTER.coder.allowedTools.includes('edit'))
 	assert.ok(DEFAULT_ROSTER.tester.allowedTools.includes('bash'))
 })
