@@ -165,9 +165,34 @@ test('invoke_subagent renderCall and renderResult render clean TUI components wi
 		mockTheme
 	)
 	assert.ok(collapsedComp)
-	assert.match(collapsedComp.text, /Subagent DAG/)
+	assert.match(collapsedComp.text, /Subagent.*DAG/)
 
-	// 3. Result rendering (expanded with Markdown)
+	// 3. Live progress rendering
+	const liveProgressResult = {
+		content: [{ type: 'text', text: 'Executing...' }],
+		details: {
+			running: true,
+			parallel: true,
+			tasks: [
+				{
+					role: 'researcher',
+					name: 'scanner',
+					status: 'streaming',
+					currentActivity: 'Grep src/auth'
+				}
+			]
+		}
+	}
+	const liveComp = (invokeSubagentTool as any).renderResult(
+		liveProgressResult,
+		{ expanded: false },
+		mockTheme
+	)
+	assert.ok(liveComp)
+	assert.match(liveComp.text, /EXECUTING/)
+	assert.match(liveComp.text, /Grep src\/auth/)
+
+	// 4. Result rendering (expanded with Markdown)
 	const expandedComp = (invokeSubagentTool as any).renderResult(
 		result,
 		{ expanded: true },
@@ -175,8 +200,8 @@ test('invoke_subagent renderCall and renderResult render clean TUI components wi
 	)
 	assert.ok(expandedComp)
 
-	// 4. Manage subagents call & result renderers
+	// 5. Manage subagents call & result renderers
 	const manageCallComp = (manageSubagentsTool as any).renderCall({ action: 'list' }, mockTheme)
 	assert.ok(manageCallComp)
-	assert.match(manageCallComp.text, /manage_subagents/)
+	assert.match(manageCallComp.text, /MANAGE SUBAGENTS/)
 })

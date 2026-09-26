@@ -8,7 +8,7 @@ import { loadOrchestratorConfig, saveOrchestratorConfig } from './config.ts'
 import { checkOrchestratorGuard } from './guard.ts'
 import { SubagentManager } from './manager.ts'
 import { DEFAULT_ROSTER } from './roster.ts'
-import { createOrchestratorTools } from './tools.ts'
+import { createOrchestratorTools, getRoleIcon } from './tools.ts'
 
 export function createOrchestratorExtension(pi: ExtensionAPI) {
 	const manager = new SubagentManager()
@@ -220,9 +220,9 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 			if (input === 'roster') {
 				const roles = Object.values(DEFAULT_ROSTER).map(
 					(r) =>
-						`• **${r.name}** (${r.label})\n  - *Model Tier*: \`${r.defaultModelTier}\`\n  - *Tools*: [${r.allowedTools.join(', ')}]\n  - *Description*: ${r.description}`
+						`- ${getRoleIcon(r.name)} **${r.name.toUpperCase()}** (${r.label})\n  > - *Model Tier*: \`${r.defaultModelTier}\`\n  > - *Tools*: [${r.allowedTools.join(', ')}]\n  > - *Description*: ${r.description}`
 				)
-				sendOrchestratorMessage(ctx, `### 👥 Available Subagent Roster:\n\n${roles.join('\n\n')}`, {
+				sendOrchestratorMessage(ctx, `### 👥 Available Subagent Roster\n\n${roles.join('\n\n')}`, {
 					action: 'roster'
 				})
 				return
@@ -236,13 +236,13 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 					})
 					return
 				}
-				const rows = list.map(
-					(s) =>
-						`• **${s.name}** (\`${s.role}\`) — *${s.status.toUpperCase()}* (Model: \`${s.model}\`, Tokens: ${s.tokensUsed})`
-				)
+				const rows = list.map((s) => {
+					const icon = s.status === 'completed' ? '✓' : s.status === 'failed' ? '✖' : '▶'
+					return `- ${icon} ${getRoleIcon(s.role)} **${s.name}** (\`${s.role}\`) — *${s.status.toUpperCase()}* (Model: \`${s.model}\`, Tokens: \`${s.tokensUsed}\`)`
+				})
 				sendOrchestratorMessage(
 					ctx,
-					`### 🤖 Subagent History (Total: ${list.length}):\n\n${rows.join('\n')}`,
+					`### 🤖 Subagent History (${list.length} total)\n\n${rows.join('\n')}`,
 					{ action: 'list' }
 				)
 				return

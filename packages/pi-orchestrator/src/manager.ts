@@ -10,6 +10,7 @@ import type {
 	SubagentExecutionResult,
 	SubagentInstance,
 	SubagentLogEntry,
+	SubagentProgressEvent,
 	SubagentTask
 } from './types.ts'
 
@@ -81,7 +82,7 @@ export class SubagentManager {
 	public async spawnSubagent(
 		task: SubagentTask,
 		cwd: string,
-		options: { signal?: AbortSignal } = {}
+		options: { signal?: AbortSignal; onProgress?: (p: SubagentProgressEvent) => void } = {}
 	): Promise<SubagentExecutionResult> {
 		const id = `subagent_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
 		const roleDef = getRoleDefinition(task.role)
@@ -136,6 +137,14 @@ export class SubagentManager {
 			message: `Subagent "${name}" (${task.role}) started with model "${model}".`
 		})
 
+		options.onProgress?.({
+			id: instance.id,
+			role: instance.role,
+			name: instance.name,
+			status: 'running',
+			currentActivity: `Starting with model ${model}...`
+		})
+
 		const startTime = performance.now()
 
 		try {
@@ -162,10 +171,22 @@ export class SubagentManager {
 				// Ignore output write error
 			}
 
+			const durationMs = Math.round(performance.now() - startTime)
+
 			this.logToScratchpad(instance, {
 				timestamp: Date.now(),
 				type: 'info',
-				message: `Subagent "${name}" completed in ${Math.round(performance.now() - startTime)}ms.`
+				message: `Subagent "${name}" completed in ${durationMs}ms.`
+			})
+
+			options.onProgress?.({
+				id: instance.id,
+				role: instance.role,
+				name: instance.name,
+				status: 'completed',
+				currentActivity: `Finished in ${durationMs}ms (${executionOutput.tokensUsed} tokens)`,
+				tokensUsed: executionOutput.tokensUsed,
+				elapsedMs: durationMs
 			})
 
 			return {
@@ -175,11 +196,12 @@ export class SubagentManager {
 				status: 'completed',
 				output: executionOutput.output,
 				tokensUsed: executionOutput.tokensUsed,
-				durationMs: Math.round(performance.now() - startTime),
+				durationMs,
 				scratchpadDir: instance.scratchpadDir
 			}
 		} catch (err) {
 			const errMsg = err instanceof Error ? err.message : String(err)
+			const durationMs = Math.round(performance.now() - startTime)
 			instance.status = instance.status === 'killed' ? 'killed' : 'failed'
 			instance.completedAt = Date.now()
 			instance.error = errMsg
@@ -190,6 +212,15 @@ export class SubagentManager {
 				message: `Subagent failed: ${errMsg}`
 			})
 
+			options.onProgress?.({
+				id: instance.id,
+				role: instance.role,
+				name: instance.name,
+				status: instance.status,
+				currentActivity: `Failed: ${errMsg.slice(0, 80)}`,
+				elapsedMs: durationMs
+			})
+
 			return {
 				id: instance.id,
 				role: instance.role,
@@ -198,7 +229,7 @@ export class SubagentManager {
 				output: '',
 				error: errMsg,
 				tokensUsed: instance.tokensUsed,
-				durationMs: Math.round(performance.now() - startTime),
+				durationMs,
 				scratchpadDir: instance.scratchpadDir
 			}
 		}
@@ -208,7 +239,8 @@ export class SubagentManager {
 		command: string,
 		args: string[],
 		cwd: string,
-		signal?: AbortSignal
+		signal?: AbortSignal,
+		onChunk?: (chunk: string) => void
 	): Promise<{ stdout: string; stderr: string; code: number | null }> {
 		const envPath = `${homedir()}/.bun/bin:${homedir()}/.local/bin:${process.env.PATH || ''}`
 		const env = { ...process.env, PATH: envPath }
@@ -224,7 +256,9 @@ export class SubagentManager {
 				let stderr = ''
 
 				child.stdout?.on('data', (chunk) => {
-					stdout += chunk.toString()
+					const str = chunk.toString()
+					stdout += str
+					if (onChunk) onChunk(str)
 				})
 				child.stderr?.on('data', (chunk) => {
 					stderr += chunk.toString()
@@ -268,7 +302,7 @@ export class SubagentManager {
 		instance: SubagentInstance,
 		systemPrompt: string,
 		cwd: string,
-		options: { signal?: AbortSignal }
+		options: { signal?: AbortSignal; onProgress?: (p: SubagentProgressEvent) => void }
 	): Promise<{ output: string; tokensUsed: number }> {
 		this.logToScratchpad(instance, {
 			timestamp: Date.now(),
@@ -312,7 +346,32 @@ export class SubagentManager {
 			message: `Dispatching native pi worker with tools: [${allowedTools.join(', ')}]`
 		})
 
-		const piResult = await this.execSubprocessWorker('pi', piArgs, cwd, options.signal)
+		options.onProgress?.({
+			id: instance.id,
+			role: instance.role,
+			name: instance.name,
+			status: 'running',
+			currentActivity: `Running Pi worker (${allowedTools.length} tools)...`
+		})
+
+		const handleChunk = (chunkStr: string) => {
+			const latestLine = chunkStr
+				.split('\n')
+				.map((l) => l.trim())
+				.filter(Boolean)
+				.pop()
+			if (latestLine) {
+				options.onProgress?.({
+					id: instance.id,
+					role: instance.role,
+					name: instance.name,
+					status: 'streaming',
+					currentActivity: latestLine.slice(0, 80)
+				})
+			}
+		}
+
+		const piResult = await this.execSubprocessWorker('pi', piArgs, cwd, options.signal, handleChunk)
 		if (piResult.code === 0 && piResult.stdout) {
 			return {
 				output: piResult.stdout,
@@ -336,7 +395,15 @@ export class SubagentManager {
 					? ['--dangerously-skip-permissions', '--prompt', fullPrompt]
 					: ['-p', fullPrompt]
 
-			const res = await this.execSubprocessWorker(worker, args, cwd, options.signal)
+			options.onProgress?.({
+				id: instance.id,
+				role: instance.role,
+				name: instance.name,
+				status: 'running',
+				currentActivity: `Trying fallback worker: ${worker}...`
+			})
+
+			const res = await this.execSubprocessWorker(worker, args, cwd, options.signal, handleChunk)
 			if (
 				res.code === 0 &&
 				res.stdout &&
@@ -360,7 +427,7 @@ export class SubagentManager {
 		tasks: SubagentTask[],
 		cwd: string,
 		parallel = true,
-		options: { signal?: AbortSignal } = {}
+		options: { signal?: AbortSignal; onProgress?: (p: SubagentProgressEvent) => void } = {}
 	): Promise<SubagentExecutionResult[]> {
 		if (parallel) {
 			return Promise.all(tasks.map((task) => this.spawnSubagent(task, cwd, options)))
@@ -383,7 +450,11 @@ export class SubagentManager {
 		primaryTask: SubagentTask,
 		reviewerRoles: string[] = ['reviewer', 'tester'],
 		cwd: string,
-		options: { signal?: AbortSignal; consensusOpts?: ConsensusOptions } = {}
+		options: {
+			signal?: AbortSignal
+			consensusOpts?: ConsensusOptions
+			onProgress?: (p: SubagentProgressEvent) => void
+		} = {}
 	): Promise<{
 		primaryResult: SubagentExecutionResult
 		verificationResults: SubagentExecutionResult[]

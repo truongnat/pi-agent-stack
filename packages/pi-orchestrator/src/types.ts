@@ -56,3 +56,13 @@ export interface SubagentExecutionResult {
 	durationMs: number
 	scratchpadDir: string
 }
+
+export interface SubagentProgressEvent {
+	id: string
+	role: AgentRoleName
+	name: string
+	status: 'running' | 'streaming' | 'completed' | 'failed' | 'killed'
+	currentActivity?: string
+	tokensUsed?: number
+	elapsedMs?: number
+}
