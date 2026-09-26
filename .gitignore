@@ -23,3 +23,7 @@ subscription-providers-status.json
 
 jev.env
 typesafe.env
+
+# Rust target artifacts
+target/
+crates/**/target/

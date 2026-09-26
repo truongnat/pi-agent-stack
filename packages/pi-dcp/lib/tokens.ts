@@ -1,31 +1,20 @@
-let countFn: ((text: string) => number) | undefined
-
-try {
-	// Optional dynamic import / resolution for tokenizer
-	const tokenizer = await import('@anthropic-ai/tokenizer').catch(() => null)
-	if (tokenizer) {
-		countFn = (tokenizer as any).countTokens ?? (tokenizer as any).default?.countTokens
-	}
-} catch {
-	// Fallback to char heuristic
-}
+import { countTokens as nativeCountTokens } from 'pi-native-bridge'
 
 function charFallback(text: string): number {
 	return Math.ceil(text.length / 4)
 }
 
 /**
- * Count tokens in a string using the Anthropic tokenizer,
+ * Count tokens in a string using native Rust BPE tokenizer,
  * falling back to the char-count heuristic on error.
  */
-export function countTokens(text: string): number {
+export function countTokens(text: string, modelFamily = 'generic'): number {
 	if (!text) return 0
 	try {
-		if (countFn) return countFn(text)
+		return nativeCountTokens(text, modelFamily)
 	} catch {
-		// fall through
+		return charFallback(text)
 	}
-	return charFallback(text)
 }
 
 /**

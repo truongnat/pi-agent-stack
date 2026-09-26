@@ -1,0 +1,21 @@
+{
+	"name": "pi-native-bridge",
+	"version": "0.1.0",
+	"description": "High-performance TypeScript / Bun FFI bridge to the native Rust pi-core engine",
+	"type": "module",
+	"license": "MIT",
+	"scripts": {
+		"lint": "oxlint",
+		"format": "prettier --write .",
+		"format:check": "prettier --check .",
+		"typecheck": "tsc --noEmit",
+		"test": "node --experimental-strip-types --test test/*.test.ts",
+		"check": "bun run typecheck && bun run lint && bun run format:check && bun test"
+	},
+	"devDependencies": {
+		"@types/node": "^24.0.0",
+		"oxlint": "1.78.0",
+		"prettier": "3.9.6",
+		"typescript": "^5.9.0"
+	}
+}

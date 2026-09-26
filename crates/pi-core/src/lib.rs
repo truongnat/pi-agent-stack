@@ -1,0 +1,88 @@
+//! Pi Core Native Engine - C-ABI FFI Exports
+
+pub mod dcp;
+pub mod scanner;
+pub mod tokenizer;
+
+use std::ffi::{CStr, CString};
+use std::os::raw::c_char;
+use std::path::Path;
+
+/// Returns the version string of pi-core.
+#[no_mangle]
+pub extern "C" fn pi_core_version() -> *mut c_char {
+    let s = CString::new("0.1.0").unwrap();
+    s.into_raw()
+}
+
+/// Counts tokens in a given null-terminated UTF-8 text for a specified model family.
+#[no_mangle]
+pub extern "C" fn pi_count_tokens(text: *const c_char, model_family: *const c_char) -> u32 {
+    if text.is_null() {
+        return 0;
+    }
+
+    let c_str = unsafe { CStr::from_ptr(text) };
+    let Ok(text_slice) = c_str.to_str() else {
+        return 0;
+    };
+
+    let family_slice = if !model_family.is_null() {
+        unsafe { CStr::from_ptr(model_family) }
+            .to_str()
+            .unwrap_or("generic")
+    } else {
+        "generic"
+    };
+
+    tokenizer::count_tokens(text_slice, family_slice.into()) as u32
+}
+
+/// Calculates an ultra-fast XXHash64 signature for a tool name + canonical arguments.
+#[no_mangle]
+pub extern "C" fn pi_hash_tool_signature(
+    tool_name: *const c_char,
+    canonical_args: *const c_char,
+) -> u64 {
+    if tool_name.is_null() || canonical_args.is_null() {
+        return 0;
+    }
+
+    let Ok(t_name) = (unsafe { CStr::from_ptr(tool_name) }).to_str() else {
+        return 0;
+    };
+    let Ok(args) = (unsafe { CStr::from_ptr(canonical_args) }).to_str() else {
+        return 0;
+    };
+
+    dcp::hash_tool_signature(t_name, args)
+}
+
+/// Scans a directory and returns JSON serialized array of FileEntry.
+#[no_mangle]
+pub extern "C" fn pi_scan_directory(dir_path: *const c_char, max_depth: u32) -> *mut c_char {
+    if dir_path.is_null() {
+        return CString::new("[]").unwrap().into_raw();
+    }
+
+    let Ok(path_str) = (unsafe { CStr::from_ptr(dir_path) }).to_str() else {
+        return CString::new("[]").unwrap().into_raw();
+    };
+
+    let entries = scanner::scan_directory(Path::new(path_str), max_depth as usize);
+    let json_str = serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string());
+
+    CString::new(json_str)
+        .unwrap_or_else(|_| CString::new("[]").unwrap())
+        .into_raw()
+}
+
+/// Frees a string allocated by the Rust core.
+#[no_mangle]
+pub extern "C" fn pi_free_string(ptr: *mut c_char) {
+    if !ptr.is_null() {
+        unsafe {
+            let _ = CString::from_raw(ptr);
+        }
+    }
+}

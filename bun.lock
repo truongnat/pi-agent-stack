@@ -69,6 +69,16 @@
         "typescript": "^5.9.0",
       },
     },
+    "packages/pi-native-bridge": {
+      "name": "pi-native-bridge",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/node": "^24.0.0",
+        "oxlint": "1.78.0",
+        "prettier": "3.9.6",
+        "typescript": "^5.9.0",
+      },
+    },
     "packages/pi-orchestrator": {
       "name": "pi-orchestrator",
       "version": "0.1.0",
@@ -473,6 +483,8 @@
     "pi-goal": ["pi-goal@workspace:packages/pi-goal"],
 
     "pi-jev-harness": ["pi-jev-harness@workspace:packages/pi-jev-harness"],
+
+    "pi-native-bridge": ["pi-native-bridge@workspace:packages/pi-native-bridge"],
 
     "pi-orchestrator": ["pi-orchestrator@workspace:packages/pi-orchestrator"],
 

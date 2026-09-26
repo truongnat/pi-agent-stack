@@ -1,0 +1,19 @@
+[package]
+name = "pi-core"
+version = "0.1.0"
+edition = "2021"
+description = "High-performance native Rust core engine for Pi Agent Stack"
+authors = ["Truong DQ <truongdq.dev@gmail.com>"]
+license = "MIT"
+
+[lib]
+name = "pi_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+twox-hash = "1.6"
+
+[dev-dependencies]
+tempfile = "3.10"
