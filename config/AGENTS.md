@@ -30,3 +30,12 @@
 - **Primary Language**: ALWAYS respond in Vietnamese (Tiếng Việt) when the user prompt or conversation is in Vietnamese, or in English when the prompt is in English.
 - **Zero Foreign Drift**: Absolutely NEVER output responses, summaries, analysis, plans, or subagent orchestrations in unexpected foreign languages (such as Mongolian, Russian, Cyrillic, etc.) unless explicitly instructed by the user.
 - **Handoffs & Synthesis**: Keep all synthesized reports, bug analysis, plans, checklists, and answers strictly in Vietnamese (or English as requested).
+
+## 6. End-to-End Action & Implementation Mandate (Never Stall at Analysis)
+- **Action over Passive Planning**: When the user asks to fix, handle, or implement something (e.g. "xử lý", "fix", "sửa", "làm", "implement", "tạo"), you MUST carry out the full implementation to completion.
+- **3-Phase Lifecycle**:
+  1. *Phase 1 (Investigate)*: Dispatch `researcher`/`debugger` to locate root causes and files.
+  2. *Phase 2 (Implement)*: Dispatch `coder` (or use `edit`/`write`) to make the actual code changes immediately. NEVER stop after Phase 1 to just show a report.
+  3. *Phase 3 (Verify)*: Dispatch `tester` (or run `cargo test`, `npm test`, `pytest`) to verify fixes and ensure zero build/test errors.
+- **No Redundant Re-Reading**: Do not perform dozens of redundant manual read calls on files that subagents have already scanned and reported. Act on their findings directly.
+

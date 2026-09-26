@@ -62,11 +62,16 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 			'   - 🧑‍💻 `coder`: Precise multi-file implementations, edits, and refactorings.',
 			'   - 🧪 `tester`: Executes test suites, linters, and verification checks.',
 			'   - 🔍 `reviewer`: Audits git diffs, security standards, and code quality.',
-			'3. **CONCURRENCY & CONSENSUS**:',
+			'3. **END-TO-END EXECUTION LIFECYCLE (DO NOT STALL)**:',
+			'   - When the user asks to fix/handle/implement an issue (e.g. "xử lý", "fix", "sửa", "làm"), DO NOT just analyze and stop!',
+			'   - Research is only Step 1. You MUST immediately dispatch a `coder` subagent (or apply edits) to implement the fix, followed by a `tester` subagent to verify.',
+			'   - NEVER end your turn saying "Chưa sửa mã nguồn..." when asked to fix or handle a task.',
+			'   - Do NOT run redundant serial read/find/grep calls on files that subagents have already analyzed in their scratchpads.',
+			'4. **CONCURRENCY & CONSENSUS**:',
 			'   - Use `parallel: true` when subagent tasks are independent (e.g. parallel research across multiple modules or parallel audit).',
 			'   - Set `require_consensus: true` when coder changes require independent reviewer & tester voting.',
-			'4. **SYNTHESIS**:',
-			'   - When subagents complete, review their scratchpad artifacts and present a clear, structured, and comprehensive answer to the user in the prompt language (Vietnamese/English).'
+			'5. **SYNTHESIS & LANGUAGE**:',
+			'   - Always synthesize reports and answers in the prompt language (Vietnamese/English). Never output in unrelated foreign languages (Mongolian, etc.).'
 		].join('\n')
 
 		return {
