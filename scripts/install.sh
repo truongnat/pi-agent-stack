@@ -41,6 +41,7 @@ echo "export { default } from '../pi-agent-stack/packages/pi-stitch/index.ts'" >
 echo "export { default } from '../pi-agent-stack/packages/pi-goal/index.ts'" > "$AGENT_DIR/extensions/pi-goal.ts"
 echo "export { default } from '../pi-agent-stack/packages/pi-orchestrator/index.ts'" > "$AGENT_DIR/extensions/pi-orchestrator.ts"
 echo "export { default } from '../pi-agent-stack/packages/pi-persona/index.ts'" > "$AGENT_DIR/extensions/pi-persona.ts"
+echo "export { default } from '../pi-agent-stack/packages/pi-dcp/index.ts'" > "$AGENT_DIR/extensions/pi-dcp.ts"
 cp "$AGENT_DIR/pi-agent-stack/config/typesafe-gate.ts" "$AGENT_DIR/extensions/typesafe-gate.ts"
 # Ember chrome: model rail above the editor (repaints on every model change), spinner, title.
 cp "$AGENT_DIR/pi-agent-stack/extensions/ember-ui.ts" "$AGENT_DIR/extensions/ember-ui.ts"

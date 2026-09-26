@@ -28,6 +28,7 @@ A modular, production-ready extension stack for the [Pi coding agent](https://pi
 | [`packages/pi-persona`](packages/pi-persona) | Developer preference reinforcement learning and persona profile management. |
 | [`packages/pi-goal`](packages/pi-goal) | Multi-turn autonomous goal loop with token budget controls and self-reflection. |
 | [`packages/pi-rl-engine`](packages/pi-rl-engine) | Verifier-driven reinforcement learning and episodic lessons memory. |
+| [`packages/pi-dcp`](packages/pi-dcp) | Dynamic Context Pruning, deduplication, error purge, and lossless compression. |
 | [`packages/pi-xlsx2md`](packages/pi-xlsx2md) | Excel workbook densified conversion, diffing, and Markdown metadata generator. |
 | [`packages/pi-gdrive`](packages/pi-gdrive) | Google Drive full-text search, metadata inspection, and asset downloader. |
 

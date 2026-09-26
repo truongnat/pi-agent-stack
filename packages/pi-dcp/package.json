@@ -1,0 +1,56 @@
+{
+	"name": "pi-dcp",
+	"version": "0.2.0",
+	"description": "Dynamic Context Pruning for Pi — port of opencode-dcp. Deduplication, error-input purge, and an LLM-callable compress tool to keep long sessions cheap.",
+	"type": "module",
+	"license": "AGPL-3.0-or-later",
+	"keywords": [
+		"pi",
+		"pi-extension",
+		"pi-package",
+		"dcp",
+		"context-pruning",
+		"token-optimization",
+		"llm",
+		"agent"
+	],
+	"files": [
+		"index.ts",
+		"lib/**/*.ts",
+		"skills/**/*",
+		"assets/preview.png",
+		"config.example.json",
+		"README.md",
+		"CHANGELOG.md",
+		"LICENSE"
+	],
+	"scripts": {
+		"lint": "oxlint",
+		"format": "prettier --write .",
+		"format:check": "prettier --check .",
+		"typecheck": "tsc --noEmit",
+		"test": "node --experimental-strip-types --test test/*.test.ts",
+		"check": "bun run typecheck && bun run lint && bun run format:check && bun test"
+	},
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		],
+		"skills": [
+			"./skills"
+		],
+		"image": "assets/preview.png"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"typebox": "*"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-coding-agent": "^0.87.1",
+		"@types/node": "^24.0.0",
+		"oxlint": "1.78.0",
+		"prettier": "3.9.6",
+		"typebox": "^1.1.2",
+		"typescript": "^5.9.0"
+	}
+}
