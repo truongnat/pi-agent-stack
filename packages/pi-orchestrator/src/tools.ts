@@ -40,6 +40,18 @@ const InvokeSubagentSchema = t.Object({
 			description: 'Whether to execute subagents concurrently (default: true).',
 			default: true
 		})
+	),
+	require_consensus: t.Optional(
+		t.Boolean({
+			description:
+				'When true, spawns verification reviewer & tester agents to vote and reach consensus on the coder output.',
+			default: false
+		})
+	),
+	reviewer_roles: t.Optional(
+		t.Array(t.String(), {
+			description: 'Optional list of reviewer roles for consensus (default: ["reviewer", "tester"]).'
+		})
 	)
 })
 
@@ -74,7 +86,7 @@ export function createOrchestratorTools(manager: SubagentManager) {
 		description:
 			'Spawn specialized subagents (researcher, coder, tester, reviewer) with private scratchpads and role-scoped tools, returning synthesized artifacts to the Master Orchestrator.',
 		promptSnippet:
-			'invoke_subagent({ subagents: [{ role: "researcher", prompt: "..." }], parallel: true }) — spawn subagents',
+			'invoke_subagent({ subagents: [{ role: "researcher", prompt: "..." }], parallel: true, require_consensus: false }) — spawn subagents',
 		parameters: InvokeSubagentSchema,
 		executionMode: 'sequential',
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
@@ -114,6 +126,38 @@ export function createOrchestratorTools(manager: SubagentManager) {
 
 			const cwd = ctx.cwd || process.cwd()
 			const parallel = params.parallel ?? true
+
+			// If require_consensus is requested on a single primary task
+			if (params.require_consensus && tasks.length === 1) {
+				const primary = tasks[0]!
+				const reviewerRoles = params.reviewer_roles || ['reviewer', 'tester']
+				const consensusExecution = await manager.invokeWithConsensus(
+					primary,
+					reviewerRoles,
+					cwd,
+					signal ? { signal } : {}
+				)
+
+				const primarySection = `## 🧑‍💻 Primary Task: \`${consensusExecution.primaryResult.name}\` (${consensusExecution.primaryResult.role})\n${consensusExecution.primaryResult.output}`
+				const consensusSection = consensusExecution.consensus.summary
+
+				const text = [
+					`# 🏛 Orchestrator: Multi-Agent Consensus Verification Tree`,
+					'',
+					consensusSection,
+					'',
+					primarySection
+				].join('\n\n')
+
+				return {
+					content: [{ type: 'text', text }],
+					details: {
+						consensus: consensusExecution.consensus,
+						primaryResult: consensusExecution.primaryResult,
+						verificationResults: consensusExecution.verificationResults
+					}
+				}
+			}
 
 			const results: SubagentExecutionResult[] = await manager.invokeBatch(
 				tasks,

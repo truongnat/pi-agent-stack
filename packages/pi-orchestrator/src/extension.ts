@@ -61,9 +61,24 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 
 	// 2. Register Slash Command: /agents
 	pi.registerCommand('agents', {
-		description: 'Multi-Agent Orchestrator: /agents [status|list|roster|kill <id>|kill-all|clear]',
+		description:
+			'Multi-Agent Orchestrator: /agents [status|dag|consensus|list|roster|kill <id>|kill-all|clear]',
 		handler: async (args, ctx) => {
 			const input = (args ?? '').trim()
+
+			if (input === 'consensus') {
+				const list = manager.listSubagents()
+				const guard = checkOrchestratorGuard(manager.config)
+				const info = [
+					'### 🏛 Multi-Agent Supervisor Consensus Gate',
+					`• Status: ${guard.allowed ? '● Active' : '○ Disabled (Threshold not met)'}`,
+					`• Providers Diversity: ${guard.providers.length} ready ([${guard.providers.join(', ')}])`,
+					`• Verification Tree: When \`require_consensus: true\` is specified in \`invoke_subagent\`, independent reviewer & tester agents execute in parallel to vote on coder changes.`,
+					`• Historical Consensus Subagents: ${list.length} managed`
+				].join('\n')
+				ctx.ui.notify(info, 'info')
+				return
+			}
 
 			if (input === 'status' || input === 'dag') {
 				const guard = checkOrchestratorGuard(manager.config)

@@ -3,6 +3,8 @@ import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { loadOrchestratorConfig, type OrchestratorConfig } from './config.ts'
+import { evaluateConsensus, type ConsensusOptions, type ConsensusResult } from './consensus.ts'
+import { getAvailableProviders } from './guard.ts'
 import { getRoleDefinition } from './roster.ts'
 import type {
 	SubagentExecutionResult,
@@ -335,5 +337,53 @@ export class SubagentManager {
 			results.push(res)
 		}
 		return results
+	}
+
+	/**
+	 * Executes a primary coding/solution task and independently verifies it across
+	 * reviewer/tester subagents, returning an aggregated ConsensusResult.
+	 */
+	public async invokeWithConsensus(
+		primaryTask: SubagentTask,
+		reviewerRoles: string[] = ['reviewer', 'tester'],
+		cwd: string,
+		options: { signal?: AbortSignal; consensusOpts?: ConsensusOptions } = {}
+	): Promise<{
+		primaryResult: SubagentExecutionResult
+		verificationResults: SubagentExecutionResult[]
+		consensus: ConsensusResult
+	}> {
+		// 1. Run primary task (e.g. Coder)
+		const primaryResult = await this.spawnSubagent(primaryTask, cwd, options)
+
+		// If primary task completely failed, short-circuit
+		if (primaryResult.status === 'failed' || primaryResult.status === 'killed') {
+			const consensus = evaluateConsensus([primaryResult], getAvailableProviders(), options.consensusOpts)
+			return {
+				primaryResult,
+				verificationResults: [],
+				consensus
+			}
+		}
+
+		// 2. Spawn independent verification tasks in parallel
+		const verifyTasks: SubagentTask[] = reviewerRoles.map((role) => ({
+			role,
+			prompt: `Review and verify the following output produced by [${primaryTask.role}]:\n\n${primaryResult.output}`,
+			name: `${role}_consensus_check`
+		}))
+
+		const verificationResults = await this.invokeBatch(verifyTasks, cwd, true, options)
+
+		// 3. Evaluate consensus across all participating agents
+		const allResults = [primaryResult, ...verificationResults]
+		const availableProviders = getAvailableProviders()
+		const consensus = evaluateConsensus(allResults, availableProviders, options.consensusOpts)
+
+		return {
+			primaryResult,
+			verificationResults,
+			consensus
+		}
 	}
 }

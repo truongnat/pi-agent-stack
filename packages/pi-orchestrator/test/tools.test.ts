@@ -105,3 +105,25 @@ test('send_subagent_message delivers guidance to existing subagent', async () =>
 		/Message successfully delivered/
 	)
 })
+
+test('invoke_subagent tool executes with require_consensus and returns consensus report', async () => {
+	const manager = new SubagentManager({ guard: false })
+	const { invokeSubagentTool } = createOrchestratorTools(manager)
+
+	const result = await invokeSubagentTool.execute(
+		'1',
+		{
+			subagents: [{ role: 'coder', prompt: 'Implement JWT refresh rotation' }],
+			require_consensus: true,
+			reviewer_roles: ['reviewer', 'tester']
+		},
+		new AbortController().signal,
+		() => {},
+		{ cwd: process.cwd() } as any
+	)
+
+	const firstText = result.content[0]?.type === 'text' ? result.content[0].text : ''
+	assert.match(firstText, /Multi-Agent Consensus Verification Tree/)
+	assert.match(firstText, /Multi-Agent Consensus:/)
+	assert.match(firstText, /Primary Task/)
+})
