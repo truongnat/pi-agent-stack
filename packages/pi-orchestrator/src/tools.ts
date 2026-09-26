@@ -295,59 +295,98 @@ export function createOrchestratorTools(manager: SubagentManager) {
 								: t.status === 'failed'
 									? theme.fg('error', '✖')
 									: theme.fg('warning', '▶')
-						const activity = t.currentActivity ? theme.fg('dim', ` — ${t.currentActivity}`) : ''
+						const activity = t.currentActivity
+							? theme.fg('dim', `\n     ↳ ${t.currentActivity}`)
+							: ''
 						return `  ${statusSymbol} ${badgeStr} ${theme.bold(t.name)}${activity}`
 					})
 				]
 				return new Text(lines.join('\n'), 0, 0)
 			}
 
-			// 2. Collapsed completed state
-			if (!options.expanded) {
-				if (rawDetails?.results) {
-					const results = rawDetails.results as SubagentExecutionResult[]
-					const isSuccess = results.every((r) => r.status === 'completed')
-					const badge = isSuccess
-						? theme.fg('success', theme.bold(`[ 🚀 ${results.length} COMPLETED ]`))
-						: theme.fg('warning', theme.bold(`[ ⚠️ ${results.length} EXECUTED ]`))
-					const lines = [
-						`${badge} ${theme.bold(`Subagent Task DAG (${results.length} task${results.length > 1 ? 's' : ''})`)}`,
-						...results.map((r) => {
-							const icon =
-								r.status === 'completed' ? theme.fg('success', '✓') : theme.fg('error', '✖')
-							const roleBadge = getColoredRoleBadge(r.role, theme)
-							const nameStr = theme.bold(r.name)
-							const meta = theme.fg('muted', `(${r.durationMs}ms · ${r.tokensUsed} tok)`)
-							return `  ${icon} ${roleBadge} ${nameStr} ${meta}`
-						})
-					]
-					return new Text(lines.join('\n'), 0, 0)
-				}
-
-				if (rawDetails?.consensus) {
-					const c = rawDetails.consensus
-					const primary = rawDetails.primaryResult
-					const isApproved = c.verdict === 'approved' || c.status === 'approved'
-					const badge = isApproved
-						? theme.fg('success', theme.bold('[ 🏛 CONSENSUS APPROVED ]'))
-						: theme.fg('warning', theme.bold('[ ⚠️ CONSENSUS DISPUTED ]'))
-					const scoreStr =
-						typeof c.agreementScore === 'number'
-							? `${Math.round(c.agreementScore * 100)}%`
-							: typeof c.score === 'number'
-								? `${Math.round(c.score * 100)}%`
-								: 'N/A'
-					const lines = [
-						`${badge} ${theme.bold(`Consensus Gate (Score: ${scoreStr})`)}`,
-						`  ★ ${getColoredRoleBadge(primary.role, theme)} ${theme.bold(primary.name)} ${theme.fg('muted', `(${primary.durationMs}ms · ${primary.tokensUsed} tok)`)}`
-					]
-					return new Text(lines.join('\n'), 0, 0)
-				}
-			}
-
-			// 3. Expanded state with rich Markdown rendering
+			// 2. Completed State: Lay out each subagent's actual work, findings & thoughts!
 			const mdTheme = getMarkdownTheme()
 			const box = new Box(1, 0, (t) => theme.bg('customMessageBg', t))
+
+			if (rawDetails?.results) {
+				const results = rawDetails.results as SubagentExecutionResult[]
+				const isSuccess = results.every((r) => r.status === 'completed')
+				const totalTokens = results.reduce((acc, r) => acc + (r.tokensUsed || 0), 0)
+				const badge = isSuccess
+					? theme.fg('success', theme.bold(`[ 🚀 ${results.length} COMPLETED ]`))
+					: theme.fg('warning', theme.bold(`[ ⚠️ ${results.length} EXECUTED ]`))
+				const header = `${badge} ${theme.bold(`Subagent Task DAG`)} ${theme.fg('muted', `(Total tokens: ${totalTokens.toLocaleString()})`)}`
+				box.addChild(new Text(header, 0, 0))
+
+				for (const r of results) {
+					const icon = r.status === 'completed' ? theme.fg('success', '✓') : theme.fg('error', '✖')
+					const roleBadge = getColoredRoleBadge(r.role, theme)
+					const nameStr = theme.bold(r.name)
+					const meta = theme.fg('muted', `(${r.durationMs}ms · ${r.tokensUsed} tok)`)
+					box.addChild(new Text(`\n  ${icon} ${roleBadge} ${nameStr} ${meta}`, 0, 0))
+
+					if (r.error) {
+						box.addChild(new Text(theme.fg('error', `     > Error: ${r.error}`), 0, 0))
+					}
+
+					if (r.output && r.output.trim()) {
+						let displayOutput = r.output.trim()
+						if (!options.expanded) {
+							const lines = displayOutput.split('\n')
+							if (lines.length > 8) {
+								displayOutput =
+									lines.slice(0, 8).join('\n') +
+									`\n\n*... and ${lines.length - 8} more lines (expand to view full report)*`
+							}
+						}
+						box.addChild(new Markdown(displayOutput, 4, 0, mdTheme))
+					}
+				}
+
+				return box
+			}
+
+			if (rawDetails?.consensus) {
+				const c = rawDetails.consensus
+				const primary = rawDetails.primaryResult
+				const isApproved = c.verdict === 'approved' || c.status === 'approved'
+				const badge = isApproved
+					? theme.fg('success', theme.bold('[ 🏛 CONSENSUS APPROVED ]'))
+					: theme.fg('warning', theme.bold('[ ⚠️ CONSENSUS DISPUTED ]'))
+				const scoreStr =
+					typeof c.agreementScore === 'number'
+						? `${Math.round(c.agreementScore * 100)}%`
+						: typeof c.score === 'number'
+							? `${Math.round(c.score * 100)}%`
+							: 'N/A'
+				const header = `${badge} ${theme.bold(`Consensus Gate (Score: ${scoreStr})`)}`
+				box.addChild(new Text(header, 0, 0))
+
+				if (c.summary) {
+					box.addChild(new Markdown(c.summary, 2, 0, mdTheme))
+				}
+
+				if (primary) {
+					const primaryHeader = `★ ${getColoredRoleBadge(primary.role, theme)} ${theme.bold(primary.name)} ${theme.fg('muted', `(${primary.durationMs}ms · ${primary.tokensUsed} tok)`)}`
+					box.addChild(new Text(`\n  ${primaryHeader}`, 0, 0))
+					if (primary.output) {
+						let displayOutput = primary.output.trim()
+						if (!options.expanded) {
+							const lines = displayOutput.split('\n')
+							if (lines.length > 8) {
+								displayOutput =
+									lines.slice(0, 8).join('\n') +
+									`\n\n*... and ${lines.length - 8} more lines (expand to view full report)*`
+							}
+						}
+						box.addChild(new Markdown(displayOutput, 4, 0, mdTheme))
+					}
+				}
+
+				return box
+			}
+
+			// 3. Fallback state with rich Markdown rendering
 			box.addChild(new Markdown(text, 1, 0, mdTheme))
 			return box
 		}

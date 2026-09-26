@@ -165,7 +165,7 @@ test('invoke_subagent renderCall and renderResult render clean TUI components wi
 		mockTheme
 	)
 	assert.ok(collapsedComp)
-	assert.match(collapsedComp.text, /Subagent.*DAG/)
+	assert.ok(collapsedComp.children && collapsedComp.children.length > 0)
 
 	// 3. Live progress rendering
 	const liveProgressResult = {

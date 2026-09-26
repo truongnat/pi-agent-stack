@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { stripVTControlCharacters } from 'node:util'
 import { loadOrchestratorConfig, type OrchestratorConfig } from './config.ts'
 import { evaluateConsensus, type ConsensusOptions, type ConsensusResult } from './consensus.ts'
 import { getAvailableProviders } from './guard.ts'
@@ -368,18 +369,19 @@ export class SubagentManager {
 		})
 
 		const handleChunk = (chunkStr: string) => {
-			const latestLine = chunkStr
+			const cleaned = stripVTControlCharacters(chunkStr)
+			const lines = cleaned
 				.split('\n')
 				.map((l) => l.trim())
 				.filter(Boolean)
-				.pop()
-			if (latestLine) {
+			const latestLine = lines.pop()
+			if (latestLine && latestLine.length > 2) {
 				options.onProgress?.({
 					id: instance.id,
 					role: instance.role,
 					name: instance.name,
 					status: 'streaming',
-					currentActivity: latestLine.slice(0, 80)
+					currentActivity: latestLine.slice(0, 100)
 				})
 			}
 		}
