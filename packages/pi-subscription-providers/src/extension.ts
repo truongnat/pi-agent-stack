@@ -725,19 +725,21 @@ export default function (pi: ExtensionAPI): void {
 				rows.map(async ({ pool, account }) => {
 					const quota = await accountQuota(pool, account)
 					const inUse = pool === inUsePool && store[pool]?.active === account.key
-					const details = [
-						quota.quota?.plan,
-						...(quota.quota?.windows ?? []).map((w) => `${w.label} ${Math.round(w.usedPercent)}%`),
+					const plan = quota.quota?.plan ? `[${quota.quota.plan.toUpperCase()}]` : ''
+					const usageBars = (quota.quota?.windows ?? [])
+						.map((w) => `${w.label} ${Math.round(w.usedPercent)}%`)
+						.join('  ')
+					const blocked =
 						account.blockedUntil && account.blockedUntil > now
-							? `${account.blockedReason ?? 'blocked'} until ${new Date(account.blockedUntil).toLocaleTimeString()}`
-							: undefined,
-						inUse ? 'in use' : undefined
-					].filter(Boolean)
-					return `${poolName(pool).padEnd(width)} │ ${inUse ? '●' : '○'} ${account.label}${details.length ? ` · ${details.join(' · ')}` : ''}`
+							? `(blocked: ${account.blockedReason ?? 'rate limit'})`
+							: ''
+					const statusTag = inUse ? '● active' : '○ switch'
+					const details = [plan, usageBars, blocked].filter(Boolean).join('  ')
+					return `${statusTag.padEnd(9)} │ ${poolName(pool).padEnd(width)} │ ${account.label}${details ? `  ${details}` : ''}`
 				})
 			)
-			const REMOVE = 'Remove an account…'
-			const picked = await ctx.ui.select('Accounts', [...lines, REMOVE])
+			const REMOVE = '✕  Remove an account…'
+			const picked = await ctx.ui.select('Accounts & Subscription Pool (Ember UX)', [...lines, REMOVE])
 			if (!picked) return
 			if (picked === REMOVE) {
 				const removable = rows.filter(
