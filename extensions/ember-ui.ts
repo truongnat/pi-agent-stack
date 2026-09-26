@@ -134,4 +134,10 @@ export default function emberUi(pi: {
 			model: (event as { model?: { id?: string; provider?: string } }).model,
 		}),
 	);
+	pi.on("thinking_level_select", (event: unknown, ctx: unknown) =>
+		paint(event, {
+			...(ctx as object),
+			thinkingLevel: (event as { level?: string }).level,
+		}),
+	);
 }
