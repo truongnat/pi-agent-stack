@@ -1,12 +1,12 @@
 import { spawn } from 'node:child_process'
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
 import { loadOrchestratorConfig, type OrchestratorConfig } from './config.ts'
 import { evaluateConsensus, type ConsensusOptions, type ConsensusResult } from './consensus.ts'
 import { getAvailableProviders } from './guard.ts'
-import { getRoleDefinition } from './roster.ts'
+import { generateAgentCodename, getRoleDefinition } from './roster.ts'
 import type {
 	SubagentExecutionResult,
 	SubagentInstance,
@@ -80,15 +80,47 @@ export class SubagentManager {
 		}
 	}
 
+	private pruneOldScratchpads(): void {
+		try {
+			const maxKeep = this.config.maxScratchpadsToKeep ?? 50
+			const entries = readdirSync(this.scratchpadRoot, { withFileTypes: true })
+				.filter((e) => e.isDirectory() && e.name.startsWith('subagent_'))
+				.map((e) => {
+					const fullPath = join(this.scratchpadRoot, e.name)
+					try {
+						const stats = statSync(fullPath)
+						return { path: fullPath, mtime: stats.mtimeMs }
+					} catch {
+						return { path: fullPath, mtime: 0 }
+					}
+				})
+
+			if (entries.length > maxKeep) {
+				entries.sort((a, b) => a.mtime - b.mtime)
+				const toRemove = entries.slice(0, entries.length - maxKeep)
+				for (const item of toRemove) {
+					try {
+						rmSync(item.path, { recursive: true, force: true })
+					} catch {
+						// Ignore deletion error
+					}
+				}
+			}
+		} catch {
+			// Directory traversal fallback
+		}
+	}
+
 	public async spawnSubagent(
 		task: SubagentTask,
 		cwd: string,
 		options: { signal?: AbortSignal; onProgress?: (p: SubagentProgressEvent) => void } = {}
 	): Promise<SubagentExecutionResult> {
+		this.pruneOldScratchpads()
 		const id = `subagent_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
 		const roleDef = getRoleDefinition(task.role)
 		const model = task.modelOverride || roleDef.defaultModelTier
-		const name = task.name || `${task.role}_${id.slice(-4)}`
+		const name = generateAgentCodename(task.role, task.name, task.prompt)
 		const scratchpadDir = join(this.scratchpadRoot, id)
 
 		mkdirSync(scratchpadDir, { recursive: true })
@@ -484,17 +516,35 @@ export class SubagentManager {
 		parallel = true,
 		options: { signal?: AbortSignal; onProgress?: (p: SubagentProgressEvent) => void } = {}
 	): Promise<SubagentExecutionResult[]> {
-		if (parallel) {
-			return Promise.all(tasks.map((task) => this.spawnSubagent(task, cwd, options)))
+		if (!parallel) {
+			const results: SubagentExecutionResult[] = []
+			for (const task of tasks) {
+				if (options.signal?.aborted) break
+				const res = await this.spawnSubagent(task, cwd, options)
+				results.push(res)
+			}
+			return results
 		}
 
-		const results: SubagentExecutionResult[] = []
-		for (const task of tasks) {
-			if (options.signal?.aborted) break
-			const res = await this.spawnSubagent(task, cwd, options)
-			results.push(res)
+		// Concurrency Pool Semaphore (prevents API rate limits and machine thrashing)
+		const maxConcurrent = Math.max(1, this.config.maxConcurrentSubagents ?? 4)
+		const results: SubagentExecutionResult[] = Array.from<SubagentExecutionResult>({
+			length: tasks.length
+		})
+		let nextIndex = 0
+
+		const worker = async () => {
+			while (nextIndex < tasks.length) {
+				if (options.signal?.aborted) break
+				const index = nextIndex++
+				const task = tasks[index]!
+				results[index] = await this.spawnSubagent(task, cwd, options)
+			}
 		}
-		return results
+
+		const workers = Array.from({ length: Math.min(maxConcurrent, tasks.length) }, () => worker())
+		await Promise.all(workers)
+		return results.filter(Boolean)
 	}
 
 	/**

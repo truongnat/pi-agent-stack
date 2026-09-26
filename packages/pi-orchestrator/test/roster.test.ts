@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { DEFAULT_ROSTER, getRoleDefinition } from '../src/roster.ts'
+import { DEFAULT_ROSTER, generateAgentCodename, getRoleDefinition } from '../src/roster.ts'
 
 test('DEFAULT_ROSTER defines standard 4 agent roles with proper tool scoping', () => {
 	assert.ok(DEFAULT_ROSTER.researcher)
@@ -25,4 +25,17 @@ test('getRoleDefinition returns existing or fallback custom role', () => {
 	const custom = getRoleDefinition('security-auditor')
 	assert.equal(custom.name, 'security-auditor')
 	assert.match(custom.label, /Custom Subagent/)
+})
+
+test('generateAgentCodename generates prestigious codenames based on role and prompt', () => {
+	const researcherName = generateAgentCodename(
+		'researcher',
+		undefined,
+		'Survey repository architecture'
+	)
+	assert.ok(researcherName.length > 0)
+	assert.ok(!researcherName.includes('researcher_'))
+
+	const coderName = generateAgentCodename('coder', 'CustomCoder')
+	assert.equal(coderName, 'CustomCoder')
 })

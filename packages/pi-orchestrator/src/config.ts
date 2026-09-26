@@ -7,6 +7,8 @@ export interface OrchestratorConfig {
 	guard: boolean
 	alwaysOrchestrate: boolean
 	minProvidersRequired: number
+	maxConcurrentSubagents?: number
+	maxScratchpadsToKeep?: number
 	scratchpadRoot?: string
 }
 
@@ -17,6 +19,8 @@ export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
 	guard: true,
 	alwaysOrchestrate: true,
 	minProvidersRequired: 2,
+	maxConcurrentSubagents: 4,
+	maxScratchpadsToKeep: 50,
 	scratchpadRoot: join(homedir(), '.pi-orchestrator', 'scratchpads')
 }
 
@@ -29,6 +33,10 @@ export function loadOrchestratorConfig(path = CONFIG_PATH): OrchestratorConfig {
 			alwaysOrchestrate: raw.alwaysOrchestrate ?? DEFAULT_ORCHESTRATOR_CONFIG.alwaysOrchestrate,
 			minProvidersRequired:
 				raw.minProvidersRequired ?? DEFAULT_ORCHESTRATOR_CONFIG.minProvidersRequired,
+			maxConcurrentSubagents:
+				raw.maxConcurrentSubagents ?? DEFAULT_ORCHESTRATOR_CONFIG.maxConcurrentSubagents,
+			maxScratchpadsToKeep:
+				raw.maxScratchpadsToKeep ?? DEFAULT_ORCHESTRATOR_CONFIG.maxScratchpadsToKeep,
 			scratchpadRoot: raw.scratchpadRoot ?? DEFAULT_ORCHESTRATOR_CONFIG.scratchpadRoot
 		}
 	} catch {
