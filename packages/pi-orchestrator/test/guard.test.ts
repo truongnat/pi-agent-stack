@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { checkOrchestratorGuard, getAvailableProviders } from '../src/guard.ts'
+import { checkOrchestratorGuard } from '../src/guard.ts'
 import { SubagentManager } from '../src/manager.ts'
 import { createOrchestratorTools } from '../src/tools.ts'
 

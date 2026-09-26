@@ -19,7 +19,7 @@ export class SubagentManager {
 	public scratchpadRoot: string
 
 	constructor(config?: Partial<OrchestratorConfig>) {
-		this.config = { ...loadOrchestratorConfig(), ...(config ?? {}) }
+		this.config = { ...loadOrchestratorConfig(), ...config }
 		this.scratchpadRoot =
 			this.config.scratchpadRoot ?? join(homedir(), '.pi-orchestrator', 'scratchpads')
 		try {

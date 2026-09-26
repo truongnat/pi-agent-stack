@@ -13,6 +13,7 @@ import { appendFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
+import { Box, Text } from '@earendil-works/pi-tui'
 
 import { generateAdvisorBriefing, type AdvisorBriefingResult } from './advisor.ts'
 import { compactHistory, verifyCachePrefixIntegrity } from './compactor.ts'
@@ -243,6 +244,45 @@ export default function (pi: ExtensionAPI) {
 			}
 			return check
 		}
+	}
+
+	// Register custom message renderers
+	if (typeof pi.registerMessageRenderer === 'function') {
+		pi.registerMessageRenderer('jev-advisor', (message, { expanded, outputPad }, theme) => {
+			const details = message.details as Record<string, unknown> | undefined
+			const badge = theme.fg('accent', theme.bold('[ 💡 ADVISOR ]'))
+			const header = `${badge} ${theme.bold('JEV Execution Strategy & Advice')}`
+			const lines = [header]
+			if (typeof details?.strategy === 'string') {
+				lines.push(theme.fg('accent', `  Strategy: ${details.strategy}`))
+			}
+			const contentStr =
+				typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+			if (expanded) {
+				lines.push(...contentStr.split('\n').map((l: string) => theme.fg('muted', `  ${l}`)))
+			} else {
+				const preview = contentStr.split('\n').slice(0, 3)
+				lines.push(...preview.map((l: string) => theme.fg('muted', `  ${l}`)))
+				if (contentStr.split('\n').length > 3) {
+					lines.push(theme.fg('dim', '  ... (expand to view full briefing)'))
+				}
+			}
+			const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
+			box.addChild(new Text(lines.join('\n'), 0, 0))
+			return box
+		})
+
+		pi.registerMessageRenderer('jev-compact', (message, { outputPad }, theme) => {
+			const badge = theme.fg('success', theme.bold('[ 🗜 COMPACT ]'))
+			const header = `${badge} ${theme.bold('Context Compactor & Prefix Guard')}`
+			const lines = [header]
+			const contentStr =
+				typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+			lines.push(...contentStr.split('\n').map((l: string) => theme.fg('muted', `  ${l}`)))
+			const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
+			box.addChild(new Text(lines.join('\n'), 0, 0))
+			return box
+		})
 	}
 
 	pi.on('session_start', (_event, ctx) => {

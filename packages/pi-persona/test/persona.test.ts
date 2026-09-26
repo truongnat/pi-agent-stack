@@ -143,12 +143,16 @@ test('createPersonaTools executes get, update, and feedback tools', async () => 
 test('createPersonaExtension lifecycle: learns from prompt and injects persona into transient tail message', async () => {
 	const registeredTools: any[] = []
 	const registeredCommands: Record<string, any> = {}
+	const registeredRenderers: Record<string, Function> = {}
 	const eventHandlers: Record<string, Function[]> = {}
 
 	const mockPi: ExtensionAPI = {
 		registerTool: (tool: any) => registeredTools.push(tool),
 		registerCommand: (name: string, def: any) => {
 			registeredCommands[name] = def
+		},
+		registerMessageRenderer: (type: string, renderer: Function) => {
+			registeredRenderers[type] = renderer
 		},
 		on: (event: string, handler: Function) => {
 			eventHandlers[event] = eventHandlers[event] || []
@@ -160,6 +164,20 @@ test('createPersonaExtension lifecycle: learns from prompt and injects persona i
 
 	assert.equal(registeredTools.length, 3)
 	assert.ok(registeredCommands['persona'])
+	assert.ok(registeredRenderers['persona'])
+
+	// Test persona message rendering
+	const theme = {
+		fg: (_c: string, t: string) => t,
+		bg: (_c: string, t: string) => t,
+		bold: (t: string) => t
+	}
+	const renderedBox = registeredRenderers['persona'](
+		{ content: '• rule 1\n• rule 2' },
+		{ expanded: false },
+		theme
+	)
+	assert.ok(renderedBox)
 
 	// Trigger before_agent_start with a correction prompt
 	const beforeAgentStartHandler = eventHandlers['before_agent_start']?.[0]

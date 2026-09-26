@@ -218,7 +218,8 @@ export function registerStitchExtension(
   });
 
   pi.registerCommand("stitch", {
-    description: "Google Stitch UI Studio: tokens | guide | status | key | on | off",
+    description:
+      "Google Stitch UI Studio: tokens | guide | status | key | on | off",
     handler: async (args, ctx: ExtensionContext) => {
       const cmd = (args ?? "").trim();
       if (cmd === "key") {
@@ -279,7 +280,9 @@ export function registerStitchExtension(
       const menuItems = [
         `🎨 Inspect Design Tokens & Palette`,
         `📖 View Stitch UI Design Guide & Skills`,
-        active.length ? `🔴 Deactivate Stitch Tools` : `🟢 Activate Stitch Tools (/stitch on)`,
+        active.length
+          ? `🔴 Deactivate Stitch Tools`
+          : `🟢 Activate Stitch Tools (/stitch on)`,
         `🔑 Update Stitch API Key`,
         `❌ Close Menu`,
       ];

@@ -24,6 +24,7 @@ import type {
 	ExtensionContext,
 	ProviderModelConfig
 } from '@earendil-works/pi-coding-agent'
+import { Box, Text } from '@earendil-works/pi-tui'
 
 import {
 	accessToken,
@@ -687,6 +688,16 @@ export default function (pi: ExtensionAPI): void {
 			{ triggerTurn: true, deliverAs: 'followUp' }
 		)
 	})
+
+	if (typeof pi.registerMessageRenderer === 'function') {
+		pi.registerMessageRenderer('account-switched', (message, { outputPad }, theme) => {
+			const badge = theme.fg('warning', theme.bold('[ 🔄 ACCOUNT SWITCH ]'))
+			const text = `${badge} ${theme.fg('muted', String(message.content))}`
+			const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
+			box.addChild(new Text(text, 0, 0))
+			return box
+		})
+	}
 
 	pi.registerCommand('accounts', {
 		description: 'Pick the account in use from every saved login (only while nothing is running)',

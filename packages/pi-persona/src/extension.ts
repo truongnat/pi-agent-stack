@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
+import { Box, Text } from '@earendil-works/pi-tui'
 import { extractPreferencesFromPrompt } from './extractor.ts'
 import { PersonaStore } from './store.ts'
 import { synthesizePersonaPrompt } from './synthesizer.ts'
@@ -16,6 +17,39 @@ export function createPersonaExtension(pi: ExtensionAPI) {
 			signal === 'positive'
 				? store.recordPositiveReinforcement(key)
 				: store.recordNegativeCorrection(key)
+	}
+
+	// Custom message renderer for persona messages
+	if (typeof pi.registerMessageRenderer === 'function') {
+		pi.registerMessageRenderer('persona', (message, { expanded, outputPad }, theme) => {
+			const raw =
+				typeof message.content === 'string'
+					? message.content
+					: JSON.stringify(message.content)
+			const lines = raw
+				.split('\n')
+				.map((l) => l.trim())
+				.filter(Boolean)
+			const badge = theme.fg('accent', theme.bold('[ 👤 PERSONA ]'))
+			const header = `${badge} ${theme.bold('Developer Persona & Active Habits')}`
+
+			const displayLines = [header]
+			if (expanded) {
+				displayLines.push(...lines.map((l) => theme.fg('muted', `  ${l}`)))
+			} else {
+				const preview = lines.slice(0, 3)
+				displayLines.push(...preview.map((l) => theme.fg('muted', `  ${l}`)))
+				if (lines.length > 3) {
+					displayLines.push(
+						theme.fg('dim', `  ... and ${lines.length - 3} more habits (expand to view)`)
+					)
+				}
+			}
+
+			const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
+			box.addChild(new Text(displayLines.join('\n'), 0, 0))
+			return box
+		})
 	}
 
 	// 1. Register Tools

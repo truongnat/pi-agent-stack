@@ -78,7 +78,9 @@ export function parseKey(raw: string): string | undefined {
 
 export function saveApiKey(key: string, file = DEFAULT_KEY_FILE): void {
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-  writeFileSync(file, `export STITCH_API_KEY="${key.trim()}"\n`, { mode: 0o600 });
+  writeFileSync(file, `export STITCH_API_KEY="${key.trim()}"\n`, {
+    mode: 0o600,
+  });
   chmodSync(file, 0o600);
 }
 

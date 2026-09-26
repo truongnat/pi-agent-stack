@@ -1,5 +1,5 @@
 import { defineTool, type ToolDefinition } from '@earendil-works/pi-coding-agent'
-import { Markdown, Text } from '@earendil-works/pi-tui'
+import { Text } from '@earendil-works/pi-tui'
 import * as t from 'typebox'
 import { checkOrchestratorGuard } from './guard.ts'
 import { SubagentManager } from './manager.ts'
@@ -192,10 +192,11 @@ export function createOrchestratorTools(manager: SubagentManager) {
 			const roles =
 				(args?.subagents as Array<{ role?: string }> | undefined)
 					?.map((s) => s.role)
-					.filter(Boolean) || []
-			const roleBadges = roles.map((r) => `[ ${r} ]`).join(' ')
+					.filter((r): r is string => Boolean(r)) || []
+			const roleBadges = roles.map((r) => `[ ${r.toUpperCase()} ]`).join(' ')
 			const parallelStr = args?.parallel === false ? 'sequential' : 'parallel'
-			const text = `${theme.fg('accent', theme.bold('🤖 Orchestrator'))} ${theme.fg('muted', '•')} ${theme.bold(`Dispatch ${count} subagent${count > 1 ? 's' : ''}`)} ${theme.fg('muted', `(${parallelStr})`)}${roleBadges ? ` ${theme.fg('accent', roleBadges)}` : ''}`
+			const badge = theme.fg('accent', theme.bold(`[ ● DISPATCH ${count} ]`))
+			const text = `${badge} ${theme.bold('Multi-Agent Supervisor')} ${theme.fg('muted', `(${parallelStr})`)}${roleBadges ? ` ${theme.fg('accent', roleBadges)}` : ''}`
 			return new Text(text, 0, 0)
 		},
 		renderResult(result, options, theme) {
@@ -203,14 +204,15 @@ export function createOrchestratorTools(manager: SubagentManager) {
 			const rawDetails = result?.details as Record<string, any> | undefined
 			if (!options.expanded) {
 				if (rawDetails?.results) {
+					const isSuccess = rawDetails.results.every((r: any) => r.status === 'completed')
+					const badge = isSuccess
+						? theme.fg('success', theme.bold(`[ ✓ ${rawDetails.results.length} COMPLETED ]`))
+						: theme.fg('warning', theme.bold(`[ ⚠ ${rawDetails.results.length} EXECUTED ]`))
 					const lines = [
-						theme.fg(
-							'accent',
-							theme.bold(`🤖 Orchestrator: Dispatched ${rawDetails.results.length} Subagent(s)`)
-						),
+						`${badge} ${theme.bold(`Subagent DAG (${rawDetails.results.length} task${rawDetails.results.length > 1 ? 's' : ''})`)}`,
 						...rawDetails.results.map((r: any) => {
-							const icon = r.status === 'completed' ? '✅' : '❌'
-							const roleBadge = theme.fg('accent', `[ ${r.role} ]`)
+							const icon = r.status === 'completed' ? '✓' : '✖'
+							const roleBadge = theme.fg('accent', `[ ${r.role.toUpperCase()} ]`)
 							const nameStr = theme.bold(r.name)
 							const meta = theme.fg('muted', `(${r.durationMs}ms, ${r.tokensUsed} tokens)`)
 							return `  ${icon} ${roleBadge} ${nameStr} ${meta}`
@@ -221,15 +223,19 @@ export function createOrchestratorTools(manager: SubagentManager) {
 				if (rawDetails?.consensus) {
 					const c = rawDetails.consensus
 					const primary = rawDetails.primaryResult
-					const statusIcon = c.status === 'approved' ? '✅' : '⚠️'
+					const isApproved = c.verdict === 'approved' || c.status === 'approved'
+					const badge = isApproved
+						? theme.fg('success', theme.bold('[ ✓ CONSENSUS PASS ]'))
+						: theme.fg('warning', theme.bold('[ ⚠ CONSENSUS DISPUTED ]'))
+					const scoreStr =
+						typeof c.agreementScore === 'number'
+							? `${Math.round(c.agreementScore * 100)}%`
+							: typeof c.score === 'number'
+								? `${Math.round(c.score * 100)}%`
+								: 'N/A'
 					const lines = [
-						theme.fg(
-							'accent',
-							theme.bold(
-								`🏛 Orchestrator: Consensus ${c.status.toUpperCase()} (score: ${c.score.toFixed(2)})`
-							)
-						),
-						`  ${statusIcon} ${theme.fg('accent', `[ ${primary.role} ]`)} ${theme.bold(primary.name)} ${theme.fg('muted', `(${primary.durationMs}ms, ${primary.tokensUsed} tokens)`)}`
+						`${badge} ${theme.bold(`Consensus Gate (Score: ${scoreStr})`)}`,
+						`  ★ ${theme.fg('accent', `[ ${primary.role.toUpperCase()} ]`)} ${theme.bold(primary.name)} ${theme.fg('muted', `(${primary.durationMs}ms, ${primary.tokensUsed} tokens)`)}`
 					]
 					return new Text(lines.join('\n'), 0, 0)
 				}

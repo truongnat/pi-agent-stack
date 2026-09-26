@@ -147,8 +147,8 @@ test('invoke_subagent renderCall and renderResult render clean TUI components wi
 		mockTheme
 	)
 	assert.ok(callComp)
-	assert.match(callComp.text, /Dispatch 2 subagents/)
-	assert.match(callComp.text, /researcher/)
+	assert.match(callComp.text, /DISPATCH 2/)
+	assert.match(callComp.text, /RESEARCHER/)
 
 	// 2. Result rendering (collapsed)
 	const result = await invokeSubagentTool.execute(
@@ -165,7 +165,7 @@ test('invoke_subagent renderCall and renderResult render clean TUI components wi
 		mockTheme
 	)
 	assert.ok(collapsedComp)
-	assert.match(collapsedComp.text, /Orchestrator: Dispatched 1 Subagent/)
+	assert.match(collapsedComp.text, /Subagent DAG/)
 
 	// 3. Result rendering (expanded with Markdown)
 	const expandedComp = (invokeSubagentTool as any).renderResult(

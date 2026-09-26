@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
+import { Box, Text } from '@earendil-works/pi-tui'
 import { loadOrchestratorConfig, saveOrchestratorConfig } from './config.ts'
 import { checkOrchestratorGuard } from './guard.ts'
 import { SubagentManager } from './manager.ts'
@@ -30,6 +31,51 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 	pi.registerTool(manageSubagentsTool)
 	pi.registerTool(sendSubagentMessageTool)
 
+	// Custom message renderers
+	if (typeof pi.registerMessageRenderer === 'function') {
+		pi.registerMessageRenderer('orchestrator', (message, { expanded, outputPad }, theme) => {
+			const badge = theme.fg('accent', theme.bold('[ 🎭 ORCHESTRATOR ]'))
+			const header = `${badge} ${theme.bold('Multi-Agent Supervisor & Task DAG')}`
+			const lines = [header]
+			const contentStr =
+				typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+			if (expanded) {
+				lines.push(...contentStr.split('\n').map((l: string) => theme.fg('muted', `  ${l}`)))
+			} else {
+				const preview = contentStr.split('\n').slice(0, 3)
+				lines.push(...preview.map((l: string) => theme.fg('muted', `  ${l}`)))
+				if (contentStr.split('\n').length > 3) {
+					lines.push(theme.fg('dim', '  ... (expand to view full instructions)'))
+				}
+			}
+			const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
+			box.addChild(new Text(lines.join('\n'), 0, 0))
+			return box
+		})
+
+		pi.registerMessageRenderer('subagent-result', (message, { expanded, outputPad }, theme) => {
+			const details = message.details as Record<string, unknown> | undefined
+			const role = typeof details?.role === 'string' ? details.role.toUpperCase() : 'SUBAGENT'
+			const badge = theme.fg('success', theme.bold(`[ 🤖 ${role} COMPLETE ]`))
+			const header = `${badge} ${theme.bold(String(details?.agentId || 'Result'))}`
+			const lines = [header]
+			const contentStr =
+				typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+			if (expanded) {
+				lines.push(...contentStr.split('\n').map((l: string) => theme.fg('muted', `  ${l}`)))
+			} else {
+				const preview = contentStr.split('\n').slice(0, 4)
+				lines.push(...preview.map((l: string) => theme.fg('muted', `  ${l}`)))
+				if (contentStr.split('\n').length > 4) {
+					lines.push(theme.fg('dim', '  ... (expand to view full result)'))
+				}
+			}
+			const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
+			box.addChild(new Text(lines.join('\n'), 0, 0))
+			return box
+		})
+	}
+
 	// Expose global bridge
 	;(globalThis as any).piAgentStackOrchestrator = {
 		isReady: () => checkOrchestratorGuard(manager.config).allowed,
@@ -42,7 +88,7 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 	}
 
 	// 2. Lifecycle Hooks
-	pi.on('before_agent_start', (event, ctx) => {
+	pi.on('before_agent_start', (_event, _ctx) => {
 		const guard = checkOrchestratorGuard(manager.config)
 		if (!guard.allowed) return undefined
 

@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
+import { Box, Text } from '@earendil-works/pi-tui'
 
 import { evaluateGoalWithJev } from './evaluator.ts'
 import { applyTurnMetrics, evaluateStopRules } from './loop.ts'
@@ -66,6 +67,55 @@ export function createGoalExtension(pi: ExtensionAPI) {
 
 	pi.registerTool(getGoalTool)
 	pi.registerTool(updateGoalTool)
+
+	// Custom message renderers
+	if (typeof pi.registerMessageRenderer === 'function') {
+		pi.registerMessageRenderer('goal-steering', (message, { expanded, outputPad }, theme) => {
+			const badge = theme.fg('accent', theme.bold('[ 🎯 GOAL STEERING ]'))
+			const turnInfo = currentGoal ? ` · Turn ${currentGoal.turns + 1}` : ''
+			const header = `${badge} ${theme.bold(`Autonomous Loop${turnInfo}`)}`
+			const lines = [header]
+
+			if (currentGoal) {
+				lines.push(theme.fg('accent', `  Objective: "${currentGoal.objective}"`))
+				if (currentGoal.tokenBudget) {
+					const ratio = currentGoal.tokensUsed / currentGoal.tokenBudget
+					const clamped = Math.max(0, Math.min(1, ratio))
+					const filled = Math.round(clamped * 12)
+					const empty = Math.max(0, 12 - filled)
+					const bar = `[${'█'.repeat(filled)}${'░'.repeat(empty)}]`
+					lines.push(
+						theme.fg(
+							'muted',
+							`  Budget: ${bar} ${formatTokens(currentGoal.tokensUsed)} / ${formatTokens(currentGoal.tokenBudget)} (${Math.round(ratio * 100)}%)`
+						)
+					)
+				}
+			}
+
+			const contentStr =
+				typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+			if (expanded) {
+				lines.push(...contentStr.split('\n').map((l: string) => theme.fg('dim', `  ${l}`)))
+			}
+
+			const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
+			box.addChild(new Text(lines.join('\n'), 0, 0))
+			return box
+		})
+
+		pi.registerMessageRenderer('goal-reminder', (_message, { outputPad }, theme) => {
+			const badge = theme.fg('warning', theme.bold('[ 🎯 GOAL REMINDER ]'))
+			const header = `${badge} ${theme.bold('Active Goal Tracking')}`
+			const lines = [header]
+			if (currentGoal) {
+				lines.push(theme.fg('muted', `  Active Objective: "${currentGoal.objective}"`))
+			}
+			const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
+			box.addChild(new Text(lines.join('\n'), 0, 0))
+			return box
+		})
+	}
 
 	// 2. Lifecycle Hooks
 	pi.on('session_start', (event: any, ctx) => {
