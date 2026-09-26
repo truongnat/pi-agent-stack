@@ -13,9 +13,9 @@ const EMERALD = "\x1b[38;2;166;218;149m";
 const AMBER = "\x1b[38;2;238;212;159m";
 const TEXT = "\x1b[38;2;202;211;245m";
 const BOLD_TEXT = "\x1b[1;38;2;202;211;245m";
+const RESET = "\x1b[0m";
 const MUTE = "\x1b[38;2;110;115;141m";
 const SEP = ` ${MUTE}│${RESET} `;
-const RESET = "\x1b[0m";
 
 function hasJevKey(): boolean {
 	if (process.env.JEV_API_KEY && process.env.JEV_API_KEY !== "replace-me") return true;
