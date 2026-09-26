@@ -65,21 +65,41 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 		handler: async (args, ctx) => {
 			const input = (args ?? '').trim()
 
-			if (input === 'status') {
+			if (input === 'status' || input === 'dag') {
 				const guard = checkOrchestratorGuard(manager.config)
 				const providers = guard.providers.length > 0 ? guard.providers.join(', ') : 'none'
-				const statusText = [
-					'### 🤖 Multi-Agent Orchestrator Status:',
-					`- **Enabled**: \`${manager.config.enabled}\``,
-					`- **Guard Active**: \`${manager.config.guard}\` (Min Providers Required: ${manager.config.minProvidersRequired})`,
-					`- **Providers Discovered (${guard.providers.length})**: [${providers}]`,
-					`- **Guard Passed**: ${guard.allowed ? '✅ Ready to dispatch' : `⚠️ Blocked (${guard.reason})`}`,
-					`- **Active Subagents**: ${manager.listSubagents().filter((s) => s.status === 'running').length} running`
+				const running = manager.listSubagents().filter((s) => s.status === 'running')
+				const dagTree = [
+					'┌─[ 🤖 Multi-Agent DAG Supervisor (Ember UX) ]────────────────────────┐',
+					'│                                                                     │',
+					'│                      ┌───────────────────────┐                      │',
+					'│                      │   JEV Supervisor      │                      │',
+					'│                      │ (Orchestrator Leader) │                      │',
+					'│                      └──────────┬────────────┘                      │',
+					'│                                 │                                   │',
+					'│                  ┌──────────────┴──────────────┐                    │',
+					'│                  ▼                             ▼                    │',
+					'│       ┌──────────────────────┐      ┌──────────────────────┐        │',
+					'│       │ Worker 1: Researcher │      │ Worker 2: Debugger   │        │',
+					'│       │ [Background Search]  │      │ [Trace & TDD Root]   │        │',
+					'│       └──────────┬───────────┘      └──────────┬───────────┘        │',
+					'│                  │                             │                    │',
+					'│                  └──────────────┬──────────────┘                    │',
+					'│                                 ▼                                   │',
+					'│                      ┌──────────────────────┐                       │',
+					'│                      │ Worker 3: Reviewer   │                       │',
+					'│                      │ [Invariant Verifier] │                       │',
+					'│                      └──────────────────────┘                       │',
+					'│                                                                     │',
+					'├─────────────────────────────────────────────────────────────────────┤',
+					`│ • Provider Diversity Guard: ${guard.allowed ? '● ACTIVE (≥2 Backends)' : '○ BLOCKED (<2 Backends)'}             │`,
+					`│ • Discovered Providers (${guard.providers.length}): [${providers}]`.padEnd(70) + '│',
+					`│ • Active Workers: ${running.length} running, ${manager.listSubagents().length} total in session`.padEnd(70) + '│',
+					'└─────────────────────────────────────────────────────────────────────┘'
 				].join('\n')
-				ctx.ui.notify(statusText, guard.allowed ? 'info' : 'warning')
+				ctx.ui.notify(dagTree, guard.allowed ? 'info' : 'warning')
 				return
 			}
-
 
 			if (input === 'roster') {
 				const roles = Object.values(DEFAULT_ROSTER).map(
@@ -134,14 +154,16 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 
 			// Interactive UI menu
 			if (!ctx.hasUI) {
-				ctx.ui.notify('Usage: /agents [list|roster|kill <id>|kill-all|clear]', 'info')
+				ctx.ui.notify('Usage: /agents [dag|status|list|roster|kill <id>|kill-all|clear]', 'info')
 				return
 			}
 
 			const list = manager.listSubagents()
 			const running = list.filter((s) => s.status === 'running')
+			const guard = checkOrchestratorGuard(manager.config)
 
 			const menuItems = [
+				`📊 Visual DAG Supervisor & Guard (${guard.allowed ? 'Ready' : 'Guard Alert'})`,
 				`📋 List Subagents (${list.length} total, ${running.length} running)`,
 				'👥 View Available Roster',
 				'🛑 Kill All Running Subagents',
@@ -150,13 +172,44 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 			]
 
 			const picked = await ctx.ui.select(
-				`🤖 Multi-Agent Orchestrator Panel\nActive Subagents: ${running.length} running`,
+				`Multi-Agent DAG Supervisor (Ember UX)\nActive Workers: ${running.length} running · Providers: ${guard.providers.length}`,
 				menuItems
 			)
 
 			if (!picked) return
 
-			if (picked.startsWith('📋 List')) {
+			if (picked.startsWith('📊 Visual DAG')) {
+				const providers = guard.providers.length > 0 ? guard.providers.join(', ') : 'none'
+				const dagTree = [
+					'┌─[ 🤖 Multi-Agent DAG Supervisor (Ember UX) ]────────────────────────┐',
+					'│                                                                     │',
+					'│                      ┌───────────────────────┐                      │',
+					'│                      │   JEV Supervisor      │                      │',
+					'│                      │ (Orchestrator Leader) │                      │',
+					'│                      └──────────┬────────────┘                      │',
+					'│                                 │                                   │',
+					'│                  ┌──────────────┴──────────────┐                    │',
+					'│                  ▼                             ▼                    │',
+					'│       ┌──────────────────────┐      ┌──────────────────────┐        │',
+					'│       │ Worker 1: Researcher │      │ Worker 2: Debugger   │        │',
+					'│       │ [Background Search]  │      │ [Trace & TDD Root]   │        │',
+					'│       └──────────┬───────────┘      └──────────┬───────────┘        │',
+					'│                  │                             │                    │',
+					'│                  └──────────────┬──────────────┘                    │',
+					'│                                 ▼                                   │',
+					'│                      ┌──────────────────────┐                       │',
+					'│                      │ Worker 3: Reviewer   │                       │',
+					'│                      │ [Invariant Verifier] │                       │',
+					'│                      └──────────────────────┘                       │',
+					'│                                                                     │',
+					'├─────────────────────────────────────────────────────────────────────┤',
+					`│ • Provider Diversity Guard: ${guard.allowed ? '● ACTIVE (≥2 Backends)' : '○ BLOCKED (<2 Backends)'}             │`,
+					`│ • Discovered Providers (${guard.providers.length}): [${providers}]`.padEnd(70) + '│',
+					`│ • Active Workers: ${running.length} running, ${list.length} total in session`.padEnd(70) + '│',
+					'└─────────────────────────────────────────────────────────────────────┘'
+				].join('\n')
+				ctx.ui.notify(dagTree, 'info')
+			} else if (picked.startsWith('📋 List')) {
 				if (list.length === 0) {
 					ctx.ui.notify('No subagents found.', 'info')
 					return
