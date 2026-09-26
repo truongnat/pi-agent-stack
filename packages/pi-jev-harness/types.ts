@@ -105,7 +105,10 @@ export const THRESHOLD_ALWAYS_KEEP = [
 	'update_goal',
 	'get_persona',
 	'update_persona',
-	'feedback_persona'
+	'feedback_persona',
+	'invoke_subagent',
+	'manage_subagents',
+	'send_subagent_message'
 ]
 
 
