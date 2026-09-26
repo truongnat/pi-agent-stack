@@ -291,15 +291,57 @@ export function createGoalExtension(pi: ExtensionAPI) {
 		pi.sendUserMessage(`Continue the goal (turn ${currentGoal.turns + 1}).`)
 	})
 
+	function sendGoalMessage(
+		ctx: ExtensionContext,
+		content: string,
+		details?: Record<string, unknown>
+	) {
+		if (typeof pi.sendMessage === 'function') {
+			pi.sendMessage({
+				customType: 'goal-steering',
+				content,
+				display: true,
+				details
+			} as any)
+		} else {
+			ctx.ui.notify(content, 'info')
+		}
+	}
+
 	// 3. Register Command /goal
 	pi.registerCommand('goal', {
-		description: 'Autonomous goal loop: /goal <objective> | pause | resume | clear | edit | budget',
+		description:
+			'Autonomous goal loop: /goal <objective> | status | pause | resume | clear | edit | budget',
 		handler: async (args, ctx) => {
 			const input = (args ?? '').trim()
 
+			if (input === 'status' || input === 'summary') {
+				if (!currentGoal) {
+					sendGoalMessage(ctx, 'No active goal. Start one with `/goal <objective>`.', {
+						action: 'status'
+					})
+					return
+				}
+				const budgetText = currentGoal.tokenBudget
+					? `${formatTokens(currentGoal.tokensUsed)} / ${formatTokens(currentGoal.tokenBudget)} (${Math.round((currentGoal.tokensUsed / currentGoal.tokenBudget) * 100)}%)`
+					: `${formatTokens(currentGoal.tokensUsed)} (no budget limit)`
+				const text = [
+					`### 🎯 Autonomous Goal Dashboard:`,
+					`• Objective: "${currentGoal.objective}"`,
+					`• Status: ${currentGoal.status.toUpperCase()} (Turn ${currentGoal.turns})`,
+					`• Token Budget: ${budgetText}`,
+					`• Elapsed Time: ${formatDuration(currentGoal.timeUsedMs)}`,
+					currentGoal.lastReason ? `• Last Reason: ${currentGoal.lastReason}` : undefined
+				]
+					.filter(Boolean)
+					.join('\n')
+				sendGoalMessage(ctx, text, { action: 'status' })
+				return
+			}
+
 			if (input.startsWith('pause')) {
 				if (!currentGoal) {
-					ctx.ui.notify('No active goal to pause.', 'warning')
+					sendGoalMessage(ctx, 'No active goal to pause.', { action: 'pause' })
 					return
 				}
 				currentGoal = updateGoalState(currentGoal, {
@@ -308,13 +350,19 @@ export function createGoalExtension(pi: ExtensionAPI) {
 				})
 				saveState(currentGoal)
 				updateStatus(ctx)
-				ctx.ui.notify('Goal paused. Use /goal resume to continue.', 'info')
+				sendGoalMessage(
+					ctx,
+					`⏸️ Goal paused: "${currentGoal.objective}". Use \`/goal resume\` to continue.`,
+					{ action: 'pause' }
+				)
 				return
 			}
 
 			if (input.startsWith('resume')) {
 				if (!currentGoal) {
-					ctx.ui.notify('No goal to resume. Use /goal <objective> to create one.', 'warning')
+					sendGoalMessage(ctx, 'No goal to resume. Use `/goal <objective>` to create one.', {
+						action: 'resume'
+					})
 					return
 				}
 				currentGoal = updateGoalState(currentGoal, {
@@ -323,7 +371,11 @@ export function createGoalExtension(pi: ExtensionAPI) {
 				})
 				saveState(currentGoal)
 				updateStatus(ctx)
-				ctx.ui.notify(`Resuming goal: "${currentGoal.objective}"`, 'info')
+				sendGoalMessage(
+					ctx,
+					`▶️ Resuming goal: "${currentGoal.objective}" (Turn ${currentGoal.turns + 1})`,
+					{ action: 'resume' }
+				)
 				isContinuationTurn = true
 				pi.sendUserMessage(`Resume goal (turn ${currentGoal.turns + 1}).`)
 				return
@@ -332,14 +384,14 @@ export function createGoalExtension(pi: ExtensionAPI) {
 			if (input.startsWith('clear')) {
 				currentGoal = null
 				updateStatus(ctx)
-				ctx.ui.notify('Goal cleared.', 'info')
+				sendGoalMessage(ctx, '🗑️ Active goal cleared.', { action: 'clear' })
 				return
 			}
 
 			if (input.startsWith('edit ')) {
 				const newObjective = input.replace('edit ', '').trim()
 				if (!newObjective) {
-					ctx.ui.notify('Usage: /goal edit <new objective>', 'warning')
+					sendGoalMessage(ctx, 'Usage: `/goal edit <new objective>`', { action: 'edit' })
 					return
 				}
 				if (!currentGoal) {
@@ -353,7 +405,9 @@ export function createGoalExtension(pi: ExtensionAPI) {
 				}
 				saveState(currentGoal)
 				updateStatus(ctx)
-				ctx.ui.notify('Goal objective updated.', 'info')
+				sendGoalMessage(ctx, `✏️ Goal objective updated: "${currentGoal.objective}"`, {
+					action: 'edit'
+				})
 				return
 			}
 
@@ -361,17 +415,23 @@ export function createGoalExtension(pi: ExtensionAPI) {
 				const budgetStr = input.replace('budget ', '').trim()
 				const budget = Number.parseInt(budgetStr, 10)
 				if (Number.isNaN(budget) || budget <= 0) {
-					ctx.ui.notify('Usage: /goal budget <tokens> (e.g. /goal budget 200000)', 'warning')
+					sendGoalMessage(ctx, 'Usage: `/goal budget <tokens>` (e.g. `/goal budget 200000`)', {
+						action: 'budget'
+					})
 					return
 				}
 				if (!currentGoal) {
-					ctx.ui.notify('No active goal. Set a goal first with /goal <objective>.', 'warning')
+					sendGoalMessage(ctx, 'No active goal. Set a goal first with `/goal <objective>`.', {
+						action: 'budget'
+					})
 					return
 				}
 				currentGoal = updateGoalState(currentGoal, { tokenBudget: budget })
 				saveState(currentGoal)
 				updateStatus(ctx)
-				ctx.ui.notify(`Token budget updated to ${formatTokens(budget)} tokens.`, 'info')
+				sendGoalMessage(ctx, `💰 Token budget updated to ${formatTokens(budget)} tokens.`, {
+					action: 'budget'
+				})
 				return
 			}
 
@@ -380,7 +440,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 				currentGoal = createGoal(input)
 				saveState(currentGoal)
 				updateStatus(ctx)
-				ctx.ui.notify(`Goal set: "${currentGoal.objective}"`, 'info')
+				sendGoalMessage(ctx, `🎯 Goal initiated: "${currentGoal.objective}"`, { action: 'start' })
 				isContinuationTurn = true
 				pi.sendUserMessage(`Start working on goal: "${currentGoal.objective}".`)
 				return
@@ -388,7 +448,11 @@ export function createGoalExtension(pi: ExtensionAPI) {
 
 			// Interactive menu when /goal is called with no args
 			if (!ctx.hasUI) {
-				ctx.ui.notify('Usage: /goal <objective> | pause | resume | clear | edit | budget', 'info')
+				sendGoalMessage(
+					ctx,
+					'Usage: `/goal <objective> | status | pause | resume | clear | edit | budget`',
+					{ action: 'help' }
+				)
 				return
 			}
 
@@ -398,7 +462,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 					currentGoal = createGoal(entered.trim())
 					saveState(currentGoal)
 					updateStatus(ctx)
-					ctx.ui.notify(`Goal set: "${currentGoal.objective}"`, 'info')
+					sendGoalMessage(ctx, `🎯 Goal initiated: "${currentGoal.objective}"`, { action: 'start' })
 					isContinuationTurn = true
 					pi.sendUserMessage(`Start working on goal: "${currentGoal.objective}".`)
 				}
@@ -414,6 +478,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 
 			const menuItems = [
 				currentGoal.status === 'active' ? '⏸️  Pause goal' : '▶️  Resume goal',
+				'📊 View Goal Status & Progress',
 				'✏️  Edit objective',
 				'💰 Set token budget',
 				'🗑️  Clear goal',
@@ -432,7 +497,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 				})
 				saveState(currentGoal)
 				updateStatus(ctx)
-				ctx.ui.notify('Goal paused.', 'info')
+				sendGoalMessage(ctx, '⏸️ Goal paused.', { action: 'pause' })
 			} else if (picked === '▶️  Resume goal') {
 				currentGoal = updateGoalState(currentGoal, {
 					status: 'active',
@@ -440,15 +505,27 @@ export function createGoalExtension(pi: ExtensionAPI) {
 				})
 				saveState(currentGoal)
 				updateStatus(ctx)
+				sendGoalMessage(ctx, '▶️ Resuming goal execution.', { action: 'resume' })
 				isContinuationTurn = true
 				pi.sendUserMessage(`Resume goal (turn ${currentGoal.turns + 1}).`)
+			} else if (picked?.startsWith('📊 View')) {
+				const details = [
+					`### 🎯 Goal Status:`,
+					`• Objective: "${currentGoal.objective}"`,
+					`• Status: ${currentGoal.status.toUpperCase()} (Turn ${currentGoal.turns})`,
+					`• Token Budget: ${budgetText}`,
+					`• Elapsed Time: ${durationText}`
+				].join('\n')
+				sendGoalMessage(ctx, details, { action: 'status' })
 			} else if (picked === '✏️  Edit objective') {
 				const edit = await ctx.ui.input('Edit objective:', currentGoal.objective)
 				if (edit && edit.trim()) {
 					currentGoal = updateGoalState(currentGoal, { objective: edit.trim() })
 					saveState(currentGoal)
 					updateStatus(ctx)
-					ctx.ui.notify('Objective updated.', 'info')
+					sendGoalMessage(ctx, `✏️ Objective updated: "${currentGoal.objective}"`, {
+						action: 'edit'
+					})
 				}
 			} else if (picked === '💰 Set token budget') {
 				const budgetInput = await ctx.ui.input(
@@ -461,7 +538,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 						currentGoal = updateGoalState(currentGoal, { tokenBudget: b })
 						saveState(currentGoal)
 						updateStatus(ctx)
-						ctx.ui.notify(`Token budget set to ${formatTokens(b)}.`, 'info')
+						sendGoalMessage(ctx, `💰 Token budget set to ${formatTokens(b)}.`, { action: 'budget' })
 					}
 				}
 			} else if (picked === '🗑️  Clear goal') {
@@ -472,7 +549,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 				if (ok) {
 					currentGoal = null
 					updateStatus(ctx)
-					ctx.ui.notify('Goal cleared.', 'info')
+					sendGoalMessage(ctx, '🗑️ Active goal cleared.', { action: 'clear' })
 				}
 			}
 		}

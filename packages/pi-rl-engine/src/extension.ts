@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
+import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
+import { Box, Text } from '@earendil-works/pi-tui'
 
 import { ContextualBandit } from './bandit.ts'
 import { LessonStore } from './lessons.ts'
@@ -264,6 +265,71 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 			})
 	})
 
+	// Custom message renderers
+	if (typeof pi.registerMessageRenderer === 'function') {
+		pi.registerMessageRenderer('rl-report', (message, { expanded, outputPad }, theme) => {
+			const badge = theme.fg('accent', theme.bold('[ 🧠 RL ENGINE ]'))
+			const header = `${badge} ${theme.bold('Reinforcement Learning & Policy Stats')}`
+			const lines = [header]
+			const contentStr =
+				typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+			if (expanded) {
+				lines.push(...contentStr.split('\n').map((l: string) => theme.fg('muted', `  ${l}`)))
+			} else {
+				const preview = contentStr.split('\n').slice(0, 6)
+				lines.push(...preview.map((l: string) => theme.fg('muted', `  ${l}`)))
+				if (contentStr.split('\n').length > 6) {
+					displayMore(lines, contentStr.split('\n').length - 6, theme)
+				}
+			}
+			const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
+			box.addChild(new Text(lines.join('\n'), 0, 0))
+			return box
+		})
+
+		pi.registerMessageRenderer('rl-lesson', (message, { expanded, outputPad }, theme) => {
+			const badge = theme.fg('success', theme.bold('[ 💡 LESSON MEMORY ]'))
+			const header = `${badge} ${theme.bold('Episodic Knowledge & Rules')}`
+			const lines = [header]
+			const contentStr =
+				typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+			if (expanded) {
+				lines.push(...contentStr.split('\n').map((l: string) => theme.fg('muted', `  ${l}`)))
+			} else {
+				const preview = contentStr.split('\n').slice(0, 6)
+				lines.push(...preview.map((l: string) => theme.fg('muted', `  ${l}`)))
+				if (contentStr.split('\n').length > 6) {
+					displayMore(lines, contentStr.split('\n').length - 6, theme)
+				}
+			}
+			const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
+			box.addChild(new Text(lines.join('\n'), 0, 0))
+			return box
+		})
+	}
+
+	function displayMore(lines: string[], count: number, theme: any) {
+		lines.push(theme.fg('dim', `  ... and ${count} more lines (expand to view)`))
+	}
+
+	function sendRLMessage(
+		ctx: ExtensionContext,
+		customType: 'rl-report' | 'rl-lesson',
+		content: string,
+		details?: Record<string, unknown>
+	) {
+		if (typeof pi.sendMessage === 'function') {
+			pi.sendMessage({
+				customType,
+				content,
+				display: true,
+				details
+			} as any)
+		} else {
+			ctx.ui.notify(content, 'info')
+		}
+	}
+
 	// 1. Command: /rl
 	pi.registerCommand('rl', {
 		description: 'RL Engine controls: /rl [on|off|passive|stats]',
@@ -274,8 +340,8 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 				saveConfig(config)
 				if (ctx.hasUI) {
 					ctx.ui.setStatus('pi-rl', sub === 'off' ? undefined : `RL: ${sub}`)
-					ctx.ui.notify(`pi-rl mode set to ${sub}`, 'info')
 				}
+				sendRLMessage(ctx, 'rl-report', `✓ pi-rl mode set to ${sub}`, { mode: sub })
 				return
 			}
 
@@ -295,15 +361,15 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 			const lessonCount = lessonStore.getLessons(repoName).length
 
 			const report = [
-				`=== Pi RL Engine (${config.mode}) ===`,
-				`Verifications: ${stats.verifications} (Passed: ${stats.passedVerifications}, Failed: ${stats.failedVerifications}, Skipped: ${stats.skippedVerifications})`,
-				`Avg Reward: ${avgReward}`,
-				`Learned Lessons for "${repoName}": ${lessonCount} lesson(s) stored`,
-				`Q-Table Highlights:`,
+				`### 🧠 Pi RL Engine (${config.mode.toUpperCase()})`,
+				`• Verifications: ${stats.verifications} (Passed: ${stats.passedVerifications}, Failed: ${stats.failedVerifications}, Skipped: ${stats.skippedVerifications})`,
+				`• Average Reward: ${avgReward}`,
+				`• Learned Lessons for "${repoName}": ${lessonCount} lesson(s) stored`,
+				`• Q-Table Policy Highlights:`,
 				qSummary || '  (no Q-table trials recorded yet)'
 			].join('\n')
 
-			ctx.ui.notify(report, 'info')
+			sendRLMessage(ctx, 'rl-report', report, { stats, mode: config.mode })
 		}
 	})
 
@@ -319,24 +385,31 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 			if (input.startsWith('delete ')) {
 				const idToDelete = input.replace('delete ', '').trim()
 				if (!idToDelete) {
-					ctx.ui.notify('Usage: /lessons delete <lesson-id>', 'warning')
+					sendRLMessage(ctx, 'rl-lesson', 'Usage: `/lessons delete <lesson-id>`', {
+						action: 'delete'
+					})
 					return
 				}
 				const ok = lessonStore.deleteLesson(repoName, idToDelete)
-				if (ok) {
-					ctx.ui.notify(
-						`✓ Deleted lesson \`${idToDelete}\` from "${repoName}" knowledge store.`,
-						'info'
-					)
-				} else {
-					ctx.ui.notify(`Lesson \`${idToDelete}\` not found in "${repoName}".`, 'warning')
-				}
+				sendRLMessage(
+					ctx,
+					'rl-lesson',
+					ok
+						? `✓ Deleted lesson \`${idToDelete}\` from "${repoName}" knowledge store.`
+						: `✖ Lesson \`${idToDelete}\` not found in "${repoName}".`,
+					{ action: 'delete', ok }
+				)
 				return
 			}
 
 			if (input === 'clear' || input === 'clean') {
 				lessonStore.clearLessons(repoName)
-				ctx.ui.notify(`✓ Cleared all learned lessons for repository "${repoName}".`, 'info')
+				sendRLMessage(
+					ctx,
+					'rl-lesson',
+					`✓ Cleared all learned lessons for repository "${repoName}".`,
+					{ action: 'clear' }
+				)
 				return
 			}
 
@@ -344,27 +417,38 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 				const query = input.replace('search ', '').trim()
 				const matched = lessonStore.findRelevantLessons(query, repoName, 5)
 				if (matched.length === 0) {
-					ctx.ui.notify(`No lessons found matching query: "${query}"`, 'warning')
+					sendRLMessage(ctx, 'rl-lesson', `No lessons found matching query: "${query}"`, {
+						action: 'search'
+					})
 					return
 				}
 				const lines = matched.map(
 					(l) =>
 						`• \`${l.id}\` **[${l.taskType.toUpperCase()}] ${l.taskSummary}**\n  💡 *Rule*: ${l.ruleLearned}\n  🏷 *Tags*: [${(l.tags || []).join(', ')}]`
 				)
-				ctx.ui.notify(`### 🔍 Matched Lessons for "${query}":\n\n${lines.join('\n\n')}`, 'info')
+				sendRLMessage(
+					ctx,
+					'rl-lesson',
+					`### 🔍 Matched Lessons for "${query}":\n\n${lines.join('\n\n')}`,
+					{ action: 'search' }
+				)
 				return
 			}
 
 			if (input === 'summary') {
 				const summaryPath = lessonStore.getRepoSummaryPath(repoName)
-				ctx.ui.notify(`Lesson summary report: ${summaryPath}`, 'info')
+				sendRLMessage(ctx, 'rl-lesson', `Lesson summary report path: \`${summaryPath}\``, {
+					action: 'summary'
+				})
 				return
 			}
 
 			if (lessons.length === 0) {
-				ctx.ui.notify(
-					`No lessons recorded yet for "${repoName}". Lessons are automatically learned when code edits pass verification tests, or via /reflect <note>.`,
-					'info'
+				sendRLMessage(
+					ctx,
+					'rl-lesson',
+					`No lessons recorded yet for "${repoName}". Lessons are automatically learned when code edits pass verification tests, or via \`/reflect <note>\`.`,
+					{ action: 'list' }
 				)
 				return
 			}
@@ -378,9 +462,11 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 				})
 				.join('\n\n')
 
-			ctx.ui.notify(
+			sendRLMessage(
+				ctx,
+				'rl-lesson',
 				`### 📚 Learned Lessons for "${repoName}" (${lessons.length} total)\n\n${items}\n\n*Commands: \`/lessons search <term>\`, \`/lessons delete <id>\`, \`/lessons clear\`*`,
-				'info'
+				{ action: 'list' }
 			)
 		}
 	})
@@ -392,7 +478,12 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 		handler: async (args, ctx) => {
 			const note = (args ?? '').trim()
 			if (!note) {
-				ctx.ui.notify('Usage: /reflect <lesson or rule learned from this session>', 'warning')
+				sendRLMessage(
+					ctx,
+					'rl-lesson',
+					'Usage: `/reflect <lesson or rule learned from this session>`',
+					{ action: 'reflect' }
+				)
 				return
 			}
 
@@ -408,15 +499,19 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 			})
 
 			if (!lessonStore.saveLesson(lesson)) {
-				ctx.ui.notify(
-					'Lesson not saved: it names the current model or pins one ("always use X"). Model choice is routed per turn; record the reason instead.',
-					'warning'
+				sendRLMessage(
+					ctx,
+					'rl-lesson',
+					'✖ Lesson not saved: it names the current model or pins one ("always use X"). Model choice is routed per turn; record the reason instead.',
+					{ action: 'reflect', ok: false }
 				)
 				return
 			}
-			ctx.ui.notify(
+			sendRLMessage(
+				ctx,
+				'rl-lesson',
 				`✓ Saved lesson \`${lesson.id}\` to "${repoName}" knowledge store:\n"${note}"`,
-				'info'
+				{ action: 'reflect', ok: true, lessonId: lesson.id }
 			)
 		}
 	})
@@ -434,9 +529,11 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 				res.status === 'skipped'
 					? `Skipped: ${res.details.test?.reason ?? 'not verifiable'}`
 					: `Reward: ${res.totalReward} (Passed: ${res.passed})`
-			ctx.ui.notify(
-				`RL Verification:\n${outcome}\nCommand: ${res.details.test?.command || 'none'}\nLatency: ${res.details.latencyMs ?? 0}ms`,
-				res.status === 'failed' ? 'warning' : 'info'
+			sendRLMessage(
+				ctx,
+				'rl-report',
+				`### 🧪 RL Verification Report\n• ${outcome}\n• Test Command: \`${res.details.test?.command || 'none'}\`\n• Execution Latency: ${res.details.latencyMs ?? 0}ms`,
+				{ action: 'verify', result: res }
 			)
 		}
 	})

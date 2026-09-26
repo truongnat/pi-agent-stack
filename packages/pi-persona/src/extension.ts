@@ -6,6 +6,24 @@ import { synthesizePersonaPrompt } from './synthesizer.ts'
 import { createPersonaTools } from './tools.ts'
 import type { PreferenceCategory } from './types.ts'
 
+function sendPersonaMessage(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	content: string,
+	details?: Record<string, unknown>
+) {
+	if (typeof pi.sendMessage === 'function') {
+		pi.sendMessage({
+			customType: 'persona',
+			content,
+			display: true,
+			details
+		} as any)
+	} else {
+		ctx.ui.notify(content, 'info')
+	}
+}
+
 export function createPersonaExtension(pi: ExtensionAPI) {
 	const store = new PersonaStore()
 
@@ -37,11 +55,11 @@ export function createPersonaExtension(pi: ExtensionAPI) {
 			if (expanded) {
 				displayLines.push(...lines.map((l) => theme.fg('muted', `  ${l}`)))
 			} else {
-				const preview = lines.slice(0, 3)
+				const preview = lines.slice(0, 6)
 				displayLines.push(...preview.map((l) => theme.fg('muted', `  ${l}`)))
-				if (lines.length > 3) {
+				if (lines.length > 6) {
 					displayLines.push(
-						theme.fg('dim', `  ... and ${lines.length - 3} more habits (expand to view)`)
+						theme.fg('dim', `  ... and ${lines.length - 6} more lines (expand to view)`)
 					)
 				}
 			}
@@ -63,7 +81,7 @@ export function createPersonaExtension(pi: ExtensionAPI) {
 		store.loadProfile()
 	})
 
-	pi.on('before_agent_start', (event, ctx) => {
+	pi.on('before_agent_start', (event, _ctx) => {
 		if (!store.config.enabled) return undefined
 
 		// Implicit Learning: Extract preference signals from prompt
@@ -91,22 +109,26 @@ export function createPersonaExtension(pi: ExtensionAPI) {
 				const prefs = store.listPreferences()
 				const text = [
 					'### 👤 Developer Persona Engine Status:',
-					`- **Enabled**: \`${store.config.enabled}\``,
-					`- **Total Learned Habits**: ${prefs.length}`,
-					`- **Store**: \`~/.pi/agent/persona.json\``,
-					`- **Profile Markdown**: \`~/.pi/agent/persona.md\``
+					`• Status: ${store.config.enabled ? '● Active' : '○ Disabled'}`,
+					`• Total Learned Habits: ${prefs.length}`,
+					`• Storage: \`~/.pi/agent/persona.json\``,
+					`• Export Profile: \`~/.pi/agent/persona.md\``
 				].join('\n')
-				ctx.ui.notify(text, 'info')
+				sendPersonaMessage(pi, ctx, text, { action: 'status' })
 				return
 			}
 
 			if (input === 'list') {
 				const prefs = store.listPreferences()
+				if (prefs.length === 0) {
+					sendPersonaMessage(pi, ctx, 'No custom persona habits recorded yet. Use `/persona learn <text>` to add habits.', { action: 'list' })
+					return
+				}
 				const rows = prefs.map(
 					(p) =>
-						`• **[${p.category.toUpperCase()}] ${p.key}** (\`${Math.round(p.weight * 100)}%\` confidence, +${p.reinforcements}/-${p.rejections})\n  > ${p.rule}`
+						`• [${p.category.toUpperCase()}] ${p.key} (${Math.round(p.weight * 100)}% conf, +${p.reinforcements}/-${p.rejections}):\n  > ${p.rule}`
 				)
-				ctx.ui.notify(`### 👤 Active Persona Habits:\n\n${rows.join('\n\n')}`, 'info')
+				sendPersonaMessage(pi, ctx, `### 👤 Active Persona Habits (${prefs.length}):\n\n${rows.join('\n\n')}`, { action: 'list' })
 				return
 			}
 
@@ -117,30 +139,31 @@ export function createPersonaExtension(pi: ExtensionAPI) {
 					for (const sig of signals) {
 						store.addOrUpdatePreference(sig.category, sig.key, sig.rule, sig.confidence)
 					}
-					ctx.ui.notify(`Learned ${signals.length} habit(s) from input.`, 'info')
+					sendPersonaMessage(pi, ctx, `✓ Learned ${signals.length} habit(s) from input: "${text}"`, { action: 'learn' })
 				} else {
 					// Fallback: generic coding habit
 					store.addOrUpdatePreference('coding', `custom_${Date.now().toString(36)}`, text, 0.85)
-					ctx.ui.notify(`Added custom habit: "${text}"`, 'info')
+					sendPersonaMessage(pi, ctx, `✓ Added custom habit: "${text}"`, { action: 'learn' })
 				}
 				return
 			}
 
 			if (input === 'reset') {
 				store.resetToDefaults()
-				ctx.ui.notify('Reset Persona profile to default developer habits.', 'info')
+				sendPersonaMessage(pi, ctx, '✓ Reset Persona profile to default developer habits.', { action: 'reset' })
 				return
 			}
 
 			// Interactive UI menu
 			if (!ctx.hasUI) {
-				ctx.ui.notify('Usage: /persona [status|list|learn <text>|reset]', 'info')
+				sendPersonaMessage(pi, ctx, 'Usage: /persona [status|list|learn <text>|reset]', { action: 'help' })
 				return
 			}
 
 			const prefs = store.listPreferences()
 			const menuItems = [
 				`📋 List Learned Habits (${prefs.length} total)`,
+				'➕ Learn New Habit From Text',
 				'🔄 Reset Habits to Defaults',
 				'📊 View Persona Status',
 				'❌ Close Menu'
@@ -152,14 +175,20 @@ export function createPersonaExtension(pi: ExtensionAPI) {
 			if (picked.startsWith('📋 List')) {
 				const rows = prefs.map(
 					(p) =>
-						`• **[${p.category.toUpperCase()}] ${p.key}** (\`${Math.round(p.weight * 100)}%\`)\n  > ${p.rule}`
+						`• [${p.category.toUpperCase()}] ${p.key} (${Math.round(p.weight * 100)}% conf):\n  > ${p.rule}`
 				)
-				ctx.ui.notify(`### Persona Habits:\n\n${rows.join('\n\n')}`, 'info')
+				sendPersonaMessage(pi, ctx, `### 👤 Persona Habits:\n\n${rows.join('\n\n')}`, { action: 'list' })
+			} else if (picked.startsWith('➕ Learn')) {
+				const text = await ctx.ui.input('Enter habit or coding guideline to learn:')
+				if (text && text.trim()) {
+					store.addOrUpdatePreference('coding', `custom_${Date.now().toString(36)}`, text.trim(), 0.85)
+					sendPersonaMessage(pi, ctx, `✓ Learned habit: "${text.trim()}"`, { action: 'learn' })
+				}
 			} else if (picked.startsWith('🔄 Reset')) {
 				store.resetToDefaults()
-				ctx.ui.notify('Reset Persona profile to default habits.', 'info')
+				sendPersonaMessage(pi, ctx, '✓ Reset Persona profile to default habits.', { action: 'reset' })
 			} else if (picked.startsWith('📊 View')) {
-				ctx.ui.notify(`Persona enabled with ${prefs.length} habits.`, 'info')
+				sendPersonaMessage(pi, ctx, `👤 Persona engine is active with ${prefs.length} learned habits.`, { action: 'status' })
 			}
 		}
 	})

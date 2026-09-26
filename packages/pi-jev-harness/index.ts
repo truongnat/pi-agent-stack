@@ -82,23 +82,42 @@ function log(entry: Record<string, unknown>): void {
 	}
 }
 
-function report(h: Harness, ctx: ExtensionContext): void {
+function sendJevMessage(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	customType: 'jev-advisor' | 'jev-compact',
+	content: string,
+	details?: Record<string, unknown>
+) {
+	if (typeof pi.sendMessage === 'function') {
+		pi.sendMessage({
+			customType,
+			content,
+			display: true,
+			details
+		} as any)
+	} else {
+		ctx.ui.notify(content, 'info')
+	}
+}
+
+function report(h: Harness, ctx: ExtensionContext, pi: ExtensionAPI): void {
 	const s = h.stats
 	const avg = s.jevCalls ? Math.round(s.jevMs / s.jevCalls) : 0
 	const saved = Math.round((s.charsSaved + s.compactionCharsSaved) / 4)
 	const cost = ((s.jevTokens / 1e6) * PRICE_PER_MTOK).toFixed(4)
-	ctx.ui.notify(
-		[
-			`jev-harness ${h.config.mode} · ${s.turns} turns seen, ${s.advisorBriefings} advisor briefings, ${s.prefetched} files pre-fetched, ${s.prefetchSkipped} turns skipped (named file), ${s.toolsHidden} tool schemas hidden`,
-			`${s.trimmed} results trimmed, ${s.compactionRuns} history compactions (~${saved.toLocaleString()} tokens saved), ${s.loopsCaught} loops caught, guard asked ${s.guardAsked} blocked ${s.guardBlocked}`,
-			`cache & prefix: ${s.cachePrefixChecks} prefix checks (${s.cachePrefixViolations} violations), prefix integrity guarded for prompt-caching`,
-			`policy: ${s.modelDecisions} Jev model decisions, ${s.modelSwitches} cheaper model switches, ${s.thinkingSwitches} thinking reductions, ${s.routeHiddenTools} cost-effective tool routes`,
-			`subscription: ${s.subscriptionDecisions} subscription picks, ${s.providerFallbacks} fallbacks, ${s.unavailableProviderSkips} unavailable skips, ~$${s.marginalCostAvoided.toFixed(3)}/MTok marginal avoided`,
-			shadowSummary(s),
-			`jev: ${s.jevCalls} successful calls, ${avg}ms avg, ${s.jevTokens.toLocaleString()} tokens ($${cost}), ${s.errors} errors · log ~/.jev-harness/log.jsonl`
-		].join('\n'),
-		'info'
-	)
+	const reportText = [
+		`### 💡 JEV Advisor & Harness Status (${h.config.mode.toUpperCase()})`,
+		`• Turns: ${s.turns} seen · ${s.advisorBriefings} advisor briefings · ${s.prefetched} files pre-fetched · ${s.prefetchSkipped} turns skipped`,
+		`• Token Reductions: ${s.trimmed} results trimmed · ${s.compactionRuns} history compactions (~${saved.toLocaleString()} tokens saved)`,
+		`• Loop Guard & Safety: ${s.loopsCaught} loops caught · guard asked ${s.guardAsked} (blocked ${s.guardBlocked})`,
+		`• Cache & Prefix Guard: ${s.cachePrefixChecks} prefix checks (${s.cachePrefixViolations} violations) · deterministic prefix intact`,
+		`• Model Routing: ${s.modelDecisions} decisions · ${s.modelSwitches} cheaper model switches · ${s.thinkingSwitches} thinking reductions`,
+		`• Subscriptions: ${s.subscriptionDecisions} picks · ${s.providerFallbacks} fallbacks · ~$${s.marginalCostAvoided.toFixed(3)}/MTok marginal avoided`,
+		`• Execution Overhead: ${s.jevCalls} calls (${avg}ms avg) · ${s.jevTokens.toLocaleString()} tokens ($${cost}) · ${s.errors} errors`
+	].join('\n')
+
+	sendJevMessage(pi, ctx, 'jev-advisor', reportText, { strategy: 'harness-stats', stats: s })
 }
 
 function createHarness(): Harness {
@@ -321,12 +340,12 @@ export default function (pi: ExtensionAPI) {
 		handler: async (args, ctx) => {
 			const mode = (args ?? '').trim()
 			if (mode !== 'on' && mode !== 'log' && mode !== 'off') {
-				report(h, ctx)
+				report(h, ctx, pi)
 				return
 			}
 			h.config.mode = mode
 			h.status(ctx, mode === 'off' ? undefined : `jev-harness ${mode}`)
-			ctx.ui.notify(`jev-harness ${mode}`, 'info')
+			sendJevMessage(pi, ctx, 'jev-advisor', `✓ jev-harness mode set to ${mode}`, { mode })
 		}
 	})
 
@@ -343,7 +362,7 @@ export default function (pi: ExtensionAPI) {
 				`• Prefix Cache Violations: ${s.cachePrefixViolations === 0 ? '0 (✓ Deterministic Prefix Intact)' : `${s.cachePrefixViolations} warnings detected`}`,
 				`• Spill Storage: Retains raw outputs in \`~/.jev-harness/spill/\``
 			].join('\n')
-			ctx.ui.notify(info, 'info')
+			sendJevMessage(pi, ctx, 'jev-compact', info, { stats: s })
 		}
 	})
 }

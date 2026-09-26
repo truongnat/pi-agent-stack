@@ -142,7 +142,6 @@
 	],
 	"vendored": [
 		"master-writer",
-		"redmine",
 		"reflect",
 		"remake",
 		"solution-intelligence",

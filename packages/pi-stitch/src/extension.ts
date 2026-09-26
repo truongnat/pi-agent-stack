@@ -10,6 +10,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { Box, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
 import {
@@ -217,6 +218,64 @@ export function registerStitchExtension(
       });
   });
 
+  // Custom message renderer for stitch
+  if (typeof pi.registerMessageRenderer === "function") {
+    pi.registerMessageRenderer(
+      "stitch-info",
+      (message, { expanded, outputPad }, theme) => {
+        const badge = theme.fg("accent", theme.bold("[ 🎨 STITCH STUDIO ]"));
+        const header = `${badge} ${theme.bold("Google Stitch Design System & Tools")}`;
+        const lines = [header];
+        const contentStr =
+          typeof message.content === "string"
+            ? message.content
+            : JSON.stringify(message.content);
+        if (expanded) {
+          lines.push(
+            ...contentStr
+              .split("\n")
+              .map((l: string) => theme.fg("muted", `  ${l}`)),
+          );
+        } else {
+          const preview = contentStr.split("\n").slice(0, 8);
+          lines.push(
+            ...preview.map((l: string) => theme.fg("muted", `  ${l}`)),
+          );
+          if (contentStr.split("\n").length > 8) {
+            lines.push(
+              theme.fg(
+                "dim",
+                "  ... (expand to view complete design guide/tokens)",
+              ),
+            );
+          }
+        }
+        const box = new Box(outputPad ?? 1, 0, (t) =>
+          theme.bg("customMessageBg", t),
+        );
+        box.addChild(new Text(lines.join("\n"), 0, 0));
+        return box;
+      },
+    );
+  }
+
+  function sendStitchMessage(
+    ctx: ExtensionContext,
+    content: string,
+    details?: Record<string, unknown>,
+  ) {
+    if (typeof pi.sendMessage === "function") {
+      pi.sendMessage({
+        customType: "stitch-info",
+        content,
+        display: true,
+        details,
+      } as any);
+    } else {
+      ctx.ui.notify(content, "info");
+    }
+  }
+
   pi.registerCommand("stitch", {
     description:
       "Google Stitch UI Studio: tokens | guide | status | key | on | off",
@@ -229,12 +288,22 @@ export function registerStitchExtension(
         );
         if (!key?.trim()) return;
         saveApiKey(key);
-        ctx.ui.notify("Stitch API key saved to ~/.keys/stitch.env", "info");
+        sendStitchMessage(
+          ctx,
+          "✓ Stitch API key saved to `~/.keys/stitch.env`",
+          { action: "key" },
+        );
         return;
       }
       if (cmd === "on" || cmd === "off") {
         if (cmd === "on" && registered.size === 0) register(await list());
         setStitchActive(cmd === "on");
+        sendStitchMessage(
+          ctx,
+          `Google Stitch tools are now: ${cmd === "on" ? "● Active" : "○ Standby"}`,
+          { action: "toggle", active: cmd === "on" },
+        );
+        return;
       }
       if (cmd === "tokens") {
         const tokenSheet = [
@@ -256,22 +325,27 @@ export function registerStitchExtension(
           "│  • Standard Pill Badges: [ ● active ] [ ○ idle ] [ ✂ Trimmed ]      │",
           "└─────────────────────────────────────────────────────────────────────┘",
         ].join("\n");
-        ctx.ui.notify(tokenSheet, "info");
+        sendStitchMessage(ctx, tokenSheet, { action: "tokens" });
         return;
       }
       if (cmd === "guide") {
-        ctx.ui.notify(stitchGuide(findDesignSkills()), "info");
+        sendStitchMessage(ctx, stitchGuide(findDesignSkills()), {
+          action: "guide",
+        });
         return;
       }
 
       if (!ctx.hasUI) {
         const active = activeStitch();
-        ctx.ui.notify(
+        sendStitchMessage(
+          ctx,
           [
-            `Stitch UI Studio: ${registered.size} tools, ${active.length ? "active" : "inactive (call /stitch on)"}`,
-            readApiKey() ? "API key: configured" : NO_KEY,
+            `### 🎨 Google Stitch UI Studio Status`,
+            `• Tools Catalog: ${registered.size} registered tools`,
+            `• Status: ${active.length ? "● Active" : "○ Inactive (Standby - call /stitch on)"}`,
+            `• API Key: ${readApiKey() ? "✓ Configured (~/.keys/stitch.env)" : "✖ Missing API Key"}`,
           ].join("\n"),
-          "info",
+          { action: "status" },
         );
         return;
       }
@@ -313,16 +387,22 @@ export function registerStitchExtension(
           "│  • Standard Pill Badges: [ ● active ] [ ○ idle ] [ ✂ Trimmed ]      │",
           "└─────────────────────────────────────────────────────────────────────┘",
         ].join("\n");
-        ctx.ui.notify(tokenSheet, "info");
+        sendStitchMessage(ctx, tokenSheet, { action: "tokens" });
       } else if (picked.startsWith("📖 View")) {
-        ctx.ui.notify(stitchGuide(findDesignSkills()), "info");
+        sendStitchMessage(ctx, stitchGuide(findDesignSkills()), {
+          action: "guide",
+        });
       } else if (picked.includes("Activate")) {
         if (registered.size === 0) register(await list());
         setStitchActive(true);
-        ctx.ui.notify("Google Stitch design tools activated.", "info");
+        sendStitchMessage(ctx, "✓ Google Stitch design tools activated.", {
+          action: "activate",
+        });
       } else if (picked.includes("Deactivate")) {
         setStitchActive(false);
-        ctx.ui.notify("Google Stitch design tools deactivated.", "info");
+        sendStitchMessage(ctx, "✓ Google Stitch design tools deactivated.", {
+          action: "deactivate",
+        });
       } else if (picked.startsWith("🔑 Update")) {
         const key = await ctx.ui.input(
           "Stitch API key (stitch.withgoogle.com/settings)",
@@ -330,7 +410,11 @@ export function registerStitchExtension(
         );
         if (key?.trim()) {
           saveApiKey(key);
-          ctx.ui.notify("Stitch API key saved to ~/.keys/stitch.env", "info");
+          sendStitchMessage(
+            ctx,
+            "✓ Stitch API key saved to `~/.keys/stitch.env`",
+            { action: "key" },
+          );
         }
       }
     },

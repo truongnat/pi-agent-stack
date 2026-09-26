@@ -13,7 +13,7 @@ A modular, production-ready extension stack for the [Pi coding agent](https://pi
 - **🎯 Autonomous Goal Loop (`/goal`)**: Multi-turn goal supervisor with turn/token budget stops, self-auditing milestones, and independent JEV evaluator.
 - **👤 Persona Engine (`/persona`)**: Real-time developer preference learning with continuous feedback and automatic sync to `~/.pi/agent/persona.md`.
 - **📈 Ground-Truth RL Engine**: Contextual bandit updating Q-values based on verifiable test outcomes and semantic lessons store.
-- **📊 Developer & Office Tooling**: Native integration for Excel conversion (`xlsx2md`), Google Drive search/download, and Redmine issue/time management.
+- **📊 Developer & Office Tooling**: Native integration for Excel conversion (`xlsx2md`) and Google Drive full-text search and asset download.
 
 ---
 
@@ -29,7 +29,6 @@ A modular, production-ready extension stack for the [Pi coding agent](https://pi
 | [`packages/pi-goal`](packages/pi-goal) | Multi-turn autonomous goal loop with token budget controls and self-reflection. |
 | [`packages/pi-rl-engine`](packages/pi-rl-engine) | Verifier-driven reinforcement learning and episodic lessons memory. |
 | [`packages/pi-xlsx2md`](packages/pi-xlsx2md) | Excel workbook densified conversion, diffing, and Markdown metadata generator. |
-| [`packages/pi-redmine`](packages/pi-redmine) | VietIS Redmine ticket search, detail viewing, commenting, and time logging. |
 | [`packages/pi-gdrive`](packages/pi-gdrive) | Google Drive full-text search, metadata inspection, and asset downloader. |
 
 ---
@@ -119,7 +118,6 @@ bun run --cwd packages/pi-persona check
 bun run --cwd packages/pi-goal check
 bun run --cwd packages/pi-rl-engine check
 bun run --cwd packages/pi-xlsx2md check
-bun run --cwd packages/pi-redmine check
 bun run --cwd packages/pi-gdrive check
 ```
 

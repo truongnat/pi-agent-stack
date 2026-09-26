@@ -861,7 +861,21 @@ export default function (pi: ExtensionAPI): void {
 			snapshot = persist(snapshot)
 			publishProviders(pi, snapshot)
 			const summaries = compactSummaries(snapshot)
-			ctx.ui.notify(`${summaries.cursor}\n${summaries.antigravity}`, 'info')
+			const content = [
+				'### 🔌 Subscription Providers Readiness',
+				`• Cursor: ${summaries.cursor}`,
+				`• Antigravity: ${summaries.antigravity}`,
+				`• Claude Code: ${snapshot?.['claude-code']?.ready ? '● Ready' : '○ Standby'}`
+			].join('\n')
+			if (typeof pi.sendMessage === 'function') {
+				pi.sendMessage({
+					customType: 'account-switched',
+					content,
+					display: true
+				} as unknown as Parameters<ExtensionAPI['sendMessage']>[0])
+			} else {
+				ctx.ui.notify(content, 'info')
+			}
 		}
 	})
 

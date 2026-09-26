@@ -125,6 +125,23 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 		}
 	})
 
+	function sendOrchestratorMessage(
+		ctx: ExtensionContext,
+		content: string,
+		details?: Record<string, unknown>
+	) {
+		if (typeof pi.sendMessage === 'function') {
+			pi.sendMessage({
+				customType: 'orchestrator',
+				content,
+				display: true,
+				details
+			} as any)
+		} else {
+			ctx.ui.notify(content, 'info')
+		}
+	}
+
 	// 2. Register Slash Command: /agents
 	pi.registerCommand('agents', {
 		description:
@@ -142,7 +159,7 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 					`• Verification Tree: When \`require_consensus: true\` is specified in \`invoke_subagent\`, independent reviewer & tester agents execute in parallel to vote on coder changes.`,
 					`• Historical Consensus Subagents: ${list.length} managed`
 				].join('\n')
-				ctx.ui.notify(info, 'info')
+				sendOrchestratorMessage(ctx, info, { action: 'consensus' })
 				return
 			}
 
@@ -180,7 +197,7 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 					) + '│',
 					'└─────────────────────────────────────────────────────────────────────┘'
 				].join('\n')
-				ctx.ui.notify(dagTree, guard.allowed ? 'info' : 'warning')
+				sendOrchestratorMessage(ctx, dagTree, { action: 'dag' })
 				return
 			}
 
@@ -189,23 +206,28 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 					(r) =>
 						`• **${r.name}** (${r.label})\n  - *Model Tier*: \`${r.defaultModelTier}\`\n  - *Tools*: [${r.allowedTools.join(', ')}]\n  - *Description*: ${r.description}`
 				)
-				ctx.ui.notify(`### 👥 Available Subagent Roster:\n\n${roles.join('\n\n')}`, 'info')
+				sendOrchestratorMessage(ctx, `### 👥 Available Subagent Roster:\n\n${roles.join('\n\n')}`, {
+					action: 'roster'
+				})
 				return
 			}
 
 			if (input === 'list') {
 				const list = manager.listSubagents()
 				if (list.length === 0) {
-					ctx.ui.notify('No active or recent subagents in orchestrator.', 'info')
+					sendOrchestratorMessage(ctx, 'No active or recent subagents in orchestrator.', {
+						action: 'list'
+					})
 					return
 				}
 				const rows = list.map(
 					(s) =>
 						`• **${s.name}** (\`${s.role}\`) — *${s.status.toUpperCase()}* (Model: \`${s.model}\`, Tokens: ${s.tokensUsed})`
 				)
-				ctx.ui.notify(
+				sendOrchestratorMessage(
+					ctx,
 					`### 🤖 Subagent History (Total: ${list.length}):\n\n${rows.join('\n')}`,
-					'info'
+					{ action: 'list' }
 				)
 				return
 			}
@@ -214,9 +236,10 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 				const id = input.replace('kill ', '').trim()
 				const ok = manager.killSubagent(id)
 				updateStatus(ctx)
-				ctx.ui.notify(
-					ok ? `Subagent "${id}" killed.` : `Could not kill subagent "${id}".`,
-					ok ? 'info' : 'warning'
+				sendOrchestratorMessage(
+					ctx,
+					ok ? `✓ Subagent "${id}" killed.` : `✖ Could not kill subagent "${id}".`,
+					{ action: 'kill' }
 				)
 				return
 			}
@@ -224,14 +247,16 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 			if (input === 'kill-all') {
 				const count = manager.killAll()
 				updateStatus(ctx)
-				ctx.ui.notify(`Killed ${count} running subagents.`, 'info')
+				sendOrchestratorMessage(ctx, `✓ Killed ${count} running subagent(s).`, {
+					action: 'kill-all'
+				})
 				return
 			}
 
 			if (input === 'clear') {
 				manager.clearHistory()
 				updateStatus(ctx)
-				ctx.ui.notify('Cleared subagent history.', 'info')
+				sendOrchestratorMessage(ctx, '✓ Cleared subagent history.', { action: 'clear' })
 				return
 			}
 
@@ -245,18 +270,20 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 					manager.config.alwaysOrchestrate = !manager.config.alwaysOrchestrate
 				}
 				saveOrchestratorConfig(manager.config)
-				ctx.ui.notify(
+				sendOrchestratorMessage(
+					ctx,
 					`Multi-Agent Auto-Orchestration is now: ${manager.config.alwaysOrchestrate ? '● ON (Lead Orchestrator active)' : '○ OFF (On-demand only)'}`,
-					'info'
+					{ action: 'auto' }
 				)
 				return
 			}
 
 			// Interactive UI menu
 			if (!ctx.hasUI) {
-				ctx.ui.notify(
+				sendOrchestratorMessage(
+					ctx,
 					'Usage: /agents [auto [on|off]|dag|status|list|roster|kill <id>|kill-all|clear]',
-					'info'
+					{ action: 'help' }
 				)
 				return
 			}
@@ -286,9 +313,10 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 			if (picked.startsWith('⚙️  Auto-Orchestration')) {
 				manager.config.alwaysOrchestrate = !isAuto
 				saveOrchestratorConfig(manager.config)
-				ctx.ui.notify(
+				sendOrchestratorMessage(
+					ctx,
 					`Multi-Agent Auto-Orchestration is now: ${manager.config.alwaysOrchestrate ? '● ON (Lead Orchestrator active)' : '○ OFF (On-demand only)'}`,
-					'info'
+					{ action: 'auto' }
 				)
 				return
 			}
@@ -325,29 +353,29 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 					) + '│',
 					'└─────────────────────────────────────────────────────────────────────┘'
 				].join('\n')
-				ctx.ui.notify(dagTree, 'info')
+				sendOrchestratorMessage(ctx, dagTree, { action: 'dag' })
 			} else if (picked.startsWith('📋 List')) {
 				if (list.length === 0) {
-					ctx.ui.notify('No subagents found.', 'info')
+					sendOrchestratorMessage(ctx, 'No subagents found.', { action: 'list' })
 					return
 				}
 				const rows = list.map(
 					(s) => `• **${s.name}** (\`${s.role}\`) — *${s.status}* | \`${s.id}\``
 				)
-				ctx.ui.notify(`### Subagents:\n\n${rows.join('\n')}`, 'info')
+				sendOrchestratorMessage(ctx, `### Subagents:\n\n${rows.join('\n')}`, { action: 'list' })
 			} else if (picked.startsWith('👥 View')) {
 				const roles = Object.values(DEFAULT_ROSTER).map(
 					(r) => `• **${r.name}** (${r.label}) [Model: \`${r.defaultModelTier}\`]`
 				)
-				ctx.ui.notify(`### Roster:\n\n${roles.join('\n')}`, 'info')
+				sendOrchestratorMessage(ctx, `### Roster:\n\n${roles.join('\n')}`, { action: 'roster' })
 			} else if (picked.startsWith('🛑 Kill All')) {
 				const count = manager.killAll()
 				updateStatus(ctx)
-				ctx.ui.notify(`Killed ${count} subagents.`, 'info')
+				sendOrchestratorMessage(ctx, `✓ Killed ${count} subagent(s).`, { action: 'kill-all' })
 			} else if (picked.startsWith('🗑️  Clear')) {
 				manager.clearHistory()
 				updateStatus(ctx)
-				ctx.ui.notify('Cleared subagent history.', 'info')
+				sendOrchestratorMessage(ctx, '✓ Cleared subagent history.', { action: 'clear' })
 			}
 		}
 	})
