@@ -31,6 +31,19 @@ export interface ProcessExecutionResult {
 	duration_ms: number
 }
 
+export interface DocumentItem {
+	id: string
+	text: string
+	tags?: string[]
+	utility?: number
+}
+
+export interface RankedDocument {
+	id: string
+	score: number
+	text: string
+}
+
 export interface NativeBridge {
 	isAvailable: boolean
 	version: string
@@ -48,6 +61,9 @@ export interface NativeBridge {
 	) => ProcessExecutionResult
 	killProcessGroup: (pgid: number, signal?: number) => number
 	isProcessAlive: (pid: number) => boolean
+	vectorCosineSimilarity: (a: Float32Array | number[], b: Float32Array | number[]) => number
+	trigramSimilarity: (a: string, b: string) => number
+	rankDocuments: (query: string, documents: DocumentItem[], topK?: number) => RankedDocument[]
 }
 
 // Fallback implementations in pure TypeScript
@@ -159,6 +175,69 @@ function fallbackIsProcessAlive(pid: number): boolean {
 	}
 }
 
+function fallbackVectorCosineSimilarity(
+	a: Float32Array | number[],
+	b: Float32Array | number[]
+): number {
+	if (!a.length || a.length !== b.length) return 0
+	let dot = 0
+	let normA = 0
+	let normB = 0
+	for (let i = 0; i < a.length; i++) {
+		const va = a[i]!
+		const vb = b[i]!
+		dot += va * vb
+		normA += va * va
+		normB += vb * vb
+	}
+	const denom = Math.sqrt(normA) * Math.sqrt(normB)
+	return denom < 1e-9 ? 0 : dot / denom
+}
+
+function fallbackTrigramSimilarity(a: string, b: string): number {
+	if (a === b) return 1
+	if (!a || !b) return 0
+	const getTrigrams = (str: string) => {
+		const lower = str.toLowerCase()
+		const set = new Set<string>()
+		for (let i = 0; i < lower.length - 2; i++) {
+			set.add(lower.slice(i, i + 3))
+		}
+		return set
+	}
+	const triA = getTrigrams(a)
+	const triB = getTrigrams(b)
+	if (triA.size === 0 || triB.size === 0) return 0
+	let inter = 0
+	for (const t of triA) {
+		if (triB.has(t)) inter++
+	}
+	return (2 * inter) / (triA.size + triB.size)
+}
+
+function fallbackRankDocuments(
+	query: string,
+	documents: DocumentItem[],
+	topK = 5
+): RankedDocument[] {
+	const scored = documents.map((doc) => {
+		const sim = fallbackTrigramSimilarity(query, doc.text)
+		const containsWord = query
+			.toLowerCase()
+			.split(' ')
+			.some((w) => w.length > 2 && doc.text.toLowerCase().includes(w))
+			? 0.3
+			: 0
+		return {
+			id: doc.id,
+			score: sim * 0.7 + containsWord + (doc.utility || 0) * 0.05,
+			text: doc.text
+		}
+	})
+	scored.sort((a, b) => b.score - a.score)
+	return scored.slice(0, topK)
+}
+
 // Locate native library
 function findNativeLibrary(): string | null {
 	const currentDir = dirname(fileURLToPath(import.meta.url))
@@ -200,7 +279,7 @@ function findNativeLibrary(): string | null {
 
 let nativeLib: any = null
 let isNative = false
-let nativeVersion = '0.4.0-ts-fallback'
+let nativeVersion = '0.5.0-ts-fallback'
 
 try {
 	const libPath = findNativeLibrary()
@@ -237,6 +316,18 @@ try {
 			},
 			pi_spawn_supervised: {
 				args: ['ptr', 'ptr', 'u64', 'usize'],
+				returns: 'ptr'
+			},
+			pi_vector_cosine_similarity: {
+				args: ['ptr', 'ptr', 'usize'],
+				returns: 'f32'
+			},
+			pi_trigram_similarity: {
+				args: ['ptr', 'ptr'],
+				returns: 'f32'
+			},
+			pi_rank_documents: {
+				args: ['ptr', 'ptr', 'usize'],
 				returns: 'ptr'
 			},
 			pi_kill_process_group: {
@@ -403,6 +494,62 @@ export function spawnSupervised(
 	}
 }
 
+export function vectorCosineSimilarity(
+	a: Float32Array | number[],
+	b: Float32Array | number[]
+): number {
+	if (!isNative || !nativeLib) {
+		return fallbackVectorCosineSimilarity(a, b)
+	}
+
+	try {
+		const bufA = a instanceof Float32Array ? a : new Float32Array(a)
+		const bufB = b instanceof Float32Array ? b : new Float32Array(b)
+		const { ptr } = (globalThis as any).Bun.FFI
+		return nativeLib.symbols.pi_vector_cosine_similarity(ptr(bufA), ptr(bufB), bufA.length)
+	} catch {
+		return fallbackVectorCosineSimilarity(a, b)
+	}
+}
+
+export function trigramSimilarity(a: string, b: string): number {
+	if (!isNative || !nativeLib) {
+		return fallbackTrigramSimilarity(a, b)
+	}
+
+	try {
+		const aBuf = Buffer.from(`${a}\0`, 'utf8')
+		const bBuf = Buffer.from(`${b}\0`, 'utf8')
+		const { ptr } = (globalThis as any).Bun.FFI
+		return nativeLib.symbols.pi_trigram_similarity(ptr(aBuf), ptr(bBuf))
+	} catch {
+		return fallbackTrigramSimilarity(a, b)
+	}
+}
+
+export function rankDocuments(
+	query: string,
+	documents: DocumentItem[],
+	topK = 5
+): RankedDocument[] {
+	if (!isNative || !nativeLib) {
+		return fallbackRankDocuments(query, documents, topK)
+	}
+
+	try {
+		const qBuf = Buffer.from(`${query}\0`, 'utf8')
+		const docsBuf = Buffer.from(`${JSON.stringify(documents)}\0`, 'utf8')
+		const { ptr, CString } = (globalThis as any).Bun.FFI
+		const resPtr = nativeLib.symbols.pi_rank_documents(ptr(qBuf), ptr(docsBuf), topK)
+		if (!resPtr) return fallbackRankDocuments(query, documents, topK)
+		const jsonStr = new CString(resPtr).toString()
+		nativeLib.symbols.pi_free_string(resPtr)
+		return JSON.parse(jsonStr)
+	} catch {
+		return fallbackRankDocuments(query, documents, topK)
+	}
+}
+
 export function killProcessGroup(pgid: number, signal = 9): number {
 	if (!isNative || !nativeLib) {
 		return fallbackKillProcessGroup(pgid, signal)
@@ -438,7 +585,10 @@ export const bridge: NativeBridge = {
 	skeletonizeCode,
 	spawnSupervised,
 	killProcessGroup,
-	isProcessAlive
+	isProcessAlive,
+	vectorCosineSimilarity,
+	trigramSimilarity,
+	rankDocuments
 }
 
 export default bridge

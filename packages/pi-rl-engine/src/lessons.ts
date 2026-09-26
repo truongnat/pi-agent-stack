@@ -8,6 +8,7 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
+import { trigramSimilarity } from 'pi-native-bridge'
 
 export interface LessonEntry {
 	id: string
@@ -213,7 +214,7 @@ export class LessonStore {
 				}
 			}
 
-			// 2. Exact phrase bonus (bigrams/trigrams)
+			// 2. Exact phrase & Native Trigram Similarity bonus
 			if (
 				lesson.taskSummary &&
 				promptLower.includes(lesson.taskSummary.toLowerCase().slice(0, 30))
@@ -225,6 +226,10 @@ export class LessonStore {
 				promptLower.includes(lesson.ruleLearned.toLowerCase().slice(0, 30))
 			) {
 				score += 6
+			}
+			const triSim = trigramSimilarity(promptLower, haystackText)
+			if (triSim > 0.3) {
+				score += triSim * 8
 			}
 
 			// 3. Tag exact match bonus

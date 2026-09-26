@@ -7,16 +7,19 @@ import {
 	hashToolSignature,
 	isNativeAvailable,
 	isProcessAlive,
+	rankDocuments,
 	scanDirectory,
 	searchWorkspace,
 	skeletonizeCode,
-	spawnSupervised
+	spawnSupervised,
+	trigramSimilarity,
+	vectorCosineSimilarity
 } from '../src/index.ts'
 
 test('bridge exports version and availability status', () => {
 	const version = getNativeVersion()
 	assert.ok(typeof version === 'string')
-	assert.match(version, /^0\.4\.0/)
+	assert.match(version, /^0\.5\.0/)
 	assert.equal(typeof isNativeAvailable(), 'boolean')
 })
 
@@ -124,4 +127,36 @@ test('spawnSupervised executes command and handles timeout with process group ki
 	assert.ok(resTimeout.exit_code !== 0)
 
 	assert.equal(isProcessAlive(process.pid), true)
+})
+
+test('vectorCosineSimilarity computes accurate dot products', () => {
+	const vec1 = [1.0, 0.0, 1.0]
+	const vec2 = [1.0, 0.0, 1.0]
+	const sim = vectorCosineSimilarity(vec1, vec2)
+	assert.ok(Math.abs(sim - 1.0) < 0.001)
+
+	const vec3 = [0.0, 1.0, 0.0]
+	const simOrtho = vectorCosineSimilarity(vec1, vec3)
+	assert.ok(Math.abs(simOrtho) < 0.001)
+})
+
+test('trigramSimilarity and rankDocuments rank relevant memory lessons', () => {
+	const sim = trigramSimilarity('calculateInterest()', 'calculateInterest')
+	assert.ok(sim > 0.6)
+
+	const docs = [
+		{
+			id: '1',
+			text: 'Always run bun test before pushing code',
+			tags: ['test', 'bun'],
+			utility: 0.9
+		},
+		{ id: '2', text: 'Database migrations must be deterministic', tags: ['db'], utility: 0.5 },
+		{ id: '3', text: 'Run prettier on formatted files', tags: ['lint'], utility: 0.7 }
+	]
+
+	const ranked = rankDocuments('how do I run bun test', docs, 2)
+	assert.equal(ranked.length, 2)
+	assert.equal(ranked[0].id, '1')
+	assert.ok(ranked[0].score > ranked[1].score)
 })

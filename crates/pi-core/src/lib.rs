@@ -5,15 +5,17 @@ pub mod dcp;
 pub mod scanner;
 pub mod supervisor;
 pub mod tokenizer;
+pub mod vector;
 
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::path::Path;
+use std::slice;
 
 /// Returns the version string of pi-core.
 #[no_mangle]
 pub extern "C" fn pi_core_version() -> *mut c_char {
-    let s = CString::new("0.4.0").unwrap();
+    let s = CString::new("0.5.0").unwrap();
     s.into_raw()
 }
 
@@ -185,6 +187,67 @@ pub extern "C" fn pi_spawn_supervised(
 
     CString::new(json_str)
         .unwrap_or_else(|_| CString::new("{}").unwrap())
+        .into_raw()
+}
+
+/// Computes SIMD cosine similarity between two float arrays.
+#[no_mangle]
+pub extern "C" fn pi_vector_cosine_similarity(
+    vec_a: *const f32,
+    vec_b: *const f32,
+    len: usize,
+) -> f32 {
+    if vec_a.is_null() || vec_b.is_null() || len == 0 {
+        return 0.0;
+    }
+
+    let a = unsafe { slice::from_raw_parts(vec_a, len) };
+    let b = unsafe { slice::from_raw_parts(vec_b, len) };
+
+    vector::cosine_similarity(a, b)
+}
+
+/// Computes Trigram string similarity between two strings.
+#[no_mangle]
+pub extern "C" fn pi_trigram_similarity(str_a: *const c_char, str_b: *const c_char) -> f32 {
+    if str_a.is_null() || str_b.is_null() {
+        return 0.0;
+    }
+
+    let Ok(a) = (unsafe { CStr::from_ptr(str_a) }).to_str() else {
+        return 0.0;
+    };
+    let Ok(b) = (unsafe { CStr::from_ptr(str_b) }).to_str() else {
+        return 0.0;
+    };
+
+    vector::trigram_similarity(a, b)
+}
+
+/// Ranks a JSON list of documents against a query string.
+#[no_mangle]
+pub extern "C" fn pi_rank_documents(
+    query: *const c_char,
+    documents_json: *const c_char,
+    top_k: usize,
+) -> *mut c_char {
+    if query.is_null() || documents_json.is_null() {
+        return CString::new("[]").unwrap().into_raw();
+    }
+
+    let Ok(q_str) = (unsafe { CStr::from_ptr(query) }).to_str() else {
+        return CString::new("[]").unwrap().into_raw();
+    };
+    let Ok(docs_str) = (unsafe { CStr::from_ptr(documents_json) }).to_str() else {
+        return CString::new("[]").unwrap().into_raw();
+    };
+
+    let docs: Vec<vector::DocumentItem> = serde_json::from_str(docs_str).unwrap_or_default();
+    let ranked = vector::rank_documents(q_str, &docs, top_k);
+    let json_str = serde_json::to_string(&ranked).unwrap_or_else(|_| "[]".to_string());
+
+    CString::new(json_str)
+        .unwrap_or_else(|_| CString::new("[]").unwrap())
         .into_raw()
 }
 
