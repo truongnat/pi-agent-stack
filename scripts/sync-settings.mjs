@@ -38,7 +38,6 @@ const removeManaged = (entry) => {
 }
 
 const packages = Array.isArray(settings.packages) ? settings.packages.filter((entry) => !removeManaged(entry)) : []
-packages.push('npm:@davecodes/pi-dcp@0.2.0')
 
 const next = {
 	...defaults,

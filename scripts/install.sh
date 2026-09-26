@@ -24,10 +24,19 @@ rsync -a --delete \
 	--exclude 'decisions.jsonl' \
 	"$ROOT_DIR/" "$AGENT_DIR/pi-agent-stack/"
 
-(cd "$AGENT_DIR/pi-agent-stack" && bun install --ignore-scripts)
+# Build native Rust core if cargo is available
+if command -v cargo >/dev/null 2>&1; then
+	echo "Building native Rust core engine (pi-core)..."
+	(cd "$AGENT_DIR/pi-agent-stack/crates/pi-core" && cargo build --release)
+elif [[ -f "$ROOT_DIR/crates/pi-core/target/release/libpi_core.dylib" ]]; then
+	mkdir -p "$AGENT_DIR/pi-agent-stack/crates/pi-core/target/release"
+	cp "$ROOT_DIR/crates/pi-core/target/release/libpi_core."* "$AGENT_DIR/pi-agent-stack/crates/pi-core/target/release/" 2>/dev/null || true
+fi
+
+# Link workspaces and dependencies
+(cd "$AGENT_DIR/pi-agent-stack" && bun install)
 
 cd "$AGENT_DIR"
-pi install npm:@davecodes/pi-dcp@0.2.0
 node "$AGENT_DIR/pi-agent-stack/scripts/sync-settings.mjs"
 
 # Register global extension bridges in ~/.pi/agent/extensions/ for 100% reliable command loading

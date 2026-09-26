@@ -21,6 +21,8 @@ A modular, production-ready extension stack for the [Pi coding agent](https://pi
 
 | Package | Purpose |
 | :--- | :--- |
+| [`crates/pi-core`](crates/pi-core) | High-performance native Rust core: BPE tokenization, Ripgrep search, Tree-Sitter AST skeletonizer, POSIX process supervisor, and SIMD vector ranker. |
+| [`packages/pi-native-bridge`](packages/pi-native-bridge) | Bun FFI bridge with zero-dependency TypeScript fallbacks for seamless native execution. |
 | [`packages/pi-jev-harness`](packages/pi-jev-harness) | JEV reasoning, model routing, strategic briefings, result trimming, and safety guard. |
 | [`packages/pi-subscription-providers`](packages/pi-subscription-providers) | CLI adapters (`cursor-agent`, `agy`, `claude`), quota tracking, and multi-account pool. |
 | [`packages/pi-stitch`](packages/pi-stitch) | Google Stitch MCP bridge, Ember TUI theme tokens, and Markdown styling utilities. |
@@ -39,16 +41,18 @@ A modular, production-ready extension stack for the [Pi coding agent](https://pi
 ### 1. Requirements
 - **[Pi CLI](https://pi.dev)**
 - **[Bun](https://bun.sh)** (v1.2+) — *All JS/TS tooling is 100% Bun-first*
-- **Python 3.10+** (for `xlsx2md` CLI core)
+- *(Optional)* **Rust / Cargo** (for native speedups; pure TS fallbacks are built-in)
+- *(Optional)* **Python 3.10+** (for `xlsx2md` CLI core)
 - *(Optional)* Provider CLIs: `cursor-agent`, `agy`, `claude`, `codex`
 
-### 2. Installation
+### 2. 1-Command Installation
 
 ```bash
 git clone https://github.com/truongnat/pi-agent-stack.git
 cd pi-agent-stack
-bash scripts/install.sh
+bun run setup
 ```
+*(Hoặc `bash scripts/install.sh`)*
 
 ### 3. Environment & API Keys
 
