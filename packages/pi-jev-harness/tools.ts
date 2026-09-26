@@ -111,134 +111,57 @@ function loopVerdict(
 	}
 }
 
+import { evaluateRisk } from './risk.ts'
+
 export function isSafeProjectCommand(command: string): boolean {
-	const trimmed = command.trim().toLowerCase()
-
-	// Pure local safe commands or sub-commands in chains (&&, ;, |)
-	const safePatterns = [
-		/^(npm|pnpm|yarn|bun)\s+(run\s+)?(build|test|lint|typecheck|dev|start|check|format|compile|analyze|watch)/,
-		/^(npm|pnpm|yarn|bun)\s+(test|build|lint|start|dev|run)/,
-		/^(npm|pnpm|yarn|bun)\s+(install|add|ci|i)(\s+.*)?$/,
-		/^flutter\s+(build|run|test|analyze|pub\s+get|clean|doctor|devices|logs)/,
-		/^cargo\s+(build|test|check|run|clippy|fmt|bench)/,
-		/^go\s+(build|test|run|vet|mod\s+tidy)/,
-		/^(python3?|pytest|ruff|flake8|black|mypy)\s+/,
-		/^git\s+(status|diff|log|branch|checkout|switch|show|add|commit|fetch|pull|stash)/,
-		/^(make|cmake|ninja|mvn|gradle)\s+/,
-		/^(which|where|cat|ls|pwd|echo|head|tail|wc|find|grep|rg|tree|mkdir|touch|cp|mv)\b/,
-		// Process & local dev server lifecycle management
-		/^(kill|pkill|killall|pgrep|ps|lsof|sleep|nohup|wait|source|\.)\b/,
-		// Executing local workspace / target binaries
-		/^(\.\/|target\/(debug|release)\/|dist\/|build\/|bin\/)/,
-		// Local HTTP probes
-		/^curl\s+.*(localhost|127\.0\.0\.1|0\.0\.0\.0)/,
-		/^wget\s+.*(localhost|127\.0\.0\.1|0\.0\.0\.0)/
-	]
-
-	// Check if entire command matches or if all chained subcommands match
-	if (safePatterns.some((pattern) => pattern.test(trimmed))) {
-		return true
+	const dummyEvent: ToolCallEvent = {
+		toolName: 'bash',
+		input: { command }
 	}
-
-	// Split by chaining operators (&&, ;, ||) and verify each segment
-	const segments = trimmed.split(/&&|;|\|\|/).map((s) => s.trim().replace(/^nohup\s+/, '')).filter(Boolean)
-	if (segments.length > 1) {
-		const allSafe = segments.every((seg) => {
-			const cleanSeg = seg.replace(/&$/, '').trim()
-			return safePatterns.some((pattern) => pattern.test(cleanSeg))
-		})
-		if (allSafe) return true
-	}
-
-	return false
+	return evaluateRisk(dummyEvent, process.cwd()).level === 0
 }
 
 export function isDangerousSecretAction(event: ToolCallEvent): boolean {
-	if (event.toolName === 'bash') {
-		const cmd = String(event.input?.command || '').toLowerCase()
-
-		// 1. Committing / adding .env files to git
-		if (/git\s+(add|commit).*(\.env|credentials|secret|id_rsa)/.test(cmd)) {
-			return true
-		}
-
-		// 2. Exfiltrating secrets via network
-		if (/(curl|wget|nc|ncat|socat|telnet).*(-d|--data|--header|auth).*(\$|key|token|secret)/.test(cmd)) {
-			return true
-		}
-
-		// 3. Accessing sensitive system credential files outside workspace
-		if (/(cat|less|head|tail|scp|cp|mv)\s+.*(\.ssh\/|\.aws\/|\.gnupg\/|\.keys\/|id_rsa)/.test(cmd)) {
-			return true
-		}
-	}
-
-	if (event.toolName === 'read' || event.toolName === 'edit' || event.toolName === 'write') {
-		const path = String(event.input?.path || event.input?.file || '').toLowerCase()
-		// Only global system credential stores are dangerous, NOT project .env
-		if (path.includes('.ssh/') || path.includes('.aws/') || path.includes('.gnupg/') || path.includes('id_rsa')) {
-			return true
-		}
-	}
-
-	return false
+	return evaluateRisk(event, process.cwd()).category === 'credential_leak'
 }
 
-function guardReason(answers: Answers, event: ToolCallEvent): string | null {
-	const secrets = noulOf(answers, 'secrets')
-	// Only trigger secrets guard if Jev flags high secrets risk AND it is actually a dangerous secret action (not benign local .env reads)
-	if (secrets >= THRESHOLDS.secrets && isDangerousSecretAction(event)) {
-		return `may expose sensitive master credentials (${secrets.toFixed(2)})`
-	}
-	const risk = scoreOf(answers, 'risk')
-	if (risk.confidence < THRESHOLDS.askConfidence) return null
-	const level = Math.round(risk.score)
-	if (level === 3) return `destructive (${risk.confidence.toFixed(2)})`
-
-	// Level 2: only block truly hazardous filesystem actions, not dev process/server runs
-	if (level === 2 && event.toolName === 'bash') {
-		const cmd = String(event.input?.command || '')
-		if (isSafeProjectCommand(cmd)) {
-			return null
-		}
-		// Explicitly check for hazardous patterns (force push, hard reset, drop database, recursive remove)
-		if (/(git\s+push.*--force|git\s+reset\s+--hard|rm\s+-rf?\s+[~/]|drop\s+database|truncate)/i.test(cmd)) {
-			return `hard to reverse (${risk.confidence.toFixed(2)})`
-		}
-		return null
-	}
-	return null
-}
-
-/** Step 5: destructive or secret-touching calls need a human. */
+/** Step 5: Context-aware multi-tier security and hazard guard. */
 async function guardVerdict(
 	h: Harness,
 	answers: Answers,
 	event: ToolCallEvent,
 	ctx: ExtensionContext
 ): Promise<Block | undefined> {
-	if (event.toolName === 'bash') {
-		const cmd = String(event.input?.command || '')
-		if (isSafeProjectCommand(cmd)) {
-			return undefined
+	const evalResult = evaluateRisk(event, ctx.cwd, answers)
+	if (evalResult.level === 0) {
+		return undefined
+	}
+
+	if (evalResult.blockDirectly) {
+		h.stats.guardBlocked++
+		const reason = evalResult.reason || 'Critical security hazard blocked directly'
+		return { block: true, reason: `[ 🛑 JEV Security Guard: ${reason}. Action blocked directly for repository and credential safety. ]` }
+	}
+
+	if (evalResult.requireConfirm) {
+		const reason = evalResult.reason || 'Action requires confirmation'
+		h.stats.guardAsked++
+		h.status(ctx, `jev guard: ${reason}`)
+		if (h.config.mode !== 'on') return undefined
+		const what = event.toolName === 'bash' ? String(event.input?.command || '') : short(event.input, 400)
+		if (ctx.hasUI) {
+			const ok = await ctx.ui.confirm(
+				`jev-harness: ${reason}`,
+				`${event.toolName}: ${what}\n\nRun it?`
+			)
+			if (ok) return undefined
 		}
+		h.stats.guardBlocked++
+		const who = ctx.hasUI ? 'The user declined.' : 'No one is here to confirm; ask the user first.'
+		return { block: true, reason: `jev-harness blocked this call: ${reason}. ${who}` }
 	}
-	const reason = guardReason(answers, event)
-	if (!reason) return undefined
-	h.stats.guardAsked++
-	h.status(ctx, `jev guard: ${reason}`)
-	if (h.config.mode !== 'on') return undefined
-	const what = event.toolName === 'bash' ? String(event.input.command) : short(event.input, 400)
-	if (ctx.hasUI) {
-		const ok = await ctx.ui.confirm(
-			`jev-harness: ${reason}`,
-			`${event.toolName}: ${what}\n\nRun it?`
-		)
-		if (ok) return undefined
-	}
-	h.stats.guardBlocked++
-	const who = ctx.hasUI ? 'The user declined.' : 'No one is here to confirm; ask the user first.'
-	return { block: true, reason: `jev-harness blocked this call: ${reason}. ${who}` }
+
+	return undefined
 }
 
 export async function onToolCall(
