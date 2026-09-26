@@ -7,7 +7,6 @@ test('invoke_subagent tool executes tasks and returns structured markdown artifa
 	const manager = new SubagentManager({ guard: false })
 	const { invokeSubagentTool } = createOrchestratorTools(manager)
 
-
 	const result = await invokeSubagentTool.execute(
 		'1',
 		{
@@ -160,12 +159,20 @@ test('invoke_subagent renderCall and renderResult render clean TUI components wi
 		{ cwd: process.cwd() } as any
 	)
 
-	const collapsedComp = (invokeSubagentTool as any).renderResult(result, { expanded: false }, mockTheme)
+	const collapsedComp = (invokeSubagentTool as any).renderResult(
+		result,
+		{ expanded: false },
+		mockTheme
+	)
 	assert.ok(collapsedComp)
 	assert.match(collapsedComp.text, /Orchestrator: Dispatched 1 Subagent/)
 
 	// 3. Result rendering (expanded with Markdown)
-	const expandedComp = (invokeSubagentTool as any).renderResult(result, { expanded: true }, mockTheme)
+	const expandedComp = (invokeSubagentTool as any).renderResult(
+		result,
+		{ expanded: true },
+		mockTheme
+	)
 	assert.ok(expandedComp)
 
 	// 4. Manage subagents call & result renderers
@@ -173,4 +180,3 @@ test('invoke_subagent renderCall and renderResult render clean TUI components wi
 	assert.ok(manageCallComp)
 	assert.match(manageCallComp.text, /manage_subagents/)
 })
-

@@ -30,9 +30,9 @@ Config lives at `~/.pi/agent/orchestrator.json`:
 
 ```json
 {
-  "enabled": true,
-  "guard": true,
-  "minProvidersRequired": 2
+	"enabled": true,
+	"guard": true,
+	"minProvidersRequired": 2
 }
 ```
 
@@ -49,4 +49,3 @@ export { default } from '../pi-agent-stack/packages/pi-orchestrator/index.ts'
 ```
 
 Or run `scripts/install.sh`.
-

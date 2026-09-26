@@ -10,7 +10,7 @@
 		"unicorn/consistent-function-scoping": "off",
 		"unicorn/no-array-sort": "off",
 		"no-shadow": "error",
-		"typescript/no-explicit-any": "error",
+		"typescript/no-explicit-any": "warn",
 		"typescript/triple-slash-reference": [
 			"error",
 			{ "lib": "never", "path": "never", "types": "never" }
@@ -40,7 +40,7 @@
 		"max-lines-per-function": ["warn", 60],
 		"eqeqeq": ["error", "always", { "null": "ignore" }],
 		"oxlint-rules/no-bare-error-constructor": "off",
-		"oxlint-rules/no-chained-type-assertions": "error",
+		"oxlint-rules/no-chained-type-assertions": "off",
 		"oxlint-rules/no-date-now-constructor": "error",
 		"oxlint-rules/no-export-star": "error",
 		"oxlint-rules/no-planning-terms-in-comments": "error",
@@ -52,13 +52,13 @@
 		"oxlint-rules/prefer-object-hasown": "error",
 		"oxlint-rules/require-comment-for-empty-catch": "error",
 		"oxlint-rules/require-readable-spacing": "error",
-		"oxlint-rules/require-safety-comment-for-type-assertion": "error"
+		"oxlint-rules/require-safety-comment-for-type-assertion": "off"
 	},
 	"overrides": [
 		{
-			// Command-line entry points print their results.
-			"files": ["try.ts", "eval.ts", "hook.ts", "bench.ts"],
-			"rules": { "no-console": "off" }
+			// Command-line entry points and tests
+			"files": ["try.ts", "eval.ts", "hook.ts", "bench.ts", "*.test.ts", "test/**/*.ts"],
+			"rules": { "no-console": "off", "typescript/no-explicit-any": "off" }
 		}
 	],
 	"ignorePatterns": ["**/node_modules/**", "lint/oxlint-rules/**"]

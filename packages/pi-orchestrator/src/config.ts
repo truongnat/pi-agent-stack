@@ -26,8 +26,7 @@ export function loadOrchestratorConfig(path = CONFIG_PATH): OrchestratorConfig {
 		return {
 			enabled: raw.enabled ?? DEFAULT_ORCHESTRATOR_CONFIG.enabled,
 			guard: raw.guard ?? DEFAULT_ORCHESTRATOR_CONFIG.guard,
-			alwaysOrchestrate:
-				raw.alwaysOrchestrate ?? DEFAULT_ORCHESTRATOR_CONFIG.alwaysOrchestrate,
+			alwaysOrchestrate: raw.alwaysOrchestrate ?? DEFAULT_ORCHESTRATOR_CONFIG.alwaysOrchestrate,
 			minProvidersRequired:
 				raw.minProvidersRequired ?? DEFAULT_ORCHESTRATOR_CONFIG.minProvidersRequired,
 			scratchpadRoot: raw.scratchpadRoot ?? DEFAULT_ORCHESTRATOR_CONFIG.scratchpadRoot
@@ -37,10 +36,7 @@ export function loadOrchestratorConfig(path = CONFIG_PATH): OrchestratorConfig {
 	}
 }
 
-export function saveOrchestratorConfig(
-	config: OrchestratorConfig,
-	path = CONFIG_PATH
-): void {
+export function saveOrchestratorConfig(config: OrchestratorConfig, path = CONFIG_PATH): void {
 	try {
 		mkdirSync(dirname(path), { recursive: true })
 		writeFileSync(path, JSON.stringify(config, null, 2), 'utf8')

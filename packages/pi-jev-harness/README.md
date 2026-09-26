@@ -31,7 +31,6 @@ Six things, each switchable in config.
 
 ## Cost policy and subscription providers
 
-
 Jev chooses the cheapest sufficient model and lowest sufficient thinking level. Automatic model changes require high confidence and at least 5% lower combined marginal cost; expensive upgrades are never made automatically. Same-provider `gpt-5.6-(luna|terra|sol)` candidates remain. When `subscriptionRouting` is on, Jev also considers ready **Cursor** / **Antigravity** entries from `~/.pi/agent/subscription-providers-status.json` (TTL-cached; no per-turn CLI probes; quota-exhausted providers skipped) and available **xai** models. Unavailable providers are skipped. **Hard rule:** subscription/compatibility providers are never selected for explore/change/run/unclear turns (they lack native Pi tool-call wire); only answer turns may use them. If the session is already on Cursor/Antigravity and the next turn needs native tools, Jev **forces a fallback** to a native API model (prefer `openai-codex/gpt-5.6-luna`) even when the model choice is `keep_current`. API providers stay as fallback. Default model and thinking stay `gpt-5.6-luna` / `high` unless Jev switches with confidence.
 
 ### When it helps

@@ -242,8 +242,8 @@ export function scaleThinkingForTurn(
 	const currentThinking = pi.getThinkingLevel()
 	if (!currentThinking) return undefined
 
-	let targetLevel: 'off' | 'minimal' | 'low' | 'medium' | 'high' = currentThinking as any
-	const lower = prompt.toLowerCase()
+	let targetLevel: 'off' | 'minimal' | 'low' | 'medium' | 'high' = currentThinking as
+		'off' | 'minimal' | 'low' | 'medium' | 'high'
 
 	const isExplorationOrInspect =
 		kind === 'explore' ||

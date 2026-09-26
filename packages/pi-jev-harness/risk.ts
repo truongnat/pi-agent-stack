@@ -28,13 +28,21 @@
 import { homedir } from 'node:os'
 import { isAbsolute, normalize, relative, resolve } from 'node:path'
 import type { ToolCallEvent } from '@earendil-works/pi-coding-agent'
-import { noulOf, scoreOf, THRESHOLDS, type Answers } from './jev.ts'
+
+import { scoreOf, THRESHOLDS, type Answers } from './jev.ts'
 
 export type RiskLevel = 0 | 1 | 2 | 3
 
 export interface RiskEvaluation {
 	level: RiskLevel
-	category: 'safe' | 'process_lifecycle' | 'destructive_git' | 'mass_delete' | 'system_tampering' | 'credential_leak' | 'unknown'
+	category:
+		| 'safe'
+		| 'process_lifecycle'
+		| 'destructive_git'
+		| 'mass_delete'
+		| 'system_tampering'
+		| 'credential_leak'
+		| 'unknown'
 	reason?: string
 	requireConfirm: boolean
 	blockDirectly: boolean
@@ -181,7 +189,9 @@ export function detectCriticalHazards(event: ToolCallEvent, cwd: string): RiskEv
 
 		// 2. Exfiltrating secrets via network to external domains
 		if (
-			/(curl|wget|nc|ncat|socat|telnet).*(-d|--data|--header|auth).*(\$|key|token|secret)/i.test(cmd) &&
+			/(curl|wget|nc|ncat|socat|telnet).*(-d|--data|--header|auth).*(\$|key|token|secret)/i.test(
+				cmd
+			) &&
 			!/(localhost|127\.0\.0\.1|0\.0\.0\.0)/i.test(cmd)
 		) {
 			return {
@@ -194,7 +204,9 @@ export function detectCriticalHazards(event: ToolCallEvent, cwd: string): RiskEv
 		}
 
 		// 3. System root destruction
-		if (/rm\s+(-rf?|-f)\s+(\/|\/\*|~|\~|\$HOME|\/System|\/Library|\/etc|\/usr)(\s|$|;|\*)/i.test(cmd)) {
+		if (
+			/rm\s+(-rf?|-f)\s+(\/|\/\*|~|\$HOME|\/System|\/Library|\/etc|\/usr)(\s|$|;|\*)/i.test(cmd)
+		) {
 			return {
 				level: 3,
 				category: 'system_tampering',
@@ -217,7 +229,8 @@ export function detectCriticalHazards(event: ToolCallEvent, cwd: string): RiskEv
 	}
 
 	if (event.toolName === 'read' || event.toolName === 'edit' || event.toolName === 'write') {
-		const path = String(event.input?.path || event.input?.file || event.input?.TargetFile || '')
+		const rawInput = event.input as Record<string, unknown> | undefined
+		const path = String(rawInput?.path || rawInput?.file || rawInput?.TargetFile || '')
 		if (path && isSensitiveSystemPath(path, cwd)) {
 			return {
 				level: 3,
@@ -239,7 +252,11 @@ export function detectRemoteOrSystemHazards(command: string): RiskEvaluation | n
 	const lower = command.toLowerCase()
 
 	// 1. Destructive remote branch deletion or force push to main/master/production
-	if (/git\s+push\s+.*(--delete\s+(main|master|production|prod)|:\s*(main|master|production|prod)|--force\s+origin\s+(main|master|production|prod))/i.test(lower)) {
+	if (
+		/git\s+push\s+.*(--delete\s+(main|master|production|prod)|:\s*(main|master|production|prod)|--force\s+origin\s+(main|master|production|prod))/i.test(
+			lower
+		)
+	) {
 		return {
 			level: 3,
 			category: 'system_tampering',
@@ -261,7 +278,10 @@ export function detectRemoteOrSystemHazards(command: string): RiskEvaluation | n
 	}
 
 	// 3. Direct remote/staging database drop commands
-	if (/psql|mysql|mongosh|redis-cli/i.test(lower) && /(drop\s+database|drop\s+schema|flushall)/i.test(lower)) {
+	if (
+		/psql|mysql|mongosh|redis-cli/i.test(lower) &&
+		/(drop\s+database|drop\s+schema|flushall)/i.test(lower)
+	) {
 		return {
 			level: 3,
 			category: 'system_tampering',
@@ -283,11 +303,7 @@ export function detectRemoteOrSystemHazards(command: string): RiskEvaluation | n
  * - STRICT PROTECTION only against: OS/system destruction (rm -rf /), credential leaks (~/.ssh, ~/.aws),
  *   and remote infrastructure tampering (SSH remote drops, deleting remote main branch).
  */
-export function evaluateRisk(
-	event: ToolCallEvent,
-	cwd: string,
-	answers?: Answers
-): RiskEvaluation {
+export function evaluateRisk(event: ToolCallEvent, cwd: string, answers?: Answers): RiskEvaluation {
 	// 1. Check for Critical System & Credential Hazards
 	const critical = detectCriticalHazards(event, cwd)
 	if (critical) return critical
@@ -337,4 +353,3 @@ export function evaluateRisk(
 		blockDirectly: false
 	}
 }
-

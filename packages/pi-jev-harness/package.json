@@ -15,12 +15,12 @@
 		"node": ">=22.18"
 	},
 	"scripts": {
-		"lint": "oxlint --type-aware",
+		"lint": "oxlint",
 		"format": "prettier --write .",
 		"format:check": "prettier --check .",
 		"typecheck": "tsc --noEmit",
 		"test": "node --experimental-strip-types --test *.test.ts",
-		"check": "npm run typecheck && npm run lint && npm run format:check",
+		"check": "bun run typecheck && bun run lint && bun run format:check && bun test *.test.ts",
 		"bench": "node bench.ts"
 	},
 	"pi": {

@@ -101,7 +101,14 @@ function isMakeTestTarget(cwd: string): boolean {
 export function detectTestCommand(cwd: string, changedFiles: string[] = []): string | null {
 	const manifest = readManifest(cwd)
 	const manager = manifest ? packageManager(manifest, cwd) : 'npm'
-	const runPrefix = manager === 'bun' ? 'bun test' : manager === 'pnpm' ? 'pnpm test' : manager === 'yarn' ? 'yarn test' : 'npm test'
+	const runPrefix =
+		manager === 'bun'
+			? 'bun test'
+			: manager === 'pnpm'
+				? 'pnpm test'
+				: manager === 'yarn'
+					? 'yarn test'
+					: 'npm test'
 
 	// 1. If specific files were edited, look for their corresponding *.test.* or *.spec.* file
 	for (const file of changedFiles) {
@@ -113,13 +120,20 @@ export function detectTestCommand(cwd: string, changedFiles: string[] = []): str
 
 		// Look for co-located or test/ mirror file
 		const baseWithoutExt = norm.replace(/\.[cm]?[jt]sx?$/, '')
+		const relBase = baseWithoutExt.replace(/^.*packages\/[^/]+\//, '')
 		const candidates = [
 			`${baseWithoutExt}.test.ts`,
 			`${baseWithoutExt}.test.js`,
 			`${baseWithoutExt}.spec.ts`,
 			`${baseWithoutExt}.spec.js`,
 			baseWithoutExt.replace(/\/src\//, '/test/') + '.test.ts',
-			baseWithoutExt.replace(/\/src\//, '/test/') + '.test.js'
+			baseWithoutExt.replace(/\/src\//, '/test/') + '.test.js',
+			`${relBase}.test.ts`,
+			`${relBase}.test.js`,
+			`${relBase}.spec.ts`,
+			`${relBase}.spec.js`,
+			relBase.replace(/^src\//, 'test/') + '.test.ts',
+			relBase.replace(/^src\//, 'test/') + '.test.js'
 		]
 
 		for (const cand of candidates) {

@@ -36,6 +36,8 @@ function createMockHarness(overrides: Partial<Harness['config']> = {}): Harness 
 			routeMinSchemaChars: 4500,
 			prefetchMaxCandidates: 20,
 			compactionReserveTokens: 16384,
+			contextCompaction: true,
+			compactThresholdChars: 4000,
 			subscriptionRouting: false,
 			subscriptionMaxLatencyMs: 20000,
 			subscriptionStatusTtlMs: 300000,
@@ -102,18 +104,28 @@ test('evaluateOfflineAdvisor classifies bugfix and selects root_cause_first for 
 	])
 	assert.equal(result.category, 'bugfix')
 	assert.equal(result.guidance, 'root_cause_first')
-	assert.ok(result.briefingText.includes('Root-cause triaging: Identify target surface & inspect error logs/trace'))
+	assert.ok(
+		result.briefingText.includes(
+			'Root-cause triaging: Identify target surface & inspect error logs/trace'
+		)
+	)
 })
 
 test('evaluateOfflineAdvisor classifies refactor and sets invariant caution', () => {
-	const result = evaluateOfflineAdvisor('refactor state manager to avoid memory leaks', process.cwd())
+	const result = evaluateOfflineAdvisor(
+		'refactor state manager to avoid memory leaks',
+		process.cwd()
+	)
 	assert.equal(result.category, 'refactor')
 	assert.ok(result.invariantsScore >= 0.6)
 	assert.ok(result.briefingText.includes('Caution: High architectural invariant sensitivity'))
 })
 
 test('evaluateOfflineAdvisor classifies research and avoids test verification requirement', () => {
-	const result = evaluateOfflineAdvisor('explain how the subscription provider pool works', process.cwd())
+	const result = evaluateOfflineAdvisor(
+		'explain how the subscription provider pool works',
+		process.cwd()
+	)
 	assert.equal(result.category, 'research')
 	assert.equal(result.verification, 'none')
 	assert.ok(result.briefingText.includes('No test verification needed'))
@@ -149,7 +161,9 @@ test('generateAdvisorBriefing increments advisorBriefings counter on generation'
 	const ctx = createMockContext()
 	const pi = createMockExtensionAPI()
 
-	const result = await generateAdvisorBriefing(h, pi, ctx, 'implement new endpoint', ['src/endpoint.ts'])
+	const result = await generateAdvisorBriefing(h, pi, ctx, 'implement new endpoint', [
+		'src/endpoint.ts'
+	])
 	assert.ok(result)
 	assert.equal(h.stats.advisorBriefings, 1)
 	assert.equal(result?.category, 'feature')
@@ -173,7 +187,9 @@ test('generateAdvisorBriefing handles active JEV answers properly', async () => 
 	const ctx = createMockContext()
 	const pi = createMockExtensionAPI()
 
-	const result = await generateAdvisorBriefing(h, pi, ctx, 'add goal status persistence', ['packages/pi-goal/src/state.ts'])
+	const result = await generateAdvisorBriefing(h, pi, ctx, 'add goal status persistence', [
+		'packages/pi-goal/src/state.ts'
+	])
 	delete process.env.JEV_API_KEY
 
 	assert.ok(result)
@@ -198,7 +214,7 @@ test('onBeforeAgentStart injects advisor briefing into transient tail message to
 	delete process.env.JEV_API_KEY
 
 	// Verify prefix cache preservation: systemPrompt is NOT mutated
-	assert.equal(res?.systemPrompt, undefined)
+	assert.equal(res && 'systemPrompt' in res ? (res as any).systemPrompt : undefined, undefined)
 	// Briefing is passed as a transient message with display: false
 	assert.ok(res?.message)
 	assert.equal(res.message.customType, 'jev-harness')
@@ -218,7 +234,9 @@ test('scaleThinkingForTurn dynamically scales thinking down for exploration and 
 	let currentThinking = 'high'
 	const pi = {
 		getThinkingLevel: () => currentThinking,
-		setThinkingLevel: (lvl: string) => { currentThinking = lvl }
+		setThinkingLevel: (lvl: string) => {
+			currentThinking = lvl
+		}
 	} as any
 
 	// Exploration scaled down
@@ -227,7 +245,12 @@ test('scaleThinkingForTurn dynamically scales thinking down for exploration and 
 	assert.equal(currentThinking, 'low')
 
 	// Complex change scaled up
-	const note2 = scaleThinkingForTurn(h, pi, 'change', 'refactor the entire state machine and architecture')
+	const note2 = scaleThinkingForTurn(
+		h,
+		pi,
+		'change',
+		'refactor the entire state machine and architecture'
+	)
 	assert.ok(note2)
 	assert.equal(currentThinking, 'high')
 })

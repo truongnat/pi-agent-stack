@@ -5,7 +5,6 @@ import { checkOrchestratorGuard } from './guard.ts'
 import { SubagentManager } from './manager.ts'
 import type { SubagentExecutionResult, SubagentTask } from './types.ts'
 
-
 const SubagentTaskSchema = t.Object({
 	role: t.String({
 		description:
@@ -51,7 +50,8 @@ const InvokeSubagentSchema = t.Object({
 	),
 	reviewer_roles: t.Optional(
 		t.Array(t.String(), {
-			description: 'Optional list of reviewer roles for consensus (default: ["reviewer", "tester"]).'
+			description:
+				'Optional list of reviewer roles for consensus (default: ["reviewer", "tester"]).'
 		})
 	)
 })
@@ -189,21 +189,28 @@ export function createOrchestratorTools(manager: SubagentManager) {
 		},
 		renderCall(args, theme) {
 			const count = args?.subagents?.length || 0
-			const roles = args?.subagents?.map((s: any) => s.role).filter(Boolean) || []
-			const roleBadges = roles.map((r: string) => `[ ${r} ]`).join(' ')
+			const roles =
+				(args?.subagents as Array<{ role?: string }> | undefined)
+					?.map((s) => s.role)
+					.filter(Boolean) || []
+			const roleBadges = roles.map((r) => `[ ${r} ]`).join(' ')
 			const parallelStr = args?.parallel === false ? 'sequential' : 'parallel'
-			const text = `${theme.fg('accent', theme.bold('🤖 Orchestrator'))} ${theme.fg('muted', '•')} ${theme.bold(`Dispatch ${count} subagent${count > 1 ? 's' : ''}`)} ${theme.fg('muted', `(${parallelStr})`)}${roleBadges ? ` ${theme.fg('cyan', roleBadges)}` : ''}`
+			const text = `${theme.fg('accent', theme.bold('🤖 Orchestrator'))} ${theme.fg('muted', '•')} ${theme.bold(`Dispatch ${count} subagent${count > 1 ? 's' : ''}`)} ${theme.fg('muted', `(${parallelStr})`)}${roleBadges ? ` ${theme.fg('accent', roleBadges)}` : ''}`
 			return new Text(text, 0, 0)
 		},
 		renderResult(result, options, theme) {
 			const text = result?.content?.map((c: any) => c.text || '').join('\n') || ''
+			const rawDetails = result?.details as Record<string, any> | undefined
 			if (!options.expanded) {
-				if (result?.details?.results) {
+				if (rawDetails?.results) {
 					const lines = [
-						theme.fg('accent', theme.bold(`🤖 Orchestrator: Dispatched ${result.details.results.length} Subagent(s)`)),
-						...result.details.results.map((r: any) => {
+						theme.fg(
+							'accent',
+							theme.bold(`🤖 Orchestrator: Dispatched ${rawDetails.results.length} Subagent(s)`)
+						),
+						...rawDetails.results.map((r: any) => {
 							const icon = r.status === 'completed' ? '✅' : '❌'
-							const roleBadge = theme.fg('cyan', `[ ${r.role} ]`)
+							const roleBadge = theme.fg('accent', `[ ${r.role} ]`)
 							const nameStr = theme.bold(r.name)
 							const meta = theme.fg('muted', `(${r.durationMs}ms, ${r.tokensUsed} tokens)`)
 							return `  ${icon} ${roleBadge} ${nameStr} ${meta}`
@@ -211,22 +218,23 @@ export function createOrchestratorTools(manager: SubagentManager) {
 					]
 					return new Text(lines.join('\n'), 0, 0)
 				}
-				if (result?.details?.consensus) {
-					const c = result.details.consensus
-					const primary = result.details.primaryResult
+				if (rawDetails?.consensus) {
+					const c = rawDetails.consensus
+					const primary = rawDetails.primaryResult
 					const statusIcon = c.status === 'approved' ? '✅' : '⚠️'
 					const lines = [
-						theme.fg('accent', theme.bold(`🏛 Orchestrator: Consensus ${c.status.toUpperCase()} (score: ${c.score.toFixed(2)})`)),
-						`  ${statusIcon} ${theme.fg('cyan', `[ ${primary.role} ]`)} ${theme.bold(primary.name)} ${theme.fg('muted', `(${primary.durationMs}ms, ${primary.tokensUsed} tokens)`)}`
+						theme.fg(
+							'accent',
+							theme.bold(
+								`🏛 Orchestrator: Consensus ${c.status.toUpperCase()} (score: ${c.score.toFixed(2)})`
+							)
+						),
+						`  ${statusIcon} ${theme.fg('accent', `[ ${primary.role} ]`)} ${theme.bold(primary.name)} ${theme.fg('muted', `(${primary.durationMs}ms, ${primary.tokensUsed} tokens)`)}`
 					]
 					return new Text(lines.join('\n'), 0, 0)
 				}
 			}
-			try {
-				return new Markdown(text, 0, 0, theme)
-			} catch {
-				return new Text(text, 0, 0)
-			}
+			return new Text(text, 0, 0)
 		}
 	})
 
@@ -353,18 +361,14 @@ export function createOrchestratorTools(manager: SubagentManager) {
 			const action = args?.action || 'list'
 			const target = args?.subagent_id ? ` ${args.subagent_id}` : ''
 			return new Text(
-				`${theme.fg('accent', theme.bold('🤖 manage_subagents'))} ${theme.fg('cyan', action)}${theme.fg('muted', target)}`,
+				`${theme.fg('accent', theme.bold('🤖 manage_subagents'))} ${theme.fg('accent', action)}${theme.fg('muted', target)}`,
 				0,
 				0
 			)
 		},
-		renderResult(result, _options, theme) {
+		renderResult(result) {
 			const text = result?.content?.map((c: any) => c.text || '').join('\n') || ''
-			try {
-				return new Markdown(text, 0, 0, theme)
-			} catch {
-				return new Text(text, 0, 0)
-			}
+			return new Text(text, 0, 0)
 		}
 	})
 
@@ -400,18 +404,14 @@ export function createOrchestratorTools(manager: SubagentManager) {
 		},
 		renderCall(args, theme) {
 			return new Text(
-				`${theme.fg('accent', theme.bold('🤖 send_subagent_message'))} ${theme.fg('muted', '->')} ${theme.fg('cyan', args?.subagent_id || '')}`,
+				`${theme.fg('accent', theme.bold('🤖 send_subagent_message'))} ${theme.fg('muted', '->')} ${theme.fg('accent', args?.subagent_id || '')}`,
 				0,
 				0
 			)
 		},
-		renderResult(result, _options, theme) {
+		renderResult(result) {
 			const text = result?.content?.map((c: any) => c.text || '').join('\n') || ''
-			try {
-				return new Markdown(text, 0, 0, theme)
-			} catch {
-				return new Text(text, 0, 0)
-			}
+			return new Text(text, 0, 0)
 		}
 	})
 

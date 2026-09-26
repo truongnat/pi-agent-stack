@@ -22,7 +22,10 @@ function extractTags(text: string, files: string[] = []): string[] {
 		if (file.includes('/')) {
 			const parts = file.split('/')
 			for (const p of parts) {
-				if (p.length >= 3 && !['src', 'test', 'dist', 'lib', 'packages', 'node_modules'].includes(p)) {
+				if (
+					p.length >= 3 &&
+					!['src', 'test', 'dist', 'lib', 'packages', 'node_modules'].includes(p)
+				) {
 					tags.add(p.toLowerCase())
 				}
 			}
@@ -30,21 +33,79 @@ function extractTags(text: string, files: string[] = []): string[] {
 	}
 
 	const domainKeywords = [
-		'test', 'spec', 'unit', 'e2e',
-		'build', 'compile', 'bundle',
-		'auth', 'jwt', 'oauth', 'session',
-		'database', 'db', 'sql', 'postgres', 'mysql', 'sqlite', 'prisma', 'drizzle', 'typeorm',
-		'api', 'rest', 'graphql', 'grpc', 'websocket', 'http',
-		'git', 'branch', 'merge', 'diff',
-		'stream', 'buffer', 'sse',
-		'token', 'quota', 'rate-limit',
-		'memory', 'leak', 'gc', 'cache', 'redis', 'memcached',
-		'routing', 'router', 'gateway', 'proxy',
-		'redmine', 'gdrive', 'excel', 'csv', 'json',
-		'docker', 'k8s', 'container', 'ci',
-		'react', 'nextjs', 'vue', 'svelte', 'hono', 'express', 'fastify', 'nest',
-		'bun', 'node', 'deno', 'vite', 'webpack',
-		'tui', 'cli', 'ink', 'blessed', 'term'
+		'test',
+		'spec',
+		'unit',
+		'e2e',
+		'build',
+		'compile',
+		'bundle',
+		'auth',
+		'jwt',
+		'oauth',
+		'session',
+		'database',
+		'db',
+		'sql',
+		'postgres',
+		'mysql',
+		'sqlite',
+		'prisma',
+		'drizzle',
+		'typeorm',
+		'api',
+		'rest',
+		'graphql',
+		'grpc',
+		'websocket',
+		'http',
+		'git',
+		'branch',
+		'merge',
+		'diff',
+		'stream',
+		'buffer',
+		'sse',
+		'token',
+		'quota',
+		'rate-limit',
+		'memory',
+		'leak',
+		'gc',
+		'cache',
+		'redis',
+		'memcached',
+		'routing',
+		'router',
+		'gateway',
+		'proxy',
+		'redmine',
+		'gdrive',
+		'excel',
+		'csv',
+		'json',
+		'docker',
+		'k8s',
+		'container',
+		'ci',
+		'react',
+		'nextjs',
+		'vue',
+		'svelte',
+		'hono',
+		'express',
+		'fastify',
+		'nest',
+		'bun',
+		'node',
+		'deno',
+		'vite',
+		'webpack',
+		'tui',
+		'cli',
+		'ink',
+		'blessed',
+		'term'
 	]
 
 	const lower = text.toLowerCase()
@@ -58,7 +119,10 @@ function extractTags(text: string, files: string[] = []): string[] {
 function extractRootCause(errors: string[] = []): string | undefined {
 	if (!errors || errors.length === 0) return undefined
 	for (const err of errors) {
-		const lines = err.split('\n').map((l) => l.trim()).filter(Boolean)
+		const lines = err
+			.split('\n')
+			.map((l) => l.trim())
+			.filter(Boolean)
 		for (const line of lines) {
 			if (
 				line.includes('Error:') ||
@@ -107,7 +171,10 @@ export function synthesizeLessonFromTrajectory(turn: TrajectoryTurn): LessonEntr
 		ruleLearned = `When modifying ${baseNames}, preserve API contract and verify with targeted unit tests.`
 	}
 
-	const tags = extractTags(`${turn.prompt} ${ruleLearned} ${successfulStrategy} ${rootCause ?? ''}`, files)
+	const tags = extractTags(
+		`${turn.prompt} ${ruleLearned} ${successfulStrategy} ${rootCause ?? ''}`,
+		files
+	)
 
 	return {
 		id,

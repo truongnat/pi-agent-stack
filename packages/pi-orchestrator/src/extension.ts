@@ -129,7 +129,9 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 					'├─────────────────────────────────────────────────────────────────────┤',
 					`│ • Provider Diversity Guard: ${guard.allowed ? '● ACTIVE (≥2 Backends)' : '○ BLOCKED (<2 Backends)'}             │`,
 					`│ • Discovered Providers (${guard.providers.length}): [${providers}]`.padEnd(70) + '│',
-					`│ • Active Workers: ${running.length} running, ${manager.listSubagents().length} total in session`.padEnd(70) + '│',
+					`│ • Active Workers: ${running.length} running, ${manager.listSubagents().length} total in session`.padEnd(
+						70
+					) + '│',
 					'└─────────────────────────────────────────────────────────────────────┘'
 				].join('\n')
 				ctx.ui.notify(dagTree, guard.allowed ? 'info' : 'warning')
@@ -206,7 +208,10 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 
 			// Interactive UI menu
 			if (!ctx.hasUI) {
-				ctx.ui.notify('Usage: /agents [auto [on|off]|dag|status|list|roster|kill <id>|kill-all|clear]', 'info')
+				ctx.ui.notify(
+					'Usage: /agents [auto [on|off]|dag|status|list|roster|kill <id>|kill-all|clear]',
+					'info'
+				)
 				return
 			}
 
@@ -269,7 +274,9 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 					'├─────────────────────────────────────────────────────────────────────┤',
 					`│ • Provider Diversity Guard: ${guard.allowed ? '● ACTIVE (≥2 Backends)' : '○ BLOCKED (<2 Backends)'}             │`,
 					`│ • Discovered Providers (${guard.providers.length}): [${providers}]`.padEnd(70) + '│',
-					`│ • Active Workers: ${running.length} running, ${list.length} total in session`.padEnd(70) + '│',
+					`│ • Active Workers: ${running.length} running, ${list.length} total in session`.padEnd(
+						70
+					) + '│',
 					'└─────────────────────────────────────────────────────────────────────┘'
 				].join('\n')
 				ctx.ui.notify(dagTree, 'info')

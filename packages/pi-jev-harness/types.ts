@@ -5,7 +5,6 @@ import type { ExtensionContext } from '@earendil-works/pi-coding-agent'
 
 import type { Question, Result } from './jev.ts'
 
-
 export type Mode = 'on' | 'log' | 'off' // log = ask Jev and record, change nothing
 
 export type Config = {
@@ -113,7 +112,6 @@ export const THRESHOLD_ALWAYS_KEEP = [
 	'send_subagent_message'
 ]
 
-
 export const READ_TOOLS = ['read', 'grep', 'find', 'ls']
 
 export function ensureJevApiKey(): string | undefined {
@@ -142,7 +140,6 @@ export const active = (h: Harness): boolean => {
 	ensureJevApiKey()
 	return h.config.mode !== 'off' && !!process.env.JEV_API_KEY
 }
-
 
 export const short = (value: unknown, max = 300): string => {
 	const text = typeof value === 'string' ? value : JSON.stringify(value)

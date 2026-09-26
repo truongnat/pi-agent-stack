@@ -96,9 +96,14 @@ export function identifyProjectType(dir: string): string {
 		if (existsSync(pkgPath)) {
 			try {
 				const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
-				const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) }
+				const deps = { ...pkg.dependencies, ...pkg.devDependencies }
 
-				if (deps['next'] || existsSync(join(dir, 'next.config.js')) || existsSync(join(dir, 'next.config.mjs')) || existsSync(join(dir, 'next.config.ts'))) {
+				if (
+					deps['next'] ||
+					existsSync(join(dir, 'next.config.js')) ||
+					existsSync(join(dir, 'next.config.mjs')) ||
+					existsSync(join(dir, 'next.config.ts'))
+				) {
 					return 'Next.js Web'
 				}
 				if (deps['@nestjs/core']) return 'NestJS API'

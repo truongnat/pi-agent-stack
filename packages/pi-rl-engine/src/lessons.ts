@@ -114,7 +114,8 @@ export class LessonStore {
 			const filtered = existing.filter((l) => l.id !== lessonId)
 			if (filtered.length === existing.length) return false
 
-			const content = filtered.map((l) => JSON.stringify(l)).join('\n') + (filtered.length > 0 ? '\n' : '')
+			const content =
+				filtered.map((l) => JSON.stringify(l)).join('\n') + (filtered.length > 0 ? '\n' : '')
 			writeFileSync(file, content, 'utf8')
 			this.updateSummaryMarkdown(repo)
 			return true
@@ -168,7 +169,11 @@ export class LessonStore {
 		const promptLower = prompt.toLowerCase()
 		const tokens = promptLower
 			.split(/[^a-zA-Z0-9_\u00C0-\u1EF9\u3040-\u30FF\u4E00-\u9FAF]+/)
-			.filter((t) => t.length >= 2 && !['in', 'on', 'at', 'to', 'for', 'of', 'and', 'the', 'a', 'an', 'is'].includes(t))
+			.filter(
+				(t) =>
+					t.length >= 2 &&
+					!['in', 'on', 'at', 'to', 'for', 'of', 'and', 'the', 'a', 'an', 'is'].includes(t)
+			)
 
 		if (tokens.length === 0) return lessons.slice(-limit)
 
@@ -209,10 +214,16 @@ export class LessonStore {
 			}
 
 			// 2. Exact phrase bonus (bigrams/trigrams)
-			if (lesson.taskSummary && promptLower.includes(lesson.taskSummary.toLowerCase().slice(0, 30))) {
+			if (
+				lesson.taskSummary &&
+				promptLower.includes(lesson.taskSummary.toLowerCase().slice(0, 30))
+			) {
 				score += 6
 			}
-			if (lesson.ruleLearned && promptLower.includes(lesson.ruleLearned.toLowerCase().slice(0, 30))) {
+			if (
+				lesson.ruleLearned &&
+				promptLower.includes(lesson.ruleLearned.toLowerCase().slice(0, 30))
+			) {
 				score += 6
 			}
 
@@ -234,7 +245,9 @@ export class LessonStore {
 
 			// 5. Task-type congruence
 			if (
-				(promptLower.includes('fix') || promptLower.includes('bug') || promptLower.includes('error')) &&
+				(promptLower.includes('fix') ||
+					promptLower.includes('bug') ||
+					promptLower.includes('error')) &&
 				lesson.taskType === 'fix'
 			) {
 				score += 2
@@ -299,7 +312,11 @@ export class LessonStore {
 		const lessons = this.getLessons(repo)
 		if (lessons.length === 0) {
 			try {
-				writeFileSync(this.getRepoSummaryPath(repo), `# Learned Lessons & Memory for Repository: \`${repo}\`\n\n*(No lessons recorded)*\n`, 'utf8')
+				writeFileSync(
+					this.getRepoSummaryPath(repo),
+					`# Learned Lessons & Memory for Repository: \`${repo}\`\n\n*(No lessons recorded)*\n`,
+					'utf8'
+				)
 			} catch {
 				// ignore
 			}
@@ -320,7 +337,9 @@ export class LessonStore {
 			const strat = (l.successfulStrategy || '-').replace(/\|/g, '\\|')
 			const summary = (l.taskSummary || '-').replace(/\|/g, '\\|')
 			const tags = (l.tags || []).join(', ')
-			mdLines.push(`| \`${l.id}\` | ${summary} | **${rule}** | ${strat} | \`${tags}\` | ${dateStr} |`)
+			mdLines.push(
+				`| \`${l.id}\` | ${summary} | **${rule}** | ${strat} | \`${tags}\` | ${dateStr} |`
+			)
 		}
 
 		mdLines.push('')

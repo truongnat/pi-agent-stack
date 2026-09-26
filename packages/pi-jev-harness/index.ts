@@ -14,13 +14,12 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 
-import { ask, choiceOf, goalQuestions, noulOf } from './jev.ts'
 import { generateAdvisorBriefing, type AdvisorBriefingResult } from './advisor.ts'
 import { compactHistory, verifyCachePrefixIntegrity } from './compactor.ts'
+import { ask, choiceOf, goalQuestions, noulOf } from './jev.ts'
 import { onBeforeAgentStart } from './route.ts'
 import { onToolCall, onToolResult, withReminder } from './tools.ts'
 import { active, type Config, type Harness, type Stats } from './types.ts'
-
 
 const DEFAULTS: Config = {
 	mode: 'on',
@@ -209,7 +208,11 @@ export default function (pi: ExtensionAPI) {
 					reason: reasonChoice.choice
 				}
 			} catch (err) {
-				return { met: true, confidence: 0.5, reason: err instanceof Error ? err.message : String(err) }
+				return {
+					met: true,
+					confidence: 0.5,
+					reason: err instanceof Error ? err.message : String(err)
+				}
 			}
 		},
 		getAdvisorBriefing: async (
@@ -241,7 +244,6 @@ export default function (pi: ExtensionAPI) {
 			return check
 		}
 	}
-
 
 	pi.on('session_start', (_event, ctx) => {
 		Object.assign(h.config, loadConfig())
@@ -305,4 +307,3 @@ export default function (pi: ExtensionAPI) {
 		}
 	})
 }
-

@@ -17,12 +17,11 @@ jobs:
           - packages/pi-goal
           - packages/pi-orchestrator
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: package-lock.json
-      - run: npm ci --ignore-scripts --no-audit --no-fund
-      - run: npm run check
+          bun-version: latest
+      - run: bun install
+      - run: bun run check
         working-directory: ${{ matrix.package }}
+

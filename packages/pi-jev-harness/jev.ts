@@ -239,14 +239,17 @@ export const advisorQuestions: Record<string, Question> = {
 		none: 'Informational answer or query; no code execution verification needed'
 	}),
 	skill_guidance: choice('Which engineering practice is most critical for `task`?', {
-		root_cause_first: 'Root-cause triaging: Identify target surface and inspect error logs/trace first before speculative edits',
+		root_cause_first:
+			'Root-cause triaging: Identify target surface and inspect error logs/trace first before speculative edits',
 		tdd_first: 'TDD: Inspect/reproduce with failing test before changing implementation',
 		type_safety: 'Strict typing: Ensure interfaces, types, and schema contracts match',
 		minimal_diff: 'Minimal diff: Preserve existing structure, comments, and style conventions',
 		read_first: 'Read before write: Locate and inspect existing patterns before creating files',
 		standard: 'Standard concise coding'
 	}),
-	invariants: noul('Does `task` have non-obvious traps, architectural invariants, or sensitive areas?')
+	invariants: noul(
+		'Does `task` have non-obvious traps, architectural invariants, or sensitive areas?'
+	)
 }
 
 export const THRESHOLDS = {
@@ -257,5 +260,3 @@ export const THRESHOLDS = {
 	secrets: 0.7,
 	askConfidence: 0.5 // hard_to_reverse or destructive needs this much confidence to prompt
 }
-
-

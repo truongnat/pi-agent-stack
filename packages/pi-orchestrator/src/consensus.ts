@@ -68,12 +68,22 @@ export function extractVoteFromResult(result: SubagentExecutionResult): Consensu
 	// Tester evaluation
 	if (result.role === 'tester') {
 		const hasExplicitFailCount = /\b[1-9]\d*\s*(?:fail|failed|errors?)\b/i.test(lower)
-		const hasAssertionError = lower.includes('assertionerror') || lower.includes('unhandled rejection') || lower.includes('error:')
-		const hasGenericFailure = (lower.includes('test failed') || lower.includes('tests failed') || lower.includes('failing')) && !lower.includes('0 fail')
+		const hasAssertionError =
+			lower.includes('assertionerror') ||
+			lower.includes('unhandled rejection') ||
+			lower.includes('error:')
+		const hasGenericFailure =
+			(lower.includes('test failed') ||
+				lower.includes('tests failed') ||
+				lower.includes('failing')) &&
+			!lower.includes('0 fail')
 
 		const testFailed = hasExplicitFailCount || hasAssertionError || hasGenericFailure
 		const testPassed =
-			(lower.includes('pass') || lower.includes('0 fail') || lower.includes('all tests passed') || lower.includes('ok')) &&
+			(lower.includes('pass') ||
+				lower.includes('0 fail') ||
+				lower.includes('all tests passed') ||
+				lower.includes('ok')) &&
 			!testFailed
 
 		return {
@@ -89,7 +99,10 @@ export function extractVoteFromResult(result: SubagentExecutionResult): Consensu
 	// Reviewer evaluation
 	if (result.role === 'reviewer') {
 		const approved =
-			(lower.includes('approve') || lower.includes('lgtm') || lower.includes('clean') || lower.includes('pass')) &&
+			(lower.includes('approve') ||
+				lower.includes('lgtm') ||
+				lower.includes('clean') ||
+				lower.includes('pass')) &&
 			!lower.includes('reject') &&
 			!lower.includes('security risk') &&
 			!lower.includes('critical issue')
@@ -100,7 +113,9 @@ export function extractVoteFromResult(result: SubagentExecutionResult): Consensu
 			model: result.name,
 			passed: approved,
 			confidence: 0.85,
-			reason: approved ? 'Code review approved with clean score' : 'Reviewer identified issues or requested changes'
+			reason: approved
+				? 'Code review approved with clean score'
+				: 'Reviewer identified issues or requested changes'
 		}
 	}
 
@@ -155,19 +170,25 @@ export function evaluateConsensus(
 
 	if (testBlocked) {
 		verdict = 'rejected'
-		arbitrationAdvice = 'Tester agent reported failures; changes must not be merged until tests pass 100%.'
+		arbitrationAdvice =
+			'Tester agent reported failures; changes must not be merged until tests pass 100%.'
 	} else if (agreementScore >= options.approvalThreshold) {
 		verdict = 'approved'
 	} else if (agreementScore <= 0.34) {
 		verdict = 'rejected'
-		arbitrationAdvice = 'Majority of agents rejected the execution outcome. Re-evaluate strategy or ask user.'
+		arbitrationAdvice =
+			'Majority of agents rejected the execution outcome. Re-evaluate strategy or ask user.'
 	} else {
 		verdict = 'disputed'
-		arbitrationAdvice = 'Split decision between agents. Supervisor arbitration required: review dissenting agent logs.'
+		arbitrationAdvice =
+			'Split decision between agents. Supervisor arbitration required: review dissenting agent logs.'
 	}
 
 	const voteSummary = votes
-		.map((v) => `  • [${v.role.toUpperCase()}] ${v.model}: ${v.passed ? '✓ APPROVE' : '✗ REJECT'} (${v.reason})`)
+		.map(
+			(v) =>
+				`  • [${v.role.toUpperCase()}] ${v.model}: ${v.passed ? '✓ APPROVE' : '✗ REJECT'} (${v.reason})`
+		)
 		.join('\n')
 
 	const summary = [

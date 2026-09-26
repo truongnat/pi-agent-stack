@@ -264,7 +264,7 @@ function publishProviders(pi: ExtensionAPI, snap: StatusSnapshot): void {
 
 function applyStatusUi(
 	ctx: { hasUI: boolean; ui: { setStatus: (id: string, text: string | undefined) => void } },
-	snap: StatusSnapshot
+	_snap: StatusSnapshot
 ): void {
 	if (!ctx.hasUI) return
 	// Keep status footer concise; full provider readiness is shown in /usage
@@ -739,7 +739,10 @@ export default function (pi: ExtensionAPI): void {
 				})
 			)
 			const REMOVE = '✕  Remove an account…'
-			const picked = await ctx.ui.select('Accounts & Subscription Pool (Ember UX)', [...lines, REMOVE])
+			const picked = await ctx.ui.select('Accounts & Subscription Pool (Ember UX)', [
+				...lines,
+				REMOVE
+			])
 			if (!picked) return
 			if (picked === REMOVE) {
 				const removable = rows.filter(

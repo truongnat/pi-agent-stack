@@ -8,6 +8,7 @@
  * 4. Spill-backed Lossless Storage: Retains raw truncated outputs on disk for deterministic recovery.
  */
 import { basename } from 'node:path'
+
 import { spill, spillHint } from './spill.ts'
 
 export interface MessagePart {
@@ -108,13 +109,14 @@ export function pruneBySyntaxBoundaries(text: string, maxChars: number): string 
  */
 export function summarizeToolOutput(toolName: string, text: string): string {
 	const trimmed = text.trim()
-	const lines = trimmed.split('\n').map((l) => l.trim()).filter(Boolean)
+	const lines = trimmed
+		.split('\n')
+		.map((l) => l.trim())
+		.filter(Boolean)
 
 	// Test output summary
 	if (trimmed.includes('pass') || trimmed.includes('fail') || trimmed.includes('test')) {
-		const summaryLine = lines.find((l) =>
-			/\b(\d+\s+pass|\d+\s+fail|passed|failed|Tests:)/i.test(l)
-		)
+		const summaryLine = lines.find((l) => /\b(\d+\s+pass|\d+\s+fail|passed|failed|Tests:)/i.test(l))
 		if (summaryLine) {
 			return `[ 🗜 Compactor: Test executed -> ${summaryLine} ]`
 		}

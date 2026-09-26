@@ -29,7 +29,6 @@ export class SubagentManager {
 		}
 	}
 
-
 	public getSubagent(id: string): SubagentInstance | undefined {
 		return this.instances.get(id)
 	}
@@ -296,12 +295,7 @@ export class SubagentManager {
 		const allowedTools = roleDef.allowedTools || ['read', 'grep', 'find', 'ls']
 
 		// 1. Try Native Pi Subagent Execution (Primary & Most Capable)
-		const piArgs = [
-			'--tools',
-			allowedTools.join(','),
-			'-p',
-			fullPrompt
-		]
+		const piArgs = ['--tools', allowedTools.join(','), '-p', fullPrompt]
 		if (
 			instance.model &&
 			instance.model !== 'flash' &&
@@ -400,7 +394,11 @@ export class SubagentManager {
 
 		// If primary task completely failed, short-circuit
 		if (primaryResult.status === 'failed' || primaryResult.status === 'killed') {
-			const consensus = evaluateConsensus([primaryResult], getAvailableProviders(), options.consensusOpts)
+			const consensus = evaluateConsensus(
+				[primaryResult],
+				getAvailableProviders(),
+				options.consensusOpts
+			)
 			return {
 				primaryResult,
 				verificationResults: [],

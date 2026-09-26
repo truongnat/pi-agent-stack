@@ -88,7 +88,6 @@ function writeSecret(path: string, value: unknown): void {
 
 export function readStore(p: Paths = defaultPaths()): AccountStore {
 	const raw = (readObject(storePath(p)) as AccountStore | undefined) ?? {}
-	let changed = false
 	const sanitized: AccountStore = {}
 	for (const [pool, pData] of Object.entries(raw)) {
 		if (!pData || typeof pData !== 'object' || !pData.accounts) {
@@ -98,27 +97,29 @@ export function readStore(p: Paths = defaultPaths()): AccountStore {
 		const accounts: Record<string, Account> = {}
 		const entries = Object.entries(pData.accounts)
 		for (const [key, acc] of entries) {
-			const id = acc?.credential && typeof acc.credential === 'object' ? identify(acc.credential as Record<string, unknown>) : undefined
+			const id =
+				acc?.credential && typeof acc.credential === 'object'
+					? identify(acc.credential as Record<string, unknown>)
+					: undefined
 			// If key doesn't match canonical identity, check if canonical identity is already present or should take precedence
 			const canonicalKey = id?.key ?? key
 			if (canonicalKey !== key && entries.some(([k]) => k === canonicalKey)) {
 				// Redundant legacy slot; skip it
-				changed = true
 				continue
 			}
 			accounts[canonicalKey] = canonicalKey !== key ? { ...acc, key: canonicalKey } : acc
-			if (canonicalKey !== key) changed = true
 		}
 		let active = pData.active
 		if (active && !accounts[active]) {
 			const activeAcc = entries.find(([k]) => k === active)?.[1]
-			const id = activeAcc?.credential && typeof activeAcc.credential === 'object' ? identify(activeAcc.credential as Record<string, unknown>) : undefined
+			const id =
+				activeAcc?.credential && typeof activeAcc.credential === 'object'
+					? identify(activeAcc.credential as Record<string, unknown>)
+					: undefined
 			if (id && accounts[id.key]) {
 				active = id.key
-				changed = true
 			} else {
 				active = Object.keys(accounts)[0]
-				changed = true
 			}
 		}
 		sanitized[pool] = { active, accounts }
@@ -212,7 +213,13 @@ export function identify(
 	}
 	const claims = jwtClaims(token)
 	const openai = claims?.['https://api.openai.com/auth'] as
-		{ chatgpt_account_id?: string; chatgpt_account_user_id?: string; chatgpt_user_id?: string; user_id?: string } | undefined
+		| {
+				chatgpt_account_id?: string
+				chatgpt_account_user_id?: string
+				chatgpt_user_id?: string
+				user_id?: string
+		  }
+		| undefined
 	const profile = claims?.['https://api.openai.com/profile'] as { email?: string } | undefined
 	const email = profile?.email ?? (typeof claims?.email === 'string' ? claims.email : undefined)
 	const userId =
@@ -223,13 +230,15 @@ export function identify(
 	const teamId =
 		(typeof credential.accountId === 'string' ? credential.accountId : undefined) ??
 		openai?.chatgpt_account_id
-	// If we have a specific user identity, use it (or combine with team ID) so multiple accounts
-	// in the same team workspace are saved as separate slots in the pool.
-	const id =
-		(email ? (teamId ? `${teamId}:${email}` : email) : undefined) ??
-		(userId && teamId ? `${teamId}:${userId}` : undefined) ??
-		userId ??
-		teamId
+	let formattedId: string | undefined
+	if (email) {
+		formattedId = teamId ? `${teamId}:${email}` : email
+	} else if (userId && teamId) {
+		formattedId = `${teamId}:${userId}`
+	} else {
+		formattedId = userId ?? teamId
+	}
+	const id = formattedId
 	if (id) return { key: id, label: email ?? id }
 	// Opaque OAuth tokens (no claims) change on every refresh, so a fingerprint would turn one
 	// account into many; without identity in the login data the provider keeps one slot.

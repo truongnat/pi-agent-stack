@@ -324,7 +324,10 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 				}
 				const ok = lessonStore.deleteLesson(repoName, idToDelete)
 				if (ok) {
-					ctx.ui.notify(`✓ Deleted lesson \`${idToDelete}\` from "${repoName}" knowledge store.`, 'info')
+					ctx.ui.notify(
+						`✓ Deleted lesson \`${idToDelete}\` from "${repoName}" knowledge store.`,
+						'info'
+					)
 				} else {
 					ctx.ui.notify(`Lesson \`${idToDelete}\` not found in "${repoName}".`, 'warning')
 				}

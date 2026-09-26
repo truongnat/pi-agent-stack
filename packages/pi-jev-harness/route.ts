@@ -12,7 +12,6 @@ import { choiceOf, noulOf, relevanceQuestions, routingQuestions, THRESHOLDS } fr
 import { applyModelPolicy, routeModels, scaleThinkingForTurn } from './model-route.ts'
 import { active, short, THRESHOLD_ALWAYS_KEEP, type Candidate, type Harness } from './types.ts'
 
-
 const STOPWORDS = new Set([
 	'about',
 	'after',
@@ -421,7 +420,11 @@ export async function onBeforeAgentStart(
 	if (h.config.mode !== 'on') return undefined
 
 	// Automatic Context Compaction on message history when enabled
-	if (h.config.contextCompaction !== false && (event as any).messages && Array.isArray((event as any).messages)) {
+	if (
+		h.config.contextCompaction !== false &&
+		(event as any).messages &&
+		Array.isArray((event as any).messages)
+	) {
 		const compactionRes = compactHistory((event as any).messages, {
 			thresholdChars: h.config.compactThresholdChars ?? 24_000
 		})
@@ -441,16 +444,18 @@ export async function onBeforeAgentStart(
 		messageParts.push(advised.briefingText)
 	}
 	if (routed?.hideTools) {
-		messageParts.push(`jev-harness routed this turn: ${routed.note}. Tools not listed are hidden for this turn; say so if you need one.`)
+		messageParts.push(
+			`jev-harness routed this turn: ${routed.note}. Tools not listed are hidden for this turn; say so if you need one.`
+		)
 	}
 	if (fetched?.message) {
 		messageParts.push(fetched.message)
 	}
 
-	return {
-		...(messageParts.length > 0
-			? { message: { customType: 'jev-harness', content: messageParts.join('\n\n'), display: false } }
-			: {})
+	if (messageParts.length > 0) {
+		return {
+			message: { customType: 'jev-harness', content: messageParts.join('\n\n'), display: false }
+		}
 	}
+	return undefined
 }
-

@@ -45,7 +45,10 @@ const codexCred = (accountId: string, email: string) => ({
 })
 
 test('identity comes from local login data: JWT, Claude oauthAccount, or key fingerprint', () => {
-	assert.deepEqual(identify(codexCred('acc-1', 'a@x.com')), { key: 'acc-1:a@x.com', label: 'a@x.com' })
+	assert.deepEqual(identify(codexCred('acc-1', 'a@x.com')), {
+		key: 'acc-1:a@x.com',
+		label: 'a@x.com'
+	})
 	assert.deepEqual(
 		identify({
 			claudeAiOauth: { accessToken: 'sk-ant-oat-opaque' },

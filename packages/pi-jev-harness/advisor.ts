@@ -90,13 +90,13 @@ export function evaluateOfflineAdvisor(
 	cwd: string,
 	candidatePaths: string[] = []
 ): AdvisorBriefingResult {
-	const lower = prompt.toLowerCase()
-
 	// 1. Detect Category
 	let category = 'feature'
 	if (/\b(fix|bug|error|failing|broken|issue|regression|crash|exception)\b/i.test(prompt)) {
 		category = 'bugfix'
-	} else if (/\b(refactor|clean|cleanup|reorganize|restructure|optimize|simplify)\b/i.test(prompt)) {
+	} else if (
+		/\b(refactor|clean|cleanup|reorganize|restructure|optimize|simplify)\b/i.test(prompt)
+	) {
 		category = 'refactor'
 	} else if (/\b(how|what|explain|where|find|search|research|why|show me|list)\b/i.test(prompt)) {
 		category = 'research'
@@ -178,7 +178,8 @@ export function formatAdvisorBriefingText(params: {
 	}
 
 	const guidanceLabels: Record<string, string> = {
-		root_cause_first: 'Root-cause triaging: Identify target surface & inspect error logs/trace first before speculative changes',
+		root_cause_first:
+			'Root-cause triaging: Identify target surface & inspect error logs/trace first before speculative changes',
 		tdd_first: 'TDD: Reproduce/verify with failing test first before modifying implementation',
 		type_safety: 'Strict typing: Adhere strictly to TypeScript/language interfaces and contracts',
 		minimal_diff: 'Minimal diff: Preserve existing styles, comments, and structure',
@@ -200,7 +201,8 @@ export function formatAdvisorBriefingText(params: {
 	}
 	lines.push(`• Objective: ${categoryLabels[params.category] ?? params.category}`)
 	const targetDesc =
-		verificationLabels[params.verification] ?? `Run \`${params.verification}\` before concluding turn`
+		verificationLabels[params.verification] ??
+		`Run \`${params.verification}\` before concluding turn`
 	lines.push(`• Verification Target: ${targetDesc}`)
 	lines.push(`• Engineering Guidance: ${guidanceLabels[params.guidance] ?? params.guidance}`)
 
@@ -209,7 +211,9 @@ export function formatAdvisorBriefingText(params: {
 	}
 
 	if (params.invariantsScore >= 0.6) {
-		lines.push('• Caution: High architectural invariant sensitivity; check existing tests & conventions.')
+		lines.push(
+			'• Caution: High architectural invariant sensitivity; check existing tests & conventions.'
+		)
 	}
 
 	try {
@@ -229,7 +233,9 @@ export function formatAdvisorBriefingText(params: {
 		const orchestratorBridge = (globalThis as any).piAgentStackOrchestrator
 		if (orchestratorBridge?.isReady && orchestratorBridge.isReady()) {
 			const providers = orchestratorBridge.getProviders()
-			lines.push(`• Multi-Agent Dispatch: Available (${providers.length} ready providers: ${providers.join(', ')}). Use invoke_subagent for parallel search, debugging, or sub-tasks.`)
+			lines.push(
+				`• Multi-Agent Dispatch: Available (${providers.length} ready providers: ${providers.join(', ')}). Use invoke_subagent for parallel search, debugging, or sub-tasks.`
+			)
 		}
 	} catch {
 		// Ignore orchestrator lookup failure
@@ -237,7 +243,6 @@ export function formatAdvisorBriefingText(params: {
 
 	return lines.join('\n')
 }
-
 
 /**
  * Main Advisor generator: runs fast JEV System 1 question or falls back to heuristic.

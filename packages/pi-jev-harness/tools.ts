@@ -10,10 +10,10 @@ import {
 	loopQuestions,
 	noulOf,
 	resultQuestions,
-	scoreOf,
 	THRESHOLDS,
 	type Answers
 } from './jev.ts'
+import { evaluateRisk } from './risk.ts'
 import { spill, spillHint } from './spill.ts'
 import { active, READ_TOOLS, short, type Block, type Harness } from './types.ts'
 
@@ -66,7 +66,11 @@ const REMIND_AT = new Set([3, 5, 8])
 const LOOP_CHECK_AT = 5
 
 /** Pattern from deepseek-harness repeat-tool-reminder (MIT): gentle first, then specific. */
-export function repeatReminder(tool: string, repeats: number, targetName?: string): string | undefined {
+export function repeatReminder(
+	tool: string,
+	repeats: number,
+	targetName?: string
+): string | undefined {
 	if (!REMIND_AT.has(repeats)) return undefined
 	const targetContext = targetName ? ` on \`${targetName}\`` : ''
 	if (repeats === 3) {
@@ -111,10 +115,10 @@ function loopVerdict(
 	}
 }
 
-import { evaluateRisk } from './risk.ts'
-
 export function isSafeProjectCommand(command: string): boolean {
 	const dummyEvent: ToolCallEvent = {
+		type: 'tool_call',
+		toolCallId: 'safety_check',
 		toolName: 'bash',
 		input: { command }
 	}
@@ -140,7 +144,10 @@ async function guardVerdict(
 	if (evalResult.blockDirectly) {
 		h.stats.guardBlocked++
 		const reason = evalResult.reason || 'Critical security hazard blocked directly'
-		return { block: true, reason: `[ 🛑 JEV Security Guard: ${reason}. Action blocked directly for repository and credential safety. ]` }
+		return {
+			block: true,
+			reason: `[ 🛑 JEV Security Guard: ${reason}. Action blocked directly for repository and credential safety. ]`
+		}
 	}
 
 	if (evalResult.requireConfirm) {
@@ -148,7 +155,8 @@ async function guardVerdict(
 		h.stats.guardAsked++
 		h.status(ctx, `jev guard: ${reason}`)
 		if (h.config.mode !== 'on') return undefined
-		const what = event.toolName === 'bash' ? String(event.input?.command || '') : short(event.input, 400)
+		const what =
+			event.toolName === 'bash' ? String(event.input?.command || '') : short(event.input, 400)
 		if (ctx.hasUI) {
 			const ok = await ctx.ui.confirm(
 				`jev-harness: ${reason}`,
@@ -206,7 +214,8 @@ export async function onToolResult(h: Harness, event: ToolResultEvent, ctx: Exte
 	try {
 		if (!active(h) || !h.config.trim || event.isError) return undefined
 		// Clean file reads under 8000 chars are left intact; commands, searches, listings and large outputs get trimmed.
-		if (!['bash', 'exec', 'grep', 'find', 'ls', 'fetch', 'read'].includes(event.toolName)) return undefined
+		if (!['bash', 'exec', 'grep', 'find', 'ls', 'fetch', 'read'].includes(event.toolName))
+			return undefined
 		const full = resultText(event)
 		if (event.toolName === 'read' && full.length < 8000) return undefined
 		if (full.length < h.config.trimMinChars) return undefined
