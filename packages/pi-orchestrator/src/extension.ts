@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
-import { loadOrchestratorConfig } from './config.ts'
+import { loadOrchestratorConfig, saveOrchestratorConfig } from './config.ts'
 import { checkOrchestratorGuard } from './guard.ts'
 import { SubagentManager } from './manager.ts'
 import { DEFAULT_ROSTER } from './roster.ts'
@@ -34,7 +34,11 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 	;(globalThis as any).piAgentStackOrchestrator = {
 		isReady: () => checkOrchestratorGuard(manager.config).allowed,
 		getProviders: () => checkOrchestratorGuard(manager.config).providers,
-		listSubagents: () => manager.listSubagents()
+		listSubagents: () => manager.listSubagents(),
+		setAutoOrchestrate: (on: boolean) => {
+			manager.config.alwaysOrchestrate = on
+			saveOrchestratorConfig(manager.config)
+		}
 	}
 
 	// 2. Lifecycle Hooks
@@ -43,15 +47,26 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 		if (!guard.allowed) return undefined
 
 		const providerList = guard.providers.join(', ')
+		const isAuto = manager.config.alwaysOrchestrate !== false
+
 		const orchestratorBlock = [
-			'[Multi-Agent Orchestrator Steering]',
-			`• Status: Active (${guard.providers.length} ready providers: ${providerList})`,
-			'• Subagent Delegation: You have autonomous subagents available via `invoke_subagent`.',
-			'• When to Delegate:',
-			'  - Broad codebase search / multi-file research: dispatch `researcher` subagent to search in background.',
-			'  - Bug diagnosis across monorepos: dispatch `debugger` subagent to isolate logs and stack traces.',
-			'  - Parallel tasks: run multiple sub-tasks concurrently across providers (e.g. testing + auditing).',
-			'• Available Roles: researcher, debugger, coder, reviewer (or custom role name).'
+			'# 🤖 MANDATORY MULTI-AGENT ORCHESTRATION DIRECTIVE',
+			`You are the **Lead Master Orchestrator** of Pi Agent Stack (Diversity Guard: ${guard.providers.length} ready backends: [${providerList}]).`,
+			`Orchestrator Mode: ${isAuto ? '● ALWAYS-DELEGATE (DEFAULT ACTIVE)' : '○ ON-DEMAND'}`,
+			'',
+			'## Execution Directives:',
+			'1. **DEFAULT SUBAGENT DISPATCH**: For any user request involving coding, debugging, file refactoring, testing, or multi-file research, you MUST dispatch specialized subagents via `invoke_subagent` instead of doing all heavy edits/searches directly.',
+			'2. **ROLE ROSTER**:',
+			'   - 📚 `researcher`: Read-only file inspection, repository discovery, code excerpts, and architecture investigation.',
+			'   - 🔍 `debugger`: Isolates runtime crashes, error logs, trace lines, and root-cause analysis.',
+			'   - 🧑‍💻 `coder`: Precise multi-file implementations, edits, and refactorings.',
+			'   - 🧪 `tester`: Executes test suites, linters, and verification checks.',
+			'   - 🔍 `reviewer`: Audits git diffs, security standards, and code quality.',
+			'3. **CONCURRENCY & CONSENSUS**:',
+			'   - Use `parallel: true` when subagent tasks are independent (e.g. parallel research across multiple modules or parallel audit).',
+			'   - Set `require_consensus: true` when coder changes require independent reviewer & tester voting.',
+			'4. **SYNTHESIS**:',
+			'   - When subagents complete, review their scratchpad artifacts and present a clear, structured, and comprehensive answer to the user in the prompt language (Vietnamese/English).'
 		].join('\n')
 
 		return {
@@ -167,17 +182,36 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 				return
 			}
 
+			if (input.startsWith('auto')) {
+				const param = input.replace('auto', '').trim()
+				if (param === 'on') {
+					manager.config.alwaysOrchestrate = true
+				} else if (param === 'off') {
+					manager.config.alwaysOrchestrate = false
+				} else {
+					manager.config.alwaysOrchestrate = !manager.config.alwaysOrchestrate
+				}
+				saveOrchestratorConfig(manager.config)
+				ctx.ui.notify(
+					`Multi-Agent Auto-Orchestration is now: ${manager.config.alwaysOrchestrate ? '● ON (Lead Orchestrator active)' : '○ OFF (On-demand only)'}`,
+					'info'
+				)
+				return
+			}
+
 			// Interactive UI menu
 			if (!ctx.hasUI) {
-				ctx.ui.notify('Usage: /agents [dag|status|list|roster|kill <id>|kill-all|clear]', 'info')
+				ctx.ui.notify('Usage: /agents [auto [on|off]|dag|status|list|roster|kill <id>|kill-all|clear]', 'info')
 				return
 			}
 
 			const list = manager.listSubagents()
 			const running = list.filter((s) => s.status === 'running')
 			const guard = checkOrchestratorGuard(manager.config)
+			const isAuto = manager.config.alwaysOrchestrate !== false
 
 			const menuItems = [
+				`⚙️  Auto-Orchestration: ${isAuto ? '● ON (Lead Mode)' : '○ OFF (Manual)'}`,
 				`📊 Visual DAG Supervisor & Guard (${guard.allowed ? 'Ready' : 'Guard Alert'})`,
 				`📋 List Subagents (${list.length} total, ${running.length} running)`,
 				'👥 View Available Roster',
@@ -187,11 +221,21 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 			]
 
 			const picked = await ctx.ui.select(
-				`Multi-Agent DAG Supervisor (Ember UX)\nActive Workers: ${running.length} running · Providers: ${guard.providers.length}`,
+				`Multi-Agent DAG Supervisor (Ember UX)\nMode: ${isAuto ? '● Lead Orchestrator' : '○ Manual'} · Workers: ${running.length} running · Providers: ${guard.providers.length}`,
 				menuItems
 			)
 
 			if (!picked) return
+
+			if (picked.startsWith('⚙️  Auto-Orchestration')) {
+				manager.config.alwaysOrchestrate = !isAuto
+				saveOrchestratorConfig(manager.config)
+				ctx.ui.notify(
+					`Multi-Agent Auto-Orchestration is now: ${manager.config.alwaysOrchestrate ? '● ON (Lead Orchestrator active)' : '○ OFF (On-demand only)'}`,
+					'info'
+				)
+				return
+			}
 
 			if (picked.startsWith('📊 Visual DAG')) {
 				const providers = guard.providers.length > 0 ? guard.providers.join(', ') : 'none'
