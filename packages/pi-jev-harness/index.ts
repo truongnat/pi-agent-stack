@@ -286,7 +286,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	})
 
-	pi.registerCommand('compact', {
+	pi.registerCommand('jev-compact', {
 		description: 'Context Compactor: inspect prompt cache prefix & compaction status',
 		handler: async (_args, ctx) => {
 			const s = h.stats
