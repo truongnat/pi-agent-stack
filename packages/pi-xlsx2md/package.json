@@ -1,38 +1,38 @@
 {
-	"name": "pi-xlsx2md",
-	"version": "0.1.0",
-	"description": "Native xlsx2md Tool Extension for Pi Coding Agent (Densified Excel to Markdown and Workbook Diffing).",
-	"keywords": [
-		"pi-package",
-		"pi-extension",
-		"xlsx2md",
-		"excel",
-		"markdown"
-	],
-	"license": "MIT",
-	"type": "module",
-	"engines": {
-		"node": ">=22.18"
-	},
-	"scripts": {
-		"lint": "oxlint",
-		"format": "prettier --write .",
-		"format:check": "prettier --check .",
-		"typecheck": "tsc --noEmit",
-		"test": "node --experimental-strip-types --test test/*.test.ts",
-		"check": "npm run typecheck && npm run lint && npm run format:check && npm test"
-	},
-	"pi": {
-		"extensions": [
-			"./index.ts"
-		]
-	},
-	"devDependencies": {
-		"@earendil-works/pi-coding-agent": "^0.87.1",
-		"@types/node": "^24.0.0",
-		"oxlint": "1.78.0",
-		"prettier": "3.9.6",
-		"typebox": "^1.1.2",
-		"typescript": "^5.9.0"
-	}
+  "name": "pi-xlsx2md",
+  "version": "0.1.0",
+  "description": "Native xlsx2md Tool Extension for Pi Coding Agent (Densified Excel to Markdown and Workbook Diffing).",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "xlsx2md",
+    "excel",
+    "markdown"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "lint": "oxlint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "check": "bun run typecheck && bun run lint && bun run format:check && bun test"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.87.1",
+    "@types/node": "^24.0.0",
+    "oxlint": "1.78.0",
+    "prettier": "3.9.6",
+    "typebox": "^1.1.2",
+    "typescript": "^5.9.0"
+  }
 }

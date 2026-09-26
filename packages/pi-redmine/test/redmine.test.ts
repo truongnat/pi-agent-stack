@@ -33,6 +33,8 @@ test("Redmine tools execute read query against VietIS Redmine API", async () => 
   );
 
   assert.ok(result.content);
-  assert.equal(result.isError ?? false, false);
-  assert.match(result.content[0].text, /Redmine Issues/);
+  assert.equal((result as any).isError ?? false, false);
+  const first = result.content[0];
+  assert.ok(first && "text" in first);
+  assert.match(first.text, /Redmine Issues/);
 });

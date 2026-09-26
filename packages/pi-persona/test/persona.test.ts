@@ -106,7 +106,8 @@ test('createPersonaTools executes get, update, and feedback tools', async () => 
 
 		// 1. Get persona
 		const getRes = await getPersonaTool.execute('1', {}, undefined, () => {}, {} as any)
-		assert.match(getRes.content[0]?.text ?? '', /Learned Developer Persona/)
+		const getText = getRes.content[0] && 'text' in getRes.content[0] ? getRes.content[0].text : ''
+		assert.match(getText, /Learned Developer Persona/)
 
 		// 2. Update persona
 		const updateRes = await updatePersonaTool.execute(
@@ -120,7 +121,9 @@ test('createPersonaTools executes get, update, and feedback tools', async () => 
 			() => {},
 			{} as any
 		)
-		assert.match(updateRes.content[0]?.text ?? '', /use_zod_schema/)
+		const updateText =
+			updateRes.content[0] && 'text' in updateRes.content[0] ? updateRes.content[0].text : ''
+		assert.match(updateText, /use_zod_schema/)
 
 		// 3. Feedback persona
 		const feedRes = await feedbackPersonaTool.execute(
@@ -133,7 +136,9 @@ test('createPersonaTools executes get, update, and feedback tools', async () => 
 			() => {},
 			{} as any
 		)
-		assert.match(feedRes.content[0]?.text ?? '', /Recorded positive feedback/)
+		const feedText =
+			feedRes.content[0] && 'text' in feedRes.content[0] ? feedRes.content[0].text : ''
+		assert.match(feedText, /Recorded positive feedback/)
 	} finally {
 		if (existsSync(storePath)) rmSync(storePath)
 		if (existsSync(markdownPath)) rmSync(markdownPath)

@@ -73,42 +73,44 @@ const GetIssueSchema = t.Object({
   ),
 });
 
-export const getIssueTool: ToolDefinition<typeof GetIssueSchema> = defineTool({
-  name: "redmine_get_issue",
-  label: "Redmine Get Issue",
-  description:
-    "Fetch complete details of a VietIS Redmine issue/ticket by ID, including subject, status, description, assignees, and comment notes.",
-  promptSnippet:
-    "redmine_get_issue(issue_id, include_notes) — fetch issue details and notes from Redmine",
-  parameters: GetIssueSchema,
-  executionMode: "sequential",
-  async execute(_toolCallId, params) {
-    try {
-      const issue = await client.getIssue(
-        params.issue_id,
-        params.include_notes ?? true,
-      );
-      return {
-        content: [{ type: "text", text: formatIssueMarkdown(issue) }],
-        details: {
-          issue_id: issue.id,
-          status: issue.status.name,
-          subject: issue.subject,
-        },
-      };
-    } catch (err) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error fetching Redmine ticket #${params.issue_id}: ${err instanceof Error ? err.message : String(err)}`,
+export const getIssueTool: ToolDefinition<typeof GetIssueSchema, any> =
+  defineTool({
+    name: "redmine_get_issue",
+    label: "Redmine Get Issue",
+    description:
+      "Fetch complete details of a VietIS Redmine issue/ticket by ID, including subject, status, description, assignees, and comment notes.",
+    promptSnippet:
+      "redmine_get_issue(issue_id, include_notes) — fetch issue details and notes from Redmine",
+    parameters: GetIssueSchema,
+    executionMode: "sequential",
+    async execute(_toolCallId, params) {
+      try {
+        const issue = await client.getIssue(
+          params.issue_id,
+          params.include_notes ?? true,
+        );
+        return {
+          content: [{ type: "text", text: formatIssueMarkdown(issue) }],
+          details: {
+            issue_id: issue.id,
+            status: issue.status.name,
+            subject: issue.subject,
           },
-        ],
-        isError: true,
-      };
-    }
-  },
-});
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error fetching Redmine ticket #${params.issue_id}: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+          isError: true,
+          details: undefined,
+        };
+      }
+    },
+  });
 
 // 2. Tool: redmine_list_issues
 const ListIssuesSchema = t.Object({
@@ -135,7 +137,7 @@ const ListIssuesSchema = t.Object({
   ),
 });
 
-export const listIssuesTool: ToolDefinition<typeof ListIssuesSchema> =
+export const listIssuesTool: ToolDefinition<typeof ListIssuesSchema, any> =
   defineTool({
     name: "redmine_list_issues",
     label: "Redmine List Issues",
@@ -158,7 +160,7 @@ export const listIssuesTool: ToolDefinition<typeof ListIssuesSchema> =
             content: [
               { type: "text", text: "No tickets found matching criteria." },
             ],
-            details: { count: 0 },
+            details: { count: 0, total: 0 },
           };
         }
 
@@ -187,6 +189,7 @@ export const listIssuesTool: ToolDefinition<typeof ListIssuesSchema> =
             },
           ],
           isError: true,
+          details: undefined,
         };
       }
     },
@@ -202,7 +205,7 @@ const AddCommentSchema = t.Object({
   }),
 });
 
-export const addCommentTool: ToolDefinition<typeof AddCommentSchema> =
+export const addCommentTool: ToolDefinition<typeof AddCommentSchema, any> =
   defineTool({
     name: "redmine_add_comment",
     label: "Redmine Add Comment",
@@ -232,6 +235,7 @@ export const addCommentTool: ToolDefinition<typeof AddCommentSchema> =
             },
           ],
           isError: true,
+          details: undefined,
         };
       }
     },
@@ -261,46 +265,48 @@ const LogTimeSchema = t.Object({
   ),
 });
 
-export const logTimeTool: ToolDefinition<typeof LogTimeSchema> = defineTool({
-  name: "redmine_log_time",
-  label: "Redmine Log Time",
-  description: "Log spent time hours for a VietIS Redmine ticket.",
-  promptSnippet:
-    "redmine_log_time(issue_id, date, hours, comment, activity_id) — log time entry in Redmine",
-  parameters: LogTimeSchema,
-  executionMode: "sequential",
-  async execute(_toolCallId, params) {
-    try {
-      await client.logTime({
-        issueId: params.issue_id,
-        spentOn: params.date,
-        hours: params.hours,
-        comments: params.comment,
-        activityId: params.activity_id ?? 16,
-      });
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Successfully logged ${params.hours}h on ${params.date} for Redmine issue #${params.issue_id}.`,
-          },
-        ],
-        details: {
-          issue_id: params.issue_id,
+export const logTimeTool: ToolDefinition<typeof LogTimeSchema, any> =
+  defineTool({
+    name: "redmine_log_time",
+    label: "Redmine Log Time",
+    description: "Log spent time hours for a VietIS Redmine ticket.",
+    promptSnippet:
+      "redmine_log_time(issue_id, date, hours, comment, activity_id) — log time entry in Redmine",
+    parameters: LogTimeSchema,
+    executionMode: "sequential",
+    async execute(_toolCallId, params) {
+      try {
+        await client.logTime({
+          issueId: params.issue_id,
+          spentOn: params.date,
           hours: params.hours,
-          date: params.date,
-        },
-      };
-    } catch (err) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error logging time on Redmine issue #${params.issue_id}: ${err instanceof Error ? err.message : String(err)}`,
+          comments: params.comment,
+          activityId: params.activity_id ?? 16,
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Successfully logged ${params.hours}h on ${params.date} for Redmine issue #${params.issue_id}.`,
+            },
+          ],
+          details: {
+            issue_id: params.issue_id,
+            hours: params.hours,
+            date: params.date,
           },
-        ],
-        isError: true,
-      };
-    }
-  },
-});
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error logging time on Redmine issue #${params.issue_id}: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+          isError: true,
+          details: undefined,
+        };
+      }
+    },
+  });
