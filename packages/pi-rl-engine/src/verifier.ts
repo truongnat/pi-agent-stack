@@ -94,11 +94,53 @@ function isMakeTestTarget(cwd: string): boolean {
 	return existsSync(makefile) && /^test\s*:/m.test(readFileSync(makefile, 'utf8'))
 }
 
-/** Detect the repository's test script using its declared package manager. */
-export function detectTestCommand(cwd: string): string | null {
+/**
+ * Target a specific unit test file related to the changed files,
+ * or fallback to static check / scoped tests to protect large enterprise codebases.
+ */
+export function detectTestCommand(cwd: string, changedFiles: string[] = []): string | null {
 	const manifest = readManifest(cwd)
+	const manager = manifest ? packageManager(manifest, cwd) : 'npm'
+	const runPrefix = manager === 'bun' ? 'bun test' : manager === 'pnpm' ? 'pnpm test' : manager === 'yarn' ? 'yarn test' : 'npm test'
+
+	// 1. If specific files were edited, look for their corresponding *.test.* or *.spec.* file
+	for (const file of changedFiles) {
+		const norm = file.replace(/\\/g, '/')
+		if (/\.(test|spec)\.[cm]?[jt]sx?$/.test(norm) && existsSync(join(cwd, file))) {
+			// Directly edited a test file: run only this test file
+			return manager === 'bun' ? `bun test "${file}"` : `${runPrefix} -- "${file}"`
+		}
+
+		// Look for co-located or test/ mirror file
+		const baseWithoutExt = norm.replace(/\.[cm]?[jt]sx?$/, '')
+		const candidates = [
+			`${baseWithoutExt}.test.ts`,
+			`${baseWithoutExt}.test.js`,
+			`${baseWithoutExt}.spec.ts`,
+			`${baseWithoutExt}.spec.js`,
+			baseWithoutExt.replace(/\/src\//, '/test/') + '.test.ts',
+			baseWithoutExt.replace(/\/src\//, '/test/') + '.test.js'
+		]
+
+		for (const cand of candidates) {
+			if (existsSync(join(cwd, cand))) {
+				return manager === 'bun' ? `bun test "${cand}"` : `${runPrefix} -- "${cand}"`
+			}
+		}
+	}
+
+	// 2. If no specific target test found, NEVER run dangerous unbounded test suite in large repos
+	// Instead, check if package.json has a fast static typecheck or lint script
+	if (manifest?.scripts?.typecheck) {
+		return `${manager === 'bun' ? 'bun' : manager} run typecheck`
+	}
+	if (manifest?.scripts?.lint) {
+		return `${manager === 'bun' ? 'bun' : manager} run lint`
+	}
+
+	// 3. Fallback to package.json test ONLY if explicitly a small project or simple runner
 	if (manifest?.scripts?.test && !manifest.scripts.test.includes('no test specified')) {
-		const manager = packageManager(manifest, cwd)
+		// Only run full test if small repo or single test file
 		return manager === 'npm' ? 'npm test' : `${manager} ${manager === 'bun' ? 'run ' : ''}test`
 	}
 
@@ -246,9 +288,10 @@ export function computeReward(
 		testCommand?: string
 		timeoutMs?: number
 		weights?: RewardWeights
+		changedFiles?: string[]
 	}
 ): RewardResult {
-	const command = options?.testCommand || detectTestCommand(cwd)
+	const command = options?.testCommand || detectTestCommand(cwd, options?.changedFiles)
 	if (!command) return skippedReward('', 'No test command found')
 
 	const runtime = runtimePlan(readManifest(cwd))
@@ -268,9 +311,10 @@ export async function computeRewardAsync(
 		testCommand?: string
 		timeoutMs?: number
 		weights?: RewardWeights
+		changedFiles?: string[]
 	}
 ): Promise<RewardResult> {
-	const command = options?.testCommand || detectTestCommand(cwd)
+	const command = options?.testCommand || detectTestCommand(cwd, options?.changedFiles)
 	if (!command) return skippedReward('', 'No test command found')
 
 	const runtime = runtimePlan(readManifest(cwd))

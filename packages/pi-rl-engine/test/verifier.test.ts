@@ -3,9 +3,9 @@ import { test } from 'node:test'
 
 import { computeReward, detectTestCommand, runCommand } from '../src/verifier.ts'
 
-test('detectTestCommand identifies npm test in package.json', () => {
-	const cmd = detectTestCommand(process.cwd())
-	assert.ok(cmd === 'npm test' || cmd === 'make test' || cmd === null)
+test('detectTestCommand identifies targeted test file when available', () => {
+	const cmd = detectTestCommand(process.cwd(), ['packages/pi-rl-engine/src/verifier.ts'])
+	assert.ok(cmd === 'bun test packages/pi-rl-engine/test/verifier.test.ts' || cmd?.includes('verifier.test.ts') || cmd === 'bun run typecheck' || cmd === 'npm test')
 })
 
 test('runCommand executes command and returns structured result', () => {

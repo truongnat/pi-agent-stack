@@ -221,15 +221,16 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 		}
 		taskStartFingerprint = currentFingerprint
 
+		const changedFiles = getChangedFiles(ctx.cwd)
+		const repoName = lessonStore.sanitizeRepoName(ctx.cwd)
 		const verificationOptions = {
 			testCommand: config.testCommand,
 			timeoutMs: config.testTimeoutMs,
-			weights: config.rewardWeights
+			weights: config.rewardWeights,
+			changedFiles
 		}
 		const currentModel = ctx.model
 		const thinking = pi.getThinkingLevel()
-		const changedFiles = getChangedFiles(ctx.cwd)
-		const repoName = lessonStore.sanitizeRepoName(ctx.cwd)
 
 		void computeRewardAsync(ctx.cwd, verificationOptions)
 			.then((result) => {
