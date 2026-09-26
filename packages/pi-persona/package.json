@@ -5,9 +5,12 @@
   "type": "module",
   "main": "index.ts",
   "scripts": {
+    "lint": "oxlint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "test": "node --test test/*.test.ts",
-    "check": "bun run typecheck && bun test test/*.test.ts"
+    "check": "bun run typecheck && bun run lint && bun run format:check && bun test"
   },
   "dependencies": {
     "typebox": "^1.1.2"
