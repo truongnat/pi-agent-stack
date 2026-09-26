@@ -45,7 +45,7 @@ const codexCred = (accountId: string, email: string) => ({
 })
 
 test('identity comes from local login data: JWT, Claude oauthAccount, or key fingerprint', () => {
-	assert.deepEqual(identify(codexCred('acc-1', 'a@x.com')), { key: 'acc-1', label: 'a@x.com' })
+	assert.deepEqual(identify(codexCred('acc-1', 'a@x.com')), { key: 'acc-1:a@x.com', label: 'a@x.com' })
 	assert.deepEqual(
 		identify({
 			claudeAiOauth: { accessToken: 'sk-ant-oat-opaque' },
@@ -70,10 +70,10 @@ test('a second login is saved alongside the first instead of replacing it', () =
 	const second = captureLive('pi:openai-codex', store, NOW, p)
 	assert.equal(second.added, true)
 	assert.deepEqual(Object.keys(second.store['pi:openai-codex']?.accounts ?? {}).toSorted(), [
-		'acc-1',
-		'acc-2'
+		'acc-1:a@x.com',
+		'acc-2:b@x.com'
 	])
-	assert.equal(second.store['pi:openai-codex']?.active, 'acc-2')
+	assert.equal(second.store['pi:openai-codex']?.active, 'acc-2:b@x.com')
 	writeFileSync(
 		auth,
 		JSON.stringify({
@@ -140,7 +140,7 @@ test('rotation: exhausted active account switches to one with quota; blocked one
 		savedAt: NOW
 	})
 	const check = async (_pool: string, token: string) => {
-		const spent = identify({ access: token })?.key === 'a'
+		const spent = identify({ access: token })?.key.startsWith('a')
 		return { windows: [{ label: '5h', usedPercent: spent ? 100 : 20, resetsAt: NOW + 7_200_000 }] }
 	}
 	const store: AccountStore = {

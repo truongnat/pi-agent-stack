@@ -176,13 +176,24 @@ export function identify(
 	}
 	const claims = jwtClaims(token)
 	const openai = claims?.['https://api.openai.com/auth'] as
-		{ chatgpt_account_id?: string } | undefined
+		{ chatgpt_account_id?: string; chatgpt_account_user_id?: string; chatgpt_user_id?: string; user_id?: string } | undefined
 	const profile = claims?.['https://api.openai.com/profile'] as { email?: string } | undefined
 	const email = profile?.email ?? (typeof claims?.email === 'string' ? claims.email : undefined)
-	const id =
+	const userId =
+		openai?.chatgpt_account_user_id ??
+		(typeof claims?.sub === 'string' ? claims.sub : undefined) ??
+		openai?.chatgpt_user_id ??
+		openai?.user_id
+	const teamId =
 		(typeof credential.accountId === 'string' ? credential.accountId : undefined) ??
-		openai?.chatgpt_account_id ??
-		(typeof claims?.sub === 'string' ? claims.sub : undefined)
+		openai?.chatgpt_account_id
+	// If we have a specific user identity, use it (or combine with team ID) so multiple accounts
+	// in the same team workspace are saved as separate slots in the pool.
+	const id =
+		(email ? (teamId ? `${teamId}:${email}` : email) : undefined) ??
+		(userId && teamId ? `${teamId}:${userId}` : undefined) ??
+		userId ??
+		teamId
 	if (id) return { key: id, label: email ?? id }
 	// Opaque OAuth tokens (no claims) change on every refresh, so a fingerprint would turn one
 	// account into many; without identity in the login data the provider keeps one slot.
