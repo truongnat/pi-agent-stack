@@ -6,6 +6,7 @@ import { stripVTControlCharacters } from 'node:util'
 import { loadOrchestratorConfig, type OrchestratorConfig } from './config.ts'
 import { evaluateConsensus, type ConsensusOptions, type ConsensusResult } from './consensus.ts'
 import { getAvailableProviders } from './guard.ts'
+import { getAvailableModelPool, selectOptimalModelForTask } from './pool.ts'
 import { generateAgentCodename, getRoleDefinition } from './roster.ts'
 import type {
 	SubagentExecutionResult,
@@ -17,6 +18,7 @@ import type {
 
 export class SubagentManager {
 	private instances = new Map<string, SubagentInstance>()
+	private dispatchedProviderCounts: Record<string, number> = {}
 	public config: OrchestratorConfig
 	public scratchpadRoot: string
 
@@ -41,6 +43,7 @@ export class SubagentManager {
 
 	public clearHistory(): void {
 		this.instances.clear()
+		this.dispatchedProviderCounts = {}
 	}
 
 	public killSubagent(id: string): boolean {
@@ -119,7 +122,15 @@ export class SubagentManager {
 		this.pruneOldScratchpads()
 		const id = `subagent_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
 		const roleDef = getRoleDefinition(task.role)
-		const model = task.modelOverride || roleDef.defaultModelTier
+		const modelSelection = selectOptimalModelForTask(
+			task,
+			getAvailableModelPool(),
+			this.dispatchedProviderCounts
+		)
+		const model = modelSelection.fullModelName
+		this.dispatchedProviderCounts[modelSelection.provider] =
+			(this.dispatchedProviderCounts[modelSelection.provider] || 0) + 1
+
 		const name = generateAgentCodename(task.role, task.name, task.prompt)
 		const scratchpadDir = join(this.scratchpadRoot, id)
 
@@ -378,13 +389,7 @@ export class SubagentManager {
 			'-p',
 			fullPrompt
 		]
-		if (
-			instance.model &&
-			instance.model !== 'flash' &&
-			instance.model !== 'sonnet' &&
-			instance.model !== 'mini' &&
-			instance.model !== 'pro'
-		) {
+		if (instance.model && instance.model !== 'default') {
 			piArgs.unshift('--model', instance.model)
 		}
 
