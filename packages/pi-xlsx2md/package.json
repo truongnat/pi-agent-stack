@@ -19,7 +19,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "test": "bun test",
     "check": "bun run typecheck && bun run lint && bun run format:check && bun test"
   },
   "pi": {

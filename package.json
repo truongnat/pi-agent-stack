@@ -20,7 +20,7 @@
 	"scripts": {
 		"check": "bun run --filter '*' check",
 		"typecheck": "bun run --filter '*' typecheck",
-		"test": "node --test packages/*/test/*.test.ts packages/*/*.test.ts packages/pi-jev-harness/lint/oxlint-rules/src/rules/*.test.ts"
+		"test": "bun run --filter '*' test"
 	}
 }
 
