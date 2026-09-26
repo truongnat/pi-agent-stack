@@ -34,15 +34,21 @@ export function createGoalTools(ctx: GoalToolContext): {
 		name: 'get_goal',
 		label: 'Get Active Goal',
 		description:
-			'Retrieve the current goal objective, status, token budget, tokens used, and progress metrics.',
-		promptSnippet: 'get_goal() — get current active goal status and objective',
+			'Retrieve the current autonomous goal objective, status, token budget, tokens used, and progress metrics when an autonomous /goal loop is running. Do NOT call this for regular conversation unless the user specifically launched a goal with /goal.',
+		promptSnippet:
+			'get_goal() — ONLY call if the user explicitly started an autonomous /goal loop session',
 		parameters: GetGoalSchema,
 		executionMode: 'sequential',
 		async execute() {
 			const goal = ctx.getGoal()
 			if (!goal) {
 				return {
-					content: [{ type: 'text', text: 'No active goal is set for this session.' }],
+					content: [
+						{
+							type: 'text',
+							text: 'No active autonomous goal is set for this session. (Goals are created by user via /goal command).'
+						}
+					],
 					details: undefined
 				}
 			}

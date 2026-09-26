@@ -18,7 +18,7 @@ test('get_goal returns message when no goal active', async () => {
 		{} as any
 	)
 	const firstText = result.content[0]?.type === 'text' ? result.content[0].text : ''
-	assert.match(firstText, /No active goal is set/)
+	assert.match(firstText, /No active.*goal/)
 })
 
 test('get_goal returns JSON representation of active goal', async () => {
