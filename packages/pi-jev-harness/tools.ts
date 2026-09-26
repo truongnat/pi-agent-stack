@@ -43,9 +43,9 @@ const LOOP_CHECK_AT = 5
 export function repeatReminder(tool: string, repeats: number): string | undefined {
 	if (!REMIND_AT.has(repeats)) return undefined
 	if (repeats === 3) {
-		return '[jev-harness: you have made this exact call 3 times. Read the earlier result before calling again; if the task is not done, change the approach or the arguments.]'
+		return '[ ⚠ JEV Loop Guard: exact call repeated 3 times. Read previous result or change arguments. ]'
 	}
-	return `[jev-harness: ${repeats} identical ${tool} calls with the same arguments are not making progress. Do not repeat them; use the latest result, try something different, or finish if you have enough.]`
+	return `[ ⚠ JEV Loop Guard: ${repeats} identical ${tool} calls detected without progress. Use latest result or change approach. ]`
 }
 
 /** Append the repeat nudge to a tool result, on top of whatever trimming already did. */
@@ -79,7 +79,7 @@ function loopVerdict(
 			: 'Check the earlier result before running it again.'
 	return {
 		block: true,
-		reason: `jev-harness: this is the ${repeats}th time you ran the same ${event.toolName} call and Jev judges you are stuck (${stuck.toFixed(2)}). ${advice}`
+		reason: `[ 🛑 JEV Loop Guard: Blocked call #${repeats} (${event.toolName}, stuck score: ${stuck.toFixed(2)}). ${advice} ]`
 	}
 }
 
@@ -239,7 +239,7 @@ export async function onToolResult(h: Harness, event: ToolResultEvent, ctx: Exte
 				const saved = spill(full, event.toolName)
 				const cut = full.length - h.config.keepHeadChars
 				const recover = saved ? spillHint(saved) : 'Re-run with a narrower filter if you need them.'
-				const replacement = `${full.slice(0, h.config.keepHeadChars)}\n[jev-harness cut ${cut} chars to protect context window. ${recover}]`
+				const replacement = `${full.slice(0, h.config.keepHeadChars)}\n[ ✂ JEV Trimmed: cut ${cut} chars to protect context window. ${recover} ]`
 				h.stats.trimmed++
 				h.stats.charsSaved += full.length - replacement.length
 				if (h.config.mode !== 'on') return undefined
@@ -262,11 +262,11 @@ export async function onToolResult(h: Harness, event: ToolResultEvent, ctx: Exte
 		let replacement: string | null = null
 		if (dropping) {
 			const recover = saved ? spillHint(saved) : 'Re-run it if you need the output.'
-			replacement = `[jev-harness dropped ${full.length} chars of ${event.toolName} output judged not needed for the task (relevance ${relevant.toFixed(2)}). It ran ${succeeded}. ${recover}]`
+			replacement = `[ ✂ JEV Trimmed: dropped ${full.length} chars of ${event.toolName} output (relevance: ${relevant.toFixed(2)}, ran ${succeeded}). ${recover} ]`
 		} else if (heading) {
 			const cut = full.length - h.config.keepHeadChars
 			const recover = saved ? spillHint(saved) : 'Re-run with a narrower filter if you need them.'
-			replacement = `${full.slice(0, h.config.keepHeadChars)}\n[jev-harness cut ${cut} more chars judged repetitive (relevance ${relevant.toFixed(2)}). ${recover}]`
+			replacement = `${full.slice(0, h.config.keepHeadChars)}\n[ ✂ JEV Trimmed: cut ${cut} repetitive chars (relevance: ${relevant.toFixed(2)}). ${recover} ]`
 		}
 		if (!replacement) return undefined
 		h.stats.trimmed++

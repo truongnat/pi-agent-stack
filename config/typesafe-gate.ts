@@ -3,9 +3,12 @@
  * Jev never appears as a model-callable tool.
  */
 import { spawn } from "node:child_process";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
-const PRE_TOOL = "/home/vietis/.agents/typesafe-harness/pre-tool.sh";
-const PROMPT = "/home/vietis/.agents/typesafe-harness/prompt.sh";
+const HARNESS_DIR = process.env.TYPESAFE_HARNESS_DIR || join(homedir(), ".agents", "typesafe-harness");
+const PRE_TOOL = join(HARNESS_DIR, "pre-tool.sh");
+const PROMPT = join(HARNESS_DIR, "prompt.sh");
 const TOOL_TIMEOUT_MS = 8000;
 const PROMPT_TIMEOUT_MS = 12000;
 

@@ -15,5 +15,5 @@ void test('input key order does not make a repeated call look new', () => {
 void test('reminders fire at 3, 5 and 8 repeats only', () => {
 	const fired = [1, 2, 3, 4, 5, 6, 7, 8, 9].filter((n) => repeatReminder('bash', n))
 	assert.deepEqual(fired, [3, 5, 8])
-	assert.match(repeatReminder('bash', 5) ?? '', /5 identical bash calls/)
+	assert.match(repeatReminder('bash', 5) ?? '', /5 identical bash calls detected/)
 })
