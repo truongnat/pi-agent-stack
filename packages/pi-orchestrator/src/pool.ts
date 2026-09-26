@@ -9,9 +9,11 @@ export interface AvailableModel {
 	provider: string
 	id: string
 	fullModelName: string
+	name?: string
 	tier: ModelCostTier
 	costScore: number // 1 = economical, 2 = balanced, 3 = premium
 	reasoning: boolean
+	contextWindow?: number
 	ready: boolean
 }
 
@@ -24,8 +26,40 @@ export interface ModelSelectionResult {
 }
 
 /**
+ * Classifies any model identifier into its capability and cost tier.
+ */
+export function classifyModelTier(modelId: string): {
+	tier: ModelCostTier
+	costScore: number
+	reasoning: boolean
+} {
+	const lower = modelId.toLowerCase()
+	const isReasoning = /thinking|reason|high|max|opus|o1|o3|r1/i.test(lower)
+
+	// 1. Pro / Deep Reasoning / Frontier Tier
+	if (
+		/opus|o3|o1|r1|deepseek-reasoner|pro-high|3\.1-pro-high|claude-3-7-sonnet:high|claude-opus|grok-3/i.test(
+			lower
+		)
+	) {
+		return { tier: 'pro', costScore: 3, reasoning: isReasoning }
+	}
+
+	// 2. Flash / Fast & Economical Tier
+	if (
+		/flash|haiku|mini|spark|speed|light|small|nano|deepseek-chat/i.test(lower) &&
+		!/pro-high/i.test(lower)
+	) {
+		return { tier: 'flash', costScore: 1, reasoning: isReasoning }
+	}
+
+	// 3. Standard / Code & Refactor Precision Tier (e.g. gpt-6-luna, claude-sonnet-4-6, gpt-4o)
+	return { tier: 'standard', costScore: 2, reasoning: isReasoning }
+}
+
+/**
  * Discovers all authenticated, ready, and quota-available models across
- * subscription providers, OAuth accounts, and environment API keys.
+ * subscription providers, OAuth accounts, models-store, and environment API keys.
  */
 export function getAvailableModelPool(): AvailableModel[] {
 	const pool: AvailableModel[] = []
@@ -34,26 +68,56 @@ export function getAvailableModelPool(): AvailableModel[] {
 	const addModel = (
 		provider: string,
 		id: string,
-		tier: ModelCostTier,
-		costScore: number,
-		reasoning = false
+		name?: string,
+		contextWindow?: number,
+		forcedTier?: ModelCostTier,
+		forcedReasoning?: boolean
 	) => {
 		const fullModelName = id.includes('/') ? id : `${provider}/${id}`
 		if (!seen.has(fullModelName)) {
 			seen.add(fullModelName)
+			const classified = classifyModelTier(id)
 			pool.push({
 				provider,
 				id,
 				fullModelName,
-				tier,
-				costScore,
-				reasoning,
+				name: name || id,
+				tier: forcedTier || classified.tier,
+				costScore: classified.costScore,
+				reasoning: forcedReasoning !== undefined ? forcedReasoning : classified.reasoning,
+				contextWindow,
 				ready: true
 			})
 		}
 	}
 
-	// 1. Check ~/.pi/agent/subscription-providers-status.json
+	// 1. Check ~/.pi/agent/models-store.json (Registered Pi Provider Models)
+	try {
+		const modelsStoreFile = join(homedir(), '.pi', 'agent', 'models-store.json')
+		if (existsSync(modelsStoreFile)) {
+			const store = JSON.parse(readFileSync(modelsStoreFile, 'utf8'))
+			for (const [providerKey, data] of Object.entries(store)) {
+				if (data && typeof data === 'object' && Array.isArray((data as any).models)) {
+					for (const m of (data as any).models) {
+						if (m.id) {
+							addModel(
+								m.provider || providerKey,
+								m.id,
+								m.name,
+								m.contextWindow,
+								undefined,
+								m.reasoning
+							)
+						}
+					}
+				}
+			}
+		}
+	} catch {
+		// Ignore
+	}
+
+	// 2. Check ~/.pi/agent/subscription-providers-status.json (Antigravity, Cursor, Claude Code)
 	try {
 		const subStatusFile = join(homedir(), '.pi', 'agent', 'subscription-providers-status.json')
 		if (existsSync(subStatusFile)) {
@@ -68,78 +132,65 @@ export function getAvailableModelPool(): AvailableModel[] {
 					const pName = (info as any).provider || providerKey
 					for (const m of (info as any).models) {
 						const modelId = m.id || m.name
-						const isReasoning = Boolean(m.reasoning)
-						let tier: ModelCostTier = 'standard'
-						let cost = 2
-
-						if (/flash|mini|haiku|speed|small|light/i.test(modelId)) {
-							tier = 'flash'
-							cost = 1
-						} else if (/pro|opus|o1|o3|heavy|high|max/i.test(modelId)) {
-							tier = 'pro'
-							cost = 3
-						}
-
-						addModel(pName, modelId, tier, cost, isReasoning)
+						addModel(pName, modelId, m.name, 200000, undefined, Boolean(m.reasoning))
 					}
 				}
 			}
 		}
 	} catch {
-		// Ignore parse errors
+		// Ignore
 	}
 
-	// 2. Check ~/.pi/agent/auth.json for OAuth providers (e.g. openai-codex)
+	// 3. Check ~/.pi/agent/auth.json for OAuth credentials
 	try {
 		const authFile = join(homedir(), '.pi', 'agent', 'auth.json')
 		if (existsSync(authFile)) {
 			const auth = JSON.parse(readFileSync(authFile, 'utf8'))
 			if (auth['openai-codex']) {
-				addModel('openai-codex', 'gpt-6-luna', 'standard', 2, false)
+				addModel('openai-codex', 'gpt-6-luna', 'GPT-6 Luna (OpenAI Codex)', 272000)
+				addModel('openai-codex', 'gpt-6-astra', 'GPT-6 Astra', 272000)
+				addModel('openai-codex', 'gpt-5.6-luna', 'GPT-5.6 Luna', 272000)
 			}
 			if (auth['anthropic']) {
-				addModel('anthropic', 'claude-3-7-sonnet', 'standard', 2, true)
-				addModel('anthropic', 'claude-3-5-haiku', 'flash', 1, false)
+				addModel('anthropic', 'claude-3-7-sonnet', 'Claude 3.7 Sonnet', 200000)
+				addModel('anthropic', 'claude-3-5-haiku', 'Claude 3.5 Haiku', 200000)
 			}
 			if (auth['google'] || auth['gemini']) {
-				addModel('gemini', 'gemini-2.5-flash', 'flash', 1, false)
-				addModel('gemini', 'gemini-2.5-pro', 'pro', 3, true)
+				addModel('gemini', 'gemini-2.5-flash', 'Gemini 2.5 Flash', 1000000)
+				addModel('gemini', 'gemini-2.5-pro', 'Gemini 2.5 Pro', 2000000)
 			}
 		}
 	} catch {
 		// Ignore
 	}
 
-	// 3. Check ~/.pi/agent/settings.json default provider/model
-	try {
-		const settingsFile = join(homedir(), '.pi', 'agent', 'settings.json')
-		if (existsSync(settingsFile)) {
-			const settings = JSON.parse(readFileSync(settingsFile, 'utf8'))
-			if (settings.defaultProvider && settings.defaultModel) {
-				addModel(settings.defaultProvider, settings.defaultModel, 'standard', 2, false)
-			}
-		}
-	} catch {
-		// Ignore
-	}
-
-	// 4. Check Environment API keys
+	// 4. Check Environment API keys for 2026 cutting-edge models
 	if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) {
-		addModel('gemini', 'gemini-2.5-flash', 'flash', 1, false)
-		addModel('gemini', 'gemini-2.5-pro', 'pro', 3, true)
+		addModel('gemini', 'gemini-2.5-flash', 'Gemini 2.5 Flash', 1000000)
+		addModel('gemini', 'gemini-2.5-pro', 'Gemini 2.5 Pro', 2000000)
+		addModel('gemini', 'gemini-2.0-flash', 'Gemini 2.0 Flash', 1000000)
 	}
 	if (process.env.OPENAI_API_KEY) {
-		addModel('openai', 'gpt-4o-mini', 'flash', 1, false)
-		addModel('openai', 'gpt-4o', 'standard', 2, false)
-		addModel('openai', 'o3-mini', 'pro', 3, true)
+		addModel('openai', 'gpt-4o-mini', 'GPT-4o Mini', 128000)
+		addModel('openai', 'gpt-4o', 'GPT-4o', 128000)
+		addModel('openai', 'o3-mini', 'OpenAI o3-mini (Reasoning)', 200000)
+		addModel('openai', 'gpt-4.5-preview', 'GPT-4.5', 128000)
 	}
 	if (process.env.ANTHROPIC_API_KEY) {
-		addModel('anthropic', 'claude-3-5-haiku', 'flash', 1, false)
-		addModel('anthropic', 'claude-3-7-sonnet', 'standard', 2, true)
+		addModel('anthropic', 'claude-3-7-sonnet', 'Claude 3.7 Sonnet', 200000)
+		addModel('anthropic', 'claude-3-5-haiku', 'Claude 3.5 Haiku', 200000)
 	}
 	if (process.env.DEEPSEEK_API_KEY) {
-		addModel('deepseek', 'deepseek-chat', 'flash', 1, false)
-		addModel('deepseek', 'deepseek-reasoner', 'pro', 3, true)
+		addModel('deepseek', 'deepseek-chat', 'DeepSeek-V3', 64000)
+		addModel('deepseek', 'deepseek-reasoner', 'DeepSeek-R1 (Reasoning)', 64000)
+	}
+	if (process.env.GROK_API_KEY || process.env.XAI_API_KEY) {
+		addModel('xai', 'grok-3', 'Grok 3', 131072)
+		addModel('xai', 'grok-2', 'Grok 2', 131072)
+	}
+	if (process.env.MISTRAL_API_KEY) {
+		addModel('mistral', 'codestral-2501', 'Codestral (Code Specialist)', 256000)
+		addModel('mistral', 'mistral-large-2411', 'Mistral Large', 128000)
 	}
 
 	return pool
@@ -155,7 +206,6 @@ export function selectOptimalModelForTask(
 	pool: AvailableModel[] = getAvailableModelPool(),
 	dispatchedCounts: Record<string, number> = {}
 ): ModelSelectionResult {
-	// If no models discovered in the dynamic pool, fallback to safe default
 	if (pool.length === 0) {
 		return {
 			fullModelName: 'default',
@@ -171,7 +221,6 @@ export function selectOptimalModelForTask(
 	// 1. Explicit Model Override
 	if (task.modelOverride && task.modelOverride.trim()) {
 		const requested = task.modelOverride.trim().toLowerCase()
-		// Exact match in pool
 		const exact = pool.find(
 			(m) =>
 				m.fullModelName.toLowerCase() === requested ||
