@@ -100,12 +100,28 @@ export function isSensitiveSystemPath(targetPath: string, cwd: string): boolean 
 }
 
 /**
+ * Cleans leading and trailing shell control syntax, subshells, and redirects.
+ */
+export function cleanCommandSegment(seg: string): string {
+	return seg
+		.trim()
+		.replace(/^nohup\s+/, '')
+		.replace(/^[\s({]+/, '')
+		.replace(/[\s)}]+$/, '')
+		.replace(/^(if|then|else|elif|do|while)\s+/, '')
+		.replace(/\b(fi|done|esac)$/, '')
+		.replace(/&$/, '')
+		.trim()
+}
+
+/**
  * Parses shell commands into individual piped/chained segments.
  */
 export function splitCommandSegments(command: string): string[] {
+	// Split on &&, ||, ;, |, and background & (avoiding 2>&1 or &> redirects)
 	return command
-		.split(/&&|;|\|\||\|/)
-		.map((s) => s.trim().replace(/^nohup\s+/, '').replace(/&$/, '').trim())
+		.split(/(?:&&|\|\||;|\||(?<![&>])&(?!&|[0-9]))/)
+		.map(cleanCommandSegment)
 		.filter(Boolean)
 }
 
@@ -113,7 +129,8 @@ export function splitCommandSegments(command: string): string[] {
  * Checks if a single command segment is an unconditionally safe development command.
  */
 export function isSafeDevSegment(segment: string): boolean {
-	const trimmed = segment.toLowerCase()
+	const trimmed = cleanCommandSegment(segment).toLowerCase()
+	if (!trimmed) return true
 
 	const devPatterns = [
 		// 1. Package managers & build tools
@@ -125,10 +142,10 @@ export function isSafeDevSegment(segment: string): boolean {
 		/^(make|cmake|ninja|mvn|gradle)\s+/,
 		/^rustc\s+/,
 		/^tsc\s+/,
-		// 2. Read-only / observability
-		/^(which|where|cat|ls|pwd|echo|head|tail|wc|find|grep|rg|tree|stat|file)\b/,
+		// 2. Read-only / observability & shell builtins
+		/^(which|where|cat|ls|pwd|echo|printf|head|tail|wc|find|grep|rg|tree|stat|file|test|true|false|exit|return|source|\.|\[)\b/,
 		// 3. Process lifecycle & dev server management
-		/^(kill|pkill|killall|pgrep|ps|lsof|sleep|nohup|wait|source|\.)\b/,
+		/^(kill|pkill|killall|pgrep|ps|lsof|sleep|nohup|wait)\b/,
 		// 4. Local target / workspace binary execution
 		/^(\.\/|target\/(debug|release)\/|dist\/|build\/|bin\/)/,
 		// 5. Safe file utilities in workspace

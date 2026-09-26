@@ -100,3 +100,20 @@ test('evaluateRisk produces clean Level 0 for chained dev server restart command
 	assert.equal(res.requireConfirm, false)
 	assert.equal(res.blockDirectly, false)
 })
+
+test('evaluateRisk handles complex dev server restart with conditional checks and subshells', () => {
+	const cwd = '/Users/test/workspace/my-app'
+	const complexCmd =
+		"kill 21761; sleep 1; if ps -p 21761 -o pid= >/dev/null; then echo 'App did not exit'; exit 1; fi; (target/debug/db-pro-native >/tmp/db-pro-native.log 2>&1 & echo \"Started db-pro-native PID $!\")"
+
+	const res = evaluateRisk(
+		{ toolName: 'bash', input: { command: complexCmd } },
+		cwd
+	)
+
+	assert.equal(res.level, 0)
+	assert.equal(res.category, 'safe')
+	assert.equal(res.requireConfirm, false)
+	assert.equal(res.blockDirectly, false)
+})
+
