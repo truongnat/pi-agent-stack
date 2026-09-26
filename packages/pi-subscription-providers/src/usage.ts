@@ -649,7 +649,9 @@ export function formatStatusLine(
 		paint.fg('accent', displayName(provider)) +
 		(quota.plan ? ` ${paint.fg('muted', quota.plan)}` : '') +
 		(quota.account ? ` ${paint.fg('text', quota.account)}` : '')
-	const parts = quota.windows.map((w) => {
+	// Footer single-line display: limit to at most 2 primary windows so it fits cleanly in terminal
+	const visibleWindows = quota.windows.length > 2 ? quota.windows.slice(0, 2) : quota.windows
+	const parts = visibleWindows.map((w) => {
 		const reset = w.resetsAt ? ` ${paint.fg('dim', `(${formatDuration(w.resetsAt - now)})`)}` : ''
 		return `${paint.fg('muted', w.label)} ${bar(w.usedPercent, paint, 8, '▰', '▱')} ${pct(w.usedPercent, paint)}${reset}`
 	})

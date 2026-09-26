@@ -178,8 +178,8 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 	pi.on('session_start', (_event, ctx) => {
 		Object.assign(config, loadConfig())
 		bandit.load()
-		if (ctx.hasUI && config.mode !== 'off') {
-			ctx.ui.setStatus('pi-rl', `RL: ${config.mode}`)
+		if (ctx.hasUI) {
+			ctx.ui.setStatus('pi-rl', undefined)
 		}
 	})
 

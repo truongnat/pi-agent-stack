@@ -263,15 +263,12 @@ function publishProviders(pi: ExtensionAPI, snap: StatusSnapshot): void {
 }
 
 function applyStatusUi(
-	ctx: { hasUI: boolean; ui: { setStatus: (id: string, text: string) => void } },
+	ctx: { hasUI: boolean; ui: { setStatus: (id: string, text: string | undefined) => void } },
 	snap: StatusSnapshot
 ): void {
 	if (!ctx.hasUI) return
-	const summaries = compactSummaries(snap)
-	const parts = [summaries.cursor, summaries.antigravity, summaries['claude-code']].filter(
-		(line) => !line.includes('disabled')
-	)
-	ctx.ui.setStatus('subscription-providers', parts.map((line) => line.split(';')[0]).join(' · '))
+	// Keep status footer concise; full provider readiness is shown in /usage
+	ctx.ui.setStatus('subscription-providers', undefined)
 }
 
 type UsageCtx = Pick<
