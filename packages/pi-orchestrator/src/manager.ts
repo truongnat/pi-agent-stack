@@ -362,89 +362,120 @@ export class SubagentManager {
 			message: `Dispatching native pi worker with tools: [${builtInAllowed.join(', ')}]`
 		})
 
-		options.onProgress?.({
-			id: instance.id,
-			role: instance.role,
-			name: instance.name,
-			status: 'running',
-			currentActivity: `Running Pi worker (${builtInAllowed.length} tools)...`
-		})
+		let streamedBytes = 0
+		let latestLine = ''
 
-		const handleChunk = (chunkStr: string) => {
-			const cleaned = stripVTControlCharacters(chunkStr)
-			const lines = cleaned
-				.split('\n')
-				.map((l) => l.trim())
-				.filter(Boolean)
-			const latestLine = lines.pop()
-			if (latestLine && latestLine.length > 2) {
+		const ticker = setInterval(() => {
+			const elapsedSec = Math.max(1, Math.floor((Date.now() - instance.startedAt) / 1000))
+			if (streamedBytes > 0 && latestLine) {
 				options.onProgress?.({
 					id: instance.id,
 					role: instance.role,
 					name: instance.name,
 					status: 'streaming',
-					currentActivity: latestLine.slice(0, 100)
+					currentActivity: `(${elapsedSec}s) ✍️ ${latestLine.slice(0, 90)}`
+				})
+			} else {
+				const phases = [
+					'Analyzing task context & tools...',
+					'Exploring workspace & files...',
+					'Inspecting code & running actions...',
+					'Synthesizing findings & formulating report...'
+				]
+				const phaseIndex = Math.min(Math.floor(elapsedSec / 8), phases.length - 1)
+				options.onProgress?.({
+					id: instance.id,
+					role: instance.role,
+					name: instance.name,
+					status: 'running',
+					currentActivity: `(${elapsedSec}s) ${phases[phaseIndex]}`
+				})
+			}
+		}, 1200)
+
+		const handleChunk = (chunkStr: string) => {
+			streamedBytes += chunkStr.length
+			const cleaned = stripVTControlCharacters(chunkStr)
+			const lines = cleaned
+				.split('\n')
+				.map((l) => l.trim())
+				.filter(Boolean)
+			const line = lines.pop()
+			if (line && line.length > 2) {
+				latestLine = line
+				const elapsedSec = Math.max(1, Math.floor((Date.now() - instance.startedAt) / 1000))
+				options.onProgress?.({
+					id: instance.id,
+					role: instance.role,
+					name: instance.name,
+					status: 'streaming',
+					currentActivity: `(${elapsedSec}s) ✍️ ${line.slice(0, 90)}`
 				})
 			}
 		}
 
-		const piResult = await this.execSubprocessWorker(
-			'pi',
-			piArgs,
-			cwd,
-			options.signal,
-			handleChunk,
-			180_000
-		)
-		if (piResult.code === 0 && piResult.stdout) {
-			return {
-				output: piResult.stdout,
-				tokensUsed: Math.max(150, Math.round(piResult.stdout.length / 4))
-			}
-		}
-
-		if (piResult.stderr) {
-			this.logToScratchpad(instance, {
-				timestamp: Date.now(),
-				type: 'error',
-				message: `pi worker notice/error: ${piResult.stderr.slice(0, 300)}`
-			})
-		}
-
-		// 2. Try Secondary CLI Workers if pi runner failed
-		const candidateWorkers = ['agy', 'cursor-agent', 'claude']
-		for (const worker of candidateWorkers) {
-			const args =
-				worker === 'agy'
-					? ['--dangerously-skip-permissions', '--prompt', fullPrompt]
-					: ['-p', fullPrompt]
-
-			options.onProgress?.({
-				id: instance.id,
-				role: instance.role,
-				name: instance.name,
-				status: 'running',
-				currentActivity: `Trying fallback worker: ${worker}...`
-			})
-
-			const res = await this.execSubprocessWorker(worker, args, cwd, options.signal, handleChunk)
-			if (
-				res.code === 0 &&
-				res.stdout &&
-				!/failed to authenticate|oauth session expired|login required/i.test(res.stdout)
-			) {
+		try {
+			const piResult = await this.execSubprocessWorker(
+				'pi',
+				piArgs,
+				cwd,
+				options.signal,
+				handleChunk,
+				180_000
+			)
+			if (piResult.code === 0 && piResult.stdout) {
 				return {
-					output: res.stdout,
-					tokensUsed: Math.max(150, Math.round(res.stdout.length / 4))
+					output: piResult.stdout,
+					tokensUsed: Math.max(150, Math.round(piResult.stdout.length / 4))
 				}
 			}
-		}
 
-		// If all execution backends failed, DO NOT fake success. Report actual failure!
-		const failureReason = piResult.stderr || 'Subprocess exited with non-zero code or empty output'
-		throw new Error(
-			`Subagent "${instance.name}" (${instance.role}) failed to execute. Cause: ${failureReason}`
-		)
+			if (piResult.stderr) {
+				this.logToScratchpad(instance, {
+					timestamp: Date.now(),
+					type: 'error',
+					message: `pi worker notice/error: ${piResult.stderr.slice(0, 300)}`
+				})
+			}
+
+			// 2. Try Secondary CLI Workers if pi runner failed
+			const candidateWorkers = ['agy', 'cursor-agent', 'claude']
+			for (const worker of candidateWorkers) {
+				const args =
+					worker === 'agy'
+						? ['--dangerously-skip-permissions', '--prompt', fullPrompt]
+						: ['-p', fullPrompt]
+
+				options.onProgress?.({
+					id: instance.id,
+					role: instance.role,
+					name: instance.name,
+					status: 'running',
+					currentActivity: `Trying fallback worker: ${worker}...`
+				})
+
+				const res = await this.execSubprocessWorker(worker, args, cwd, options.signal, handleChunk)
+				if (
+					res.code === 0 &&
+					res.stdout &&
+					!/failed to authenticate|oauth session expired|login required/i.test(res.stdout)
+				) {
+					return {
+						output: res.stdout,
+						tokensUsed: Math.max(150, Math.round(res.stdout.length / 4))
+					}
+				}
+			}
+
+			// If all execution backends failed, DO NOT fake success. Report actual failure!
+			const failureReason =
+				piResult.stderr || 'Subprocess exited with non-zero code or empty output'
+			throw new Error(
+				`Subagent "${instance.name}" (${instance.role}) failed to execute. Cause: ${failureReason}`
+			)
+		} finally {
+			clearInterval(ticker)
+		}
 	}
 
 	public async invokeBatch(
