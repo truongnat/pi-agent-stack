@@ -287,14 +287,16 @@ export class SubagentManager {
 		cwd: string,
 		signal?: AbortSignal,
 		onChunk?: (chunk: string) => void,
-		timeoutMs = 180_000,
+		maxTimeoutMs = 600_000,
 		extraEnv: Record<string, string> = {}
 	): Promise<{ stdout: string; stderr: string; code: number | null }> {
 		const envPath = `${homedir()}/.bun/bin:${homedir()}/.local/bin:${process.env.PATH || ''}`
 		const env = { ...process.env, PATH: envPath, ...extraEnv }
+		const idleTimeoutMs = 180_000 // 3 minutes of complete silence
 
 		return new Promise((resolve) => {
 			try {
+				const startTime = Date.now()
 				const child = spawn(command, args, {
 					cwd,
 					env,
@@ -302,38 +304,64 @@ export class SubagentManager {
 				})
 				let stdout = ''
 				let stderr = ''
+				let idleTimer: ReturnType<typeof setTimeout> | null = null
+
+				const resetIdleTimer = () => {
+					if (idleTimer) clearTimeout(idleTimer)
+					idleTimer = setTimeout(() => {
+						child.kill('SIGTERM')
+						const elapsedSec = Math.round((Date.now() - startTime) / 1000)
+						resolve({
+							stdout: stdout.trim(),
+							stderr:
+								stderr.trim() ||
+								`Process timed out after ${Math.round(idleTimeoutMs / 1000)}s of inactivity (total run: ${elapsedSec}s)`,
+							code: -1
+						})
+					}, idleTimeoutMs)
+				}
+
+				resetIdleTimer()
 
 				child.stdout?.on('data', (chunk) => {
 					const str = chunk.toString()
 					stdout += str
+					resetIdleTimer()
 					if (onChunk) onChunk(str)
 				})
 				child.stderr?.on('data', (chunk) => {
 					stderr += chunk.toString()
+					resetIdleTimer()
 				})
 
-				const timer = setTimeout(() => {
+				const maxTimer = setTimeout(() => {
+					if (idleTimer) clearTimeout(idleTimer)
 					child.kill('SIGTERM')
 					resolve({
 						stdout: stdout.trim(),
-						stderr: stderr.trim() || `Process timed out after ${Math.round(timeoutMs / 1000)}s`,
+						stderr:
+							stderr.trim() ||
+							`Process reached maximum execution limit of ${Math.round(maxTimeoutMs / 1000)}s`,
 						code: -1
 					})
-				}, timeoutMs)
+				}, maxTimeoutMs)
 
 				signal?.addEventListener('abort', () => {
-					clearTimeout(timer)
+					if (idleTimer) clearTimeout(idleTimer)
+					clearTimeout(maxTimer)
 					child.kill('SIGTERM')
 					resolve({ stdout: stdout.trim(), stderr: 'Aborted by signal', code: -1 })
 				})
 
 				child.on('error', (err) => {
-					clearTimeout(timer)
+					if (idleTimer) clearTimeout(idleTimer)
+					clearTimeout(maxTimer)
 					resolve({ stdout: '', stderr: err.message, code: -1 })
 				})
 
 				child.on('close', (code) => {
-					clearTimeout(timer)
+					if (idleTimer) clearTimeout(idleTimer)
+					clearTimeout(maxTimer)
 					resolve({ stdout: stdout.trim(), stderr: stderr.trim(), code })
 				})
 			} catch (err) {
@@ -459,7 +487,7 @@ export class SubagentManager {
 				cwd,
 				options.signal,
 				handleChunk,
-				180_000,
+				600_000,
 				{ PI_SUBAGENT_WORKER: '1' }
 			)
 			if (piResult.code === 0 && piResult.stdout) {
