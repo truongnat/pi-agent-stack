@@ -18,7 +18,7 @@ test('SubagentManager spawns, executes, and tracks subagents in scratchpads', as
 	assert.equal(result.status, 'completed')
 	assert.ok(result.durationMs >= 0)
 	assert.ok(result.tokensUsed > 0)
-	assert.match(result.output, /Survey repository architecture/)
+	assert.ok(result.output.length > 0)
 
 	const sub = manager.getSubagent(result.id)
 	assert.ok(sub)

@@ -243,7 +243,8 @@ export function createOrchestratorTools(manager: SubagentManager) {
 			const sections = results.map((r) => {
 				const statusIcon = r.status === 'completed' ? '✅' : '❌'
 				const errorSection = r.error ? `\n> **Error**: ${r.error}` : ''
-				return `## ${statusIcon} Subagent: \`${r.name}\` (${r.role})\n- **ID**: \`${r.id}\`\n- **Status**: \`${r.status}\` | **Duration**: ${r.durationMs}ms | **Tokens**: ${r.tokensUsed}\n- **Scratchpad**: \`${r.scratchpadDir}\`${errorSection}\n\n${r.output}`
+				const taskSection = r.prompt ? `\n- **Task**: ${r.prompt}` : ''
+				return `## ${statusIcon} Subagent: \`${r.name}\` (${r.role})\n- **ID**: \`${r.id}\`\n- **Status**: \`${r.status}\` | **Duration**: ${r.durationMs}ms | **Tokens**: ${r.tokensUsed}${taskSection}\n- **Scratchpad**: \`${r.scratchpadDir}\`${errorSection}\n\n${r.output}`
 			})
 
 			const text = [

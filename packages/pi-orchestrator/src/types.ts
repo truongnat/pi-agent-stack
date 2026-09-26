@@ -49,6 +49,7 @@ export interface SubagentExecutionResult {
 	id: string
 	role: AgentRoleName
 	name: string
+	prompt?: string
 	status: SubagentStatus
 	output: string
 	error?: string
