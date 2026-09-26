@@ -214,6 +214,9 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 	})
 
 	pi.on('agent_end', (_event, ctx) => {
+		if (ctx.hasUI) {
+			ctx.ui.setStatus('pi-rl', undefined)
+		}
 		if (config.mode === 'off' || config.mode === 'passive') return
 		const currentFingerprint = workspaceFingerprint(ctx.cwd)
 		if (

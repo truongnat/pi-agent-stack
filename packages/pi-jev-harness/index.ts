@@ -38,7 +38,7 @@ const DEFAULTS: Config = {
 	trimMinChars: 3000,
 	keepHeadChars: 1500,
 	timeoutMs: 3000,
-	showStatus: true,
+	showStatus: false,
 	modelRouting: true,
 	modelSwitchConfidence: 0.82,
 	thinkingSwitchConfidence: 0.75,
@@ -136,7 +136,9 @@ function createHarness(): Harness {
 		sent: new Set(),
 		loopChecked: false,
 		status: (ctx, text) => {
-			if (ctx.hasUI && config.showStatus) ctx.ui.setStatus('jev-harness', text)
+			if (ctx.hasUI) {
+				ctx.ui.setStatus('jev-harness', h.config.showStatus ? text : undefined)
+			}
 		},
 		log,
 		jev: async (what, state, questions, ctx) => {
@@ -370,7 +372,8 @@ export default function (pi: ExtensionAPI) {
 		return onBeforeAgentStart(h, pi, event, ctx)
 	})
 
-	pi.on('agent_end', () => {
+	pi.on('agent_end', (_event, ctx) => {
+		h.status(ctx, undefined)
 		if (!h.allTools) return
 		pi.setActiveTools(h.allTools)
 		h.allTools = null
