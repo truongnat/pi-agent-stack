@@ -129,44 +129,45 @@ const FALLBACK_CODENAMES = [
 
 let codenameCounter = 0
 
+export function formatRoleTitle(role: string): string {
+	const map: Record<string, string> = {
+		researcher: 'Researcher',
+		coder: 'Coder',
+		tester: 'Tester',
+		debugger: 'Debugger',
+		reviewer: 'Reviewer'
+	}
+	const lower = role.toLowerCase()
+	return map[lower] || role.charAt(0).toUpperCase() + role.slice(1)
+}
+
 /**
- * Generates an elegant, prestigious codename for a subagent based on role and context.
+ * Generates an elegant, prestigious codename for a subagent formatted as:
+ * "Tên - Role - Level" (e.g., "Sentinel - Tester - Senior", "Athena - Researcher - Senior")
  */
 export function generateAgentCodename(
 	role: AgentRoleName,
 	customName?: string,
-	prompt?: string
+	_prompt?: string,
+	level = 'Senior'
 ): string {
-	if (customName && customName.trim() && !/^(\w+)_[a-z0-9]{4,6}$/.test(customName)) {
-		return customName.trim()
-	}
-
+	const roleTitle = formatRoleTitle(role)
 	const pool = ROLE_CODENAMES[role.toLowerCase()] || FALLBACK_CODENAMES
 	const index = codenameCounter++ % pool.length
 	const codename = pool[index]!
 
-	// If prompt contains clear intent, extract a short tag (optional)
-	let topicTag = ''
-	if (prompt) {
-		const cleanPrompt = prompt.replace(/[^\w\s-]/g, '').trim()
-		const words = cleanPrompt
-			.split(/\s+/)
-			.filter(
-				(w) =>
-					w.length > 2 &&
-					!/^(the|and|for|with|this|that|from|into|about|survey|check|find|read|write|test|review)$/i.test(
-						w
-					)
-			)
-		if (words.length > 0) {
-			topicTag = words
-				.slice(0, 2)
-				.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-				.join('')
-		}
+	// If customName already follows "Name - Role - Level" format
+	if (customName && customName.includes(' - ')) {
+		return customName.trim()
 	}
 
-	return topicTag ? `${codename} · ${topicTag}` : codename
+	// If customName is a simple clean name without dashes/underscores (e.g. "Atlas", "DaVinci")
+	if (customName && /^[A-Z][a-zA-Z0-9]+$/.test(customName.trim())) {
+		return `${customName.trim()} - ${roleTitle} - ${level}`
+	}
+
+	// Standard format: Tên - Role - Level (mặc định Senior)
+	return `${codename} - ${roleTitle} - ${level}`
 }
 
 export function getRoleDefinition(role: AgentRoleName): AgentRoleDefinition {

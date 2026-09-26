@@ -13,7 +13,7 @@ test('SubagentManager spawns, executes, and tracks subagents in scratchpads', as
 
 	const result = await manager.spawnSubagent(task, process.cwd())
 
-	assert.equal(result.name, 'arch-research')
+	assert.match(result.name, / - Researcher - Senior$/)
 	assert.equal(result.role, 'researcher')
 	assert.equal(result.status, 'completed')
 	assert.ok(result.durationMs >= 0)

@@ -33,9 +33,11 @@ test('generateAgentCodename generates prestigious codenames based on role and pr
 		undefined,
 		'Survey repository architecture'
 	)
-	assert.ok(researcherName.length > 0)
-	assert.ok(!researcherName.includes('researcher_'))
+	assert.match(researcherName, / - Researcher - Senior$/)
 
 	const coderName = generateAgentCodename('coder', 'CustomCoder')
-	assert.equal(coderName, 'CustomCoder')
+	assert.equal(coderName, 'CustomCoder - Coder - Senior')
+
+	const existingFormatted = generateAgentCodename('tester', 'Sentinel - Tester - Senior')
+	assert.equal(existingFormatted, 'Sentinel - Tester - Senior')
 })
