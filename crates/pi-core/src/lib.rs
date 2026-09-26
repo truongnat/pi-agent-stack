@@ -3,6 +3,7 @@
 pub mod ast;
 pub mod dcp;
 pub mod scanner;
+pub mod supervisor;
 pub mod tokenizer;
 
 use std::ffi::{CStr, CString};
@@ -12,7 +13,7 @@ use std::path::Path;
 /// Returns the version string of pi-core.
 #[no_mangle]
 pub extern "C" fn pi_core_version() -> *mut c_char {
-    let s = CString::new("0.3.0").unwrap();
+    let s = CString::new("0.4.0").unwrap();
     s.into_raw()
 }
 
@@ -155,6 +156,48 @@ pub extern "C" fn pi_skeletonize_code(
     CString::new(json_str)
         .unwrap_or_else(|_| CString::new("{}").unwrap())
         .into_raw()
+}
+
+/// Spawns a command with POSIX process group supervision and hard timeout.
+#[no_mangle]
+pub extern "C" fn pi_spawn_supervised(
+    cmd: *const c_char,
+    cwd: *const c_char,
+    timeout_ms: u64,
+    max_output_bytes: usize,
+) -> *mut c_char {
+    if cmd.is_null() {
+        return CString::new("{}").unwrap().into_raw();
+    }
+
+    let Ok(cmd_str) = (unsafe { CStr::from_ptr(cmd) }).to_str() else {
+        return CString::new("{}").unwrap().into_raw();
+    };
+
+    let cwd_str = if !cwd.is_null() {
+        (unsafe { CStr::from_ptr(cwd) }).to_str().unwrap_or("")
+    } else {
+        ""
+    };
+
+    let res = supervisor::execute_supervised(cmd_str, cwd_str, timeout_ms, max_output_bytes);
+    let json_str = serde_json::to_string(&res).unwrap_or_else(|_| "{}".to_string());
+
+    CString::new(json_str)
+        .unwrap_or_else(|_| CString::new("{}").unwrap())
+        .into_raw()
+}
+
+/// Kills an entire process group using POSIX signals.
+#[no_mangle]
+pub extern "C" fn pi_kill_process_group(pgid: i32, sig: i32) -> i32 {
+    supervisor::kill_process_group(pgid, sig)
+}
+
+/// Checks if a PID is alive.
+#[no_mangle]
+pub extern "C" fn pi_is_process_alive(pid: i32) -> bool {
+    supervisor::is_process_alive(pid)
 }
 
 /// Frees a string allocated by the Rust core.

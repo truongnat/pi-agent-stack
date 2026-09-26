@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { spawnSync } from 'node:child_process'
 
 export interface FileEntry {
 	path: string
@@ -22,6 +23,14 @@ export interface SkeletonResult {
 	reduction_percentage: number
 }
 
+export interface ProcessExecutionResult {
+	exit_code: number
+	stdout: string
+	stderr: string
+	timed_out: boolean
+	duration_ms: number
+}
+
 export interface NativeBridge {
 	isAvailable: boolean
 	version: string
@@ -31,6 +40,14 @@ export interface NativeBridge {
 	scanDirectory: (dirPath: string, maxDepth?: number) => FileEntry[]
 	searchWorkspace: (dirPath: string, query: string, maxResults?: number) => SearchMatch[]
 	skeletonizeCode: (source: string, language?: string) => SkeletonResult
+	spawnSupervised: (
+		cmd: string,
+		cwd?: string,
+		timeoutMs?: number,
+		maxOutputBytes?: number
+	) => ProcessExecutionResult
+	killProcessGroup: (pgid: number, signal?: number) => number
+	isProcessAlive: (pid: number) => boolean
 }
 
 // Fallback implementations in pure TypeScript
@@ -90,6 +107,58 @@ function fallbackSkeletonizeCode(source: string, language = 'ts'): SkeletonResul
 	}
 }
 
+function fallbackSpawnSupervised(
+	cmd: string,
+	cwd = '',
+	timeoutMs = 60000,
+	_maxOutputBytes = 10485760
+): ProcessExecutionResult {
+	const startTime = Date.now()
+	try {
+		const res = spawnSync(cmd, {
+			shell: true,
+			cwd: cwd || undefined,
+			timeout: timeoutMs,
+			encoding: 'utf8',
+			maxBuffer: 10 * 1024 * 1024
+		})
+		const timed_out = res.error?.message?.includes('ETIMEDOUT') || res.status === null
+		return {
+			exit_code: res.status ?? (timed_out ? -9 : -1),
+			stdout: res.stdout || '',
+			stderr: res.stderr || (res.error ? res.error.message : ''),
+			timed_out,
+			duration_ms: Date.now() - startTime
+		}
+	} catch (err: any) {
+		return {
+			exit_code: -1,
+			stdout: '',
+			stderr: err?.message || String(err),
+			timed_out: false,
+			duration_ms: Date.now() - startTime
+		}
+	}
+}
+
+function fallbackKillProcessGroup(pgid: number, signal = 9): number {
+	try {
+		process.kill(-pgid, signal)
+		return 0
+	} catch {
+		return -1
+	}
+}
+
+function fallbackIsProcessAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0)
+		return true
+	} catch {
+		return false
+	}
+}
+
 // Locate native library
 function findNativeLibrary(): string | null {
 	const currentDir = dirname(fileURLToPath(import.meta.url))
@@ -131,7 +200,7 @@ function findNativeLibrary(): string | null {
 
 let nativeLib: any = null
 let isNative = false
-let nativeVersion = '0.3.0-ts-fallback'
+let nativeVersion = '0.4.0-ts-fallback'
 
 try {
 	const libPath = findNativeLibrary()
@@ -165,6 +234,18 @@ try {
 			pi_skeletonize_code: {
 				args: ['ptr', 'ptr'],
 				returns: 'ptr'
+			},
+			pi_spawn_supervised: {
+				args: ['ptr', 'ptr', 'u64', 'usize'],
+				returns: 'ptr'
+			},
+			pi_kill_process_group: {
+				args: ['i32', 'i32'],
+				returns: 'i32'
+			},
+			pi_is_process_alive: {
+				args: ['i32'],
+				returns: 'bool'
 			},
 			pi_free_string: {
 				args: ['ptr'],
@@ -293,6 +374,59 @@ export function skeletonizeCode(source: string, language = 'ts'): SkeletonResult
 	}
 }
 
+export function spawnSupervised(
+	cmd: string,
+	cwd = '',
+	timeoutMs = 180000,
+	maxOutputBytes = 10485760
+): ProcessExecutionResult {
+	if (!isNative || !nativeLib) {
+		return fallbackSpawnSupervised(cmd, cwd, timeoutMs, maxOutputBytes)
+	}
+
+	try {
+		const cmdBuf = Buffer.from(`${cmd}\0`, 'utf8')
+		const cwdBuf = Buffer.from(`${cwd}\0`, 'utf8')
+		const { ptr, CString } = (globalThis as any).Bun.FFI
+		const resPtr = nativeLib.symbols.pi_spawn_supervised(
+			ptr(cmdBuf),
+			ptr(cwdBuf),
+			BigInt(timeoutMs),
+			maxOutputBytes
+		)
+		if (!resPtr) return fallbackSpawnSupervised(cmd, cwd, timeoutMs, maxOutputBytes)
+		const jsonStr = new CString(resPtr).toString()
+		nativeLib.symbols.pi_free_string(resPtr)
+		return JSON.parse(jsonStr)
+	} catch {
+		return fallbackSpawnSupervised(cmd, cwd, timeoutMs, maxOutputBytes)
+	}
+}
+
+export function killProcessGroup(pgid: number, signal = 9): number {
+	if (!isNative || !nativeLib) {
+		return fallbackKillProcessGroup(pgid, signal)
+	}
+
+	try {
+		return nativeLib.symbols.pi_kill_process_group(pgid, signal)
+	} catch {
+		return fallbackKillProcessGroup(pgid, signal)
+	}
+}
+
+export function isProcessAlive(pid: number): boolean {
+	if (!isNative || !nativeLib) {
+		return fallbackIsProcessAlive(pid)
+	}
+
+	try {
+		return nativeLib.symbols.pi_is_process_alive(pid)
+	} catch {
+		return fallbackIsProcessAlive(pid)
+	}
+}
+
 export const bridge: NativeBridge = {
 	isAvailable: isNative,
 	version: nativeVersion,
@@ -301,7 +435,10 @@ export const bridge: NativeBridge = {
 	hashToolSignature,
 	scanDirectory,
 	searchWorkspace,
-	skeletonizeCode
+	skeletonizeCode,
+	spawnSupervised,
+	killProcessGroup,
+	isProcessAlive
 }
 
 export default bridge

@@ -265,6 +265,7 @@ name = "pi-core"
 version = "0.1.0"
 dependencies = [
  "ignore",
+ "libc",
  "memchr",
  "rayon",
  "serde",

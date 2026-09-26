@@ -38,6 +38,7 @@ export interface SubagentInstance {
 	model: string
 	startedAt: number
 	completedAt?: number
+	pid?: number
 	output?: string
 	error?: string
 	tokensUsed: number

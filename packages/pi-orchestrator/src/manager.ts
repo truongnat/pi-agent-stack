@@ -3,6 +3,7 @@ import { appendFileSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
+import { killProcessGroup } from 'pi-native-bridge'
 import { loadOrchestratorConfig, type OrchestratorConfig } from './config.ts'
 import { evaluateConsensus, type ConsensusOptions, type ConsensusResult } from './consensus.ts'
 import { getAvailableProviders } from './guard.ts'
@@ -52,6 +53,16 @@ export class SubagentManager {
 		instance.status = 'killed'
 		instance.completedAt = Date.now()
 		instance.error = 'Subagent was killed by supervisor.'
+		if (instance.pid) {
+			try {
+				killProcessGroup(instance.pid, 15)
+				setTimeout(() => {
+					if (instance.pid) killProcessGroup(instance.pid, 9)
+				}, 100)
+			} catch {
+				// Ignore kill error
+			}
+		}
 		this.logToScratchpad(instance, {
 			timestamp: Date.now(),
 			type: 'error',
@@ -67,6 +78,13 @@ export class SubagentManager {
 				instance.status = 'killed'
 				instance.completedAt = Date.now()
 				instance.error = 'Subagent was killed by supervisor.'
+				if (instance.pid) {
+					try {
+						killProcessGroup(instance.pid, 9)
+					} catch {
+						// Ignore kill error
+					}
+				}
 				count++
 			}
 		}
@@ -288,7 +306,8 @@ export class SubagentManager {
 		signal?: AbortSignal,
 		onChunk?: (chunk: string) => void,
 		maxTimeoutMs = 600_000,
-		extraEnv: Record<string, string> = {}
+		extraEnv: Record<string, string> = {},
+		instance?: SubagentInstance
 	): Promise<{ stdout: string; stderr: string; code: number | null }> {
 		const envPath = `${homedir()}/.bun/bin:${homedir()}/.local/bin:${process.env.PATH || ''}`
 		const env = { ...process.env, PATH: envPath, ...extraEnv }
@@ -300,8 +319,12 @@ export class SubagentManager {
 				const child = spawn(command, args, {
 					cwd,
 					env,
+					detached: process.platform !== 'win32',
 					stdio: ['ignore', 'pipe', 'pipe']
 				})
+				if (instance && child.pid) {
+					instance.pid = child.pid
+				}
 				let stdout = ''
 				let stderr = ''
 				let idleTimer: ReturnType<typeof setTimeout> | null = null
@@ -309,7 +332,14 @@ export class SubagentManager {
 				const resetIdleTimer = () => {
 					if (idleTimer) clearTimeout(idleTimer)
 					idleTimer = setTimeout(() => {
-						child.kill('SIGTERM')
+						if (child.pid) {
+							killProcessGroup(child.pid, 15)
+							setTimeout(() => {
+								if (child.pid) killProcessGroup(child.pid, 9)
+							}, 150)
+						} else {
+							child.kill('SIGTERM')
+						}
 						const elapsedSec = Math.round((Date.now() - startTime) / 1000)
 						resolve({
 							stdout: stdout.trim(),
@@ -336,7 +366,14 @@ export class SubagentManager {
 
 				const maxTimer = setTimeout(() => {
 					if (idleTimer) clearTimeout(idleTimer)
-					child.kill('SIGTERM')
+					if (child.pid) {
+						killProcessGroup(child.pid, 15)
+						setTimeout(() => {
+							if (child.pid) killProcessGroup(child.pid, 9)
+						}, 150)
+					} else {
+						child.kill('SIGTERM')
+					}
 					resolve({
 						stdout: stdout.trim(),
 						stderr:
@@ -349,7 +386,11 @@ export class SubagentManager {
 				signal?.addEventListener('abort', () => {
 					if (idleTimer) clearTimeout(idleTimer)
 					clearTimeout(maxTimer)
-					child.kill('SIGTERM')
+					if (child.pid) {
+						killProcessGroup(child.pid, 9)
+					} else {
+						child.kill('SIGTERM')
+					}
 					resolve({ stdout: stdout.trim(), stderr: 'Aborted by signal', code: -1 })
 				})
 
@@ -488,7 +529,8 @@ export class SubagentManager {
 				options.signal,
 				handleChunk,
 				600_000,
-				{ PI_SUBAGENT_WORKER: '1' }
+				{ PI_SUBAGENT_WORKER: '1' },
+				instance
 			)
 			if (piResult.code === 0 && piResult.stdout) {
 				return {
@@ -521,7 +563,16 @@ export class SubagentManager {
 					currentActivity: `Trying fallback worker: ${worker}...`
 				})
 
-				const res = await this.execSubprocessWorker(worker, args, cwd, options.signal, handleChunk)
+				const res = await this.execSubprocessWorker(
+					worker,
+					args,
+					cwd,
+					options.signal,
+					handleChunk,
+					600_000,
+					{},
+					instance
+				)
 				if (
 					res.code === 0 &&
 					res.stdout &&

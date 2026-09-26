@@ -6,15 +6,17 @@ import {
 	getNativeVersion,
 	hashToolSignature,
 	isNativeAvailable,
+	isProcessAlive,
 	scanDirectory,
 	searchWorkspace,
-	skeletonizeCode
+	skeletonizeCode,
+	spawnSupervised
 } from '../src/index.ts'
 
 test('bridge exports version and availability status', () => {
 	const version = getNativeVersion()
 	assert.ok(typeof version === 'string')
-	assert.match(version, /^0\.3\.0/)
+	assert.match(version, /^0\.4\.0/)
 	assert.equal(typeof isNativeAvailable(), 'boolean')
 })
 
@@ -109,4 +111,17 @@ export function heavyProcessor(input: StateData, factor: number): number {
 	assert.ok(res.skeleton.includes('interface StateData'))
 	assert.ok(res.skeleton.includes('heavyProcessor'))
 	assert.ok(!res.skeleton.includes('const temp = factor * 2'))
+})
+
+test('spawnSupervised executes command and handles timeout with process group kill', () => {
+	const resFast = spawnSupervised("echo 'supervisor-ok'", process.cwd(), 5000)
+	assert.equal(resFast.exit_code, 0)
+	assert.ok(resFast.stdout.includes('supervisor-ok'))
+	assert.equal(resFast.timed_out, false)
+
+	const resTimeout = spawnSupervised('sleep 3', process.cwd(), 200)
+	assert.equal(resTimeout.timed_out, true)
+	assert.ok(resTimeout.exit_code !== 0)
+
+	assert.equal(isProcessAlive(process.pid), true)
 })
