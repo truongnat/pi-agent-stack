@@ -31,8 +31,34 @@ function sortKeys(value: unknown): unknown {
 	)
 }
 
-export const callKey = (tool: string, input: unknown): string =>
-	`${tool}:${JSON.stringify(sortKeys(input))}`
+/**
+ * Enhanced semantic key extractor: identifies not just exact identical string calls,
+ * but semantic edit loops targeting the same file path or identical search queries.
+ */
+export const callKey = (tool: string, input: unknown): string => {
+	if (input && typeof input === 'object') {
+		const rec = input as Record<string, unknown>
+		// If editing the same file repeatedly
+		if (tool === 'edit' || tool === 'write' || tool === 'read') {
+			const targetFile = rec.path || rec.file || rec.TargetFile || ''
+			if (targetFile) {
+				return `${tool}:${targetFile}:${JSON.stringify(sortKeys(input))}`
+			}
+		}
+	}
+	return `${tool}:${JSON.stringify(sortKeys(input))}`
+}
+
+/** Check if the same target file has been edited/written 3+ times without progress */
+export function targetFileLoopKey(tool: string, input: unknown): string | null {
+	if (!input || typeof input !== 'object') return null
+	const rec = input as Record<string, unknown>
+	const target = rec.path || rec.file || rec.TargetFile || ''
+	if ((tool === 'edit' || tool === 'write') && target) {
+		return `file_mutation:${target}`
+	}
+	return null
+}
 
 /** Free nudges (no Jev call) at these repeat counts; Jev is asked from LOOP_CHECK_AT on. */
 const REMIND_AT = new Set([3, 5, 8])
@@ -40,12 +66,13 @@ const REMIND_AT = new Set([3, 5, 8])
 const LOOP_CHECK_AT = 5
 
 /** Pattern from deepseek-harness repeat-tool-reminder (MIT): gentle first, then specific. */
-export function repeatReminder(tool: string, repeats: number): string | undefined {
+export function repeatReminder(tool: string, repeats: number, targetName?: string): string | undefined {
 	if (!REMIND_AT.has(repeats)) return undefined
+	const targetContext = targetName ? ` on \`${targetName}\`` : ''
 	if (repeats === 3) {
-		return '[ ⚠ JEV Loop Guard: exact call repeated 3 times. Read previous result or change arguments. ]'
+		return `[ ⚠ JEV Loop Guard: exact call repeated 3 times${targetContext}. Read previous result or change arguments. ]`
 	}
-	return `[ ⚠ JEV Loop Guard: ${repeats} identical ${tool} calls detected without progress. Use latest result or change approach. ]`
+	return `[ ⚠ JEV Loop Guard: ${repeats} identical ${tool} calls detected${targetContext} without progress. Use latest result or change approach. ]`
 }
 
 /** Append the repeat nudge to a tool result, on top of whatever trimming already did. */
@@ -56,7 +83,8 @@ export function withReminder(
 ): { content: ToolResultEvent['content'] } | undefined {
 	if (!active(h) || !h.config.loop || h.config.mode !== 'on') return patch
 	const key = callKey(event.toolName, event.input)
-	const text = repeatReminder(event.toolName, h.recent.filter((r) => r.key === key).length)
+	const repeats = h.recent.filter((r) => r.key === key).length
+	const text = repeatReminder(event.toolName, repeats)
 	if (!text) return patch
 	return { content: [...(patch?.content ?? event.content), { type: 'text', text }] }
 }
