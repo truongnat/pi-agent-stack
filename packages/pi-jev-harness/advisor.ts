@@ -98,7 +98,10 @@ export function evaluateOfflineAdvisor(
 		repoMap
 	})
 
-	const summaryNote = `advisor: ${category} · ${guidance.replace('_', ' ')} · ${verification}`
+	const summaryNote =
+		verification && verification !== 'none'
+			? `adv:${category} · ${guidance.replace(/_/g, ' ')} · ${verification}`
+			: `adv:${category} · ${guidance.replace(/_/g, ' ')}`
 
 	return {
 		category,
@@ -234,7 +237,10 @@ export async function generateAdvisorBriefing(
 					repoMap
 				})
 
-				const summaryNote = `advisor: ${category} · ${guidance.replace('_', ' ')} · ${verification}`
+				const summaryNote =
+					verification && verification !== 'none'
+						? `adv:${category} · ${guidance.replace(/_/g, ' ')} · ${verification}`
+						: `adv:${category} · ${guidance.replace(/_/g, ' ')}`
 
 				h.stats.advisorBriefings++
 

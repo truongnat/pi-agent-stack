@@ -295,18 +295,20 @@ function applyToolRouting(
 			noulOf(answers, `use_${name}`) >= THRESHOLDS.toolNeeded
 	)
 	const hidden = names.filter((name) => !keep.includes(name))
-	let note = `kind ${kind.choice} (${kind.confidence.toFixed(2)}), tools ${keep.join(',')}`
 	const hiddenSchemaChars = toolSchemaChars(pi, hidden)
 	const hideTools =
 		h.config.mode === 'on' &&
 		kind.choice !== 'answer' &&
 		hidden.length >= h.config.routeMinHiddenTools &&
 		hiddenSchemaChars >= h.config.routeMinSchemaChars
-	if (hidden.length) {
-		note += hideTools
-			? ` (hidden: ${hidden.join(',')})`
-			: ` (kept: route savings ${hiddenSchemaChars} schema chars below gate)`
+
+	let note = `kind ${kind.choice} (${kind.confidence.toFixed(2)})`
+	if (hideTools && hidden.length > 0) {
+		note += ` · ${keep.length} tools (${hidden.length} hidden)`
+	} else {
+		note += ` · ${keep.length} tools`
 	}
+
 	if (hideTools) {
 		h.allTools = names
 		pi.setActiveTools(keep)
@@ -314,7 +316,7 @@ function applyToolRouting(
 		h.stats.routeHiddenTools++
 	}
 	if (h.config.mode === 'on' && kind.choice === 'unclear' && kind.confidence >= 0.7) {
-		note += '; ask one clarifying question before using tools'
+		note += '; ask clarifying question'
 	}
 	return { keep, note, hideTools }
 }
@@ -414,7 +416,7 @@ export async function onBeforeAgentStart(
 		(note): note is string => !!note
 	)
 	if (fetched?.message && ctx.hasUI) ctx.ui.notify(`jev ${fetched.note}`, 'info')
-	h.status(ctx, notes[0] ? `jev ${notes.join('; ')}` : `jev-harness ${h.config.mode}`)
+	h.status(ctx, notes[0] ? `jev: ${notes.join(' · ')}` : `jev ${h.config.mode}`)
 	if (h.config.mode !== 'on') return undefined
 
 	const messageParts: string[] = []
