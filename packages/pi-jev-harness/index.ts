@@ -12,8 +12,12 @@
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
-import { Box, Text } from '@earendil-works/pi-tui'
+import {
+	getMarkdownTheme,
+	type ExtensionAPI,
+	type ExtensionContext
+} from '@earendil-works/pi-coding-agent'
+import { Box, Markdown, Text } from '@earendil-works/pi-tui'
 
 import { generateAdvisorBriefing, type AdvisorBriefingResult } from './advisor.ts'
 import { compactHistory, verifyCachePrefixIntegrity } from './compactor.ts'
@@ -201,6 +205,86 @@ export function shadowSummary(s: Stats): string {
 	return `shadow: JEV kept the plain route on ${s.shadowAgree}/${s.shadowTurns} turns (${agree}%); routes used cost ~${ratio}% of the plain route's list price`
 }
 
+function registerMessageRenderers(pi: ExtensionAPI) {
+	if (typeof pi.registerMessageRenderer !== 'function') return
+
+	pi.registerMessageRenderer('jev-advisor', (message, { expanded, outputPad }, theme) => {
+		const badge = theme.fg('accent', theme.bold('[ 💡 ADVISOR ]'))
+		const header = `${badge} ${theme.bold('JEV Execution Strategy & Advice')}`
+		const contentStr =
+			typeof message.content === 'string'
+				? message.content
+				: JSON.stringify(message.content, null, 2)
+		const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
+		box.addChild(new Text(header, 0, 0))
+
+		if (contentStr.trim()) {
+			let displayContent = contentStr
+			if (!expanded) {
+				const rawLines = contentStr.split('\n')
+				if (rawLines.length > 8) {
+					displayContent =
+						rawLines.slice(0, 8).join('\n') +
+						`\n\n*... and ${rawLines.length - 8} more lines (expand to view)*`
+				}
+			}
+			const mdTheme = getMarkdownTheme()
+			box.addChild(new Markdown(displayContent, 1, 0, mdTheme))
+		}
+		return box
+	})
+
+	pi.registerMessageRenderer('jev-compact', (message, { outputPad }, theme) => {
+		const badge = theme.fg('success', theme.bold('[ 🗜 COMPACT ]'))
+		const header = `${badge} ${theme.bold('Context Compactor & Prefix Guard')}`
+		const contentStr =
+			typeof message.content === 'string'
+				? message.content
+				: JSON.stringify(message.content, null, 2)
+		const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
+		box.addChild(new Text(header, 0, 0))
+		if (contentStr.trim()) {
+			const mdTheme = getMarkdownTheme()
+			box.addChild(new Markdown(contentStr, 1, 0, mdTheme))
+		}
+		return box
+	})
+}
+
+function registerJevCommands(pi: ExtensionAPI, h: Harness) {
+	pi.registerCommand('jev-harness', {
+		description: 'jev-harness: on | log | off | stats',
+		handler: async (args, ctx) => {
+			const mode = (args ?? '').trim()
+			if (mode !== 'on' && mode !== 'log' && mode !== 'off') {
+				report(h, ctx, pi)
+				return
+			}
+			h.config.mode = mode
+			h.status(ctx, mode === 'off' ? undefined : `jev-harness ${mode}`)
+			sendJevMessage(pi, ctx, 'jev-advisor', `✓ jev-harness mode set to ${mode}`, { mode })
+		}
+	})
+
+	pi.registerCommand('jev-compact', {
+		description: 'Context Compactor: inspect prompt cache prefix & compaction status',
+		handler: async (_args, ctx) => {
+			const s = h.stats
+			const saved = Math.round(s.compactionCharsSaved / 4)
+			const info = [
+				`### 🗜 JEV Context Compactor & Prefix Cache Status`,
+				'',
+				`- **Compaction Runs**: \`${s.compactionRuns}\` history passes`,
+				`- **Tokens Saved via Compaction**: ~\`${saved.toLocaleString()}\` tokens`,
+				`- **Prefix Cache Checks**: \`${s.cachePrefixChecks}\` turns inspected`,
+				`- **Prefix Cache Violations**: ${s.cachePrefixViolations === 0 ? '`0` (🟢 Deterministic Prefix Intact)' : `\`${s.cachePrefixViolations}\` warnings detected`}`,
+				`- **Spill Storage**: Retains raw outputs in \`~/.jev-harness/spill/\``
+			].join('\n')
+			sendJevMessage(pi, ctx, 'jev-compact', info, { stats: s })
+		}
+	})
+}
+
 export default function (pi: ExtensionAPI) {
 	const h = createHarness()
 
@@ -265,44 +349,8 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	// Register custom message renderers
-	if (typeof pi.registerMessageRenderer === 'function') {
-		pi.registerMessageRenderer('jev-advisor', (message, { expanded, outputPad }, theme) => {
-			const details = message.details as Record<string, unknown> | undefined
-			const badge = theme.fg('accent', theme.bold('[ 💡 ADVISOR ]'))
-			const header = `${badge} ${theme.bold('JEV Execution Strategy & Advice')}`
-			const lines = [header]
-			if (typeof details?.strategy === 'string') {
-				lines.push(theme.fg('accent', `  Strategy: ${details.strategy}`))
-			}
-			const contentStr =
-				typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
-			if (expanded) {
-				lines.push(...contentStr.split('\n').map((l: string) => theme.fg('muted', `  ${l}`)))
-			} else {
-				const preview = contentStr.split('\n').slice(0, 3)
-				lines.push(...preview.map((l: string) => theme.fg('muted', `  ${l}`)))
-				if (contentStr.split('\n').length > 3) {
-					lines.push(theme.fg('dim', '  ... (expand to view full briefing)'))
-				}
-			}
-			const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
-			box.addChild(new Text(lines.join('\n'), 0, 0))
-			return box
-		})
-
-		pi.registerMessageRenderer('jev-compact', (message, { outputPad }, theme) => {
-			const badge = theme.fg('success', theme.bold('[ 🗜 COMPACT ]'))
-			const header = `${badge} ${theme.bold('Context Compactor & Prefix Guard')}`
-			const lines = [header]
-			const contentStr =
-				typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
-			lines.push(...contentStr.split('\n').map((l: string) => theme.fg('muted', `  ${l}`)))
-			const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
-			box.addChild(new Text(lines.join('\n'), 0, 0))
-			return box
-		})
-	}
+	registerMessageRenderers(pi)
+	registerJevCommands(pi, h)
 
 	pi.on('session_start', (_event, ctx) => {
 		Object.assign(h.config, loadConfig())
@@ -311,7 +359,6 @@ export default function (pi: ExtensionAPI) {
 	})
 
 	pi.on('before_agent_start', (event, ctx) => {
-		// Guard cache prefix integrity for systemPrompt
 		if (event.systemPrompt) {
 			h.stats.cachePrefixChecks++
 			const check = verifyCachePrefixIntegrity(event.systemPrompt)
@@ -334,35 +381,4 @@ export default function (pi: ExtensionAPI) {
 	pi.on('tool_result', async (event, ctx) =>
 		withReminder(h, event, await onToolResult(h, event, ctx))
 	)
-
-	pi.registerCommand('jev-harness', {
-		description: 'jev-harness: on | log | off | stats',
-		handler: async (args, ctx) => {
-			const mode = (args ?? '').trim()
-			if (mode !== 'on' && mode !== 'log' && mode !== 'off') {
-				report(h, ctx, pi)
-				return
-			}
-			h.config.mode = mode
-			h.status(ctx, mode === 'off' ? undefined : `jev-harness ${mode}`)
-			sendJevMessage(pi, ctx, 'jev-advisor', `✓ jev-harness mode set to ${mode}`, { mode })
-		}
-	})
-
-	pi.registerCommand('jev-compact', {
-		description: 'Context Compactor: inspect prompt cache prefix & compaction status',
-		handler: async (_args, ctx) => {
-			const s = h.stats
-			const saved = Math.round(s.compactionCharsSaved / 4)
-			const info = [
-				`### 🗜 JEV Context Compactor & Prefix Cache Status`,
-				`• Compaction Runs: ${s.compactionRuns} history passes`,
-				`• Tokens Saved via Compaction: ~${saved.toLocaleString()} tokens`,
-				`• Prefix Cache Checks: ${s.cachePrefixChecks} turns inspected`,
-				`• Prefix Cache Violations: ${s.cachePrefixViolations === 0 ? '0 (✓ Deterministic Prefix Intact)' : `${s.cachePrefixViolations} warnings detected`}`,
-				`• Spill Storage: Retains raw outputs in \`~/.jev-harness/spill/\``
-			].join('\n')
-			sendJevMessage(pi, ctx, 'jev-compact', info, { stats: s })
-		}
-	})
 }

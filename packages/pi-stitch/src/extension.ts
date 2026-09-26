@@ -6,11 +6,12 @@
  * every prompt, the Stitch tools start inactive; the small `stitch_design` loader (or
  * `/stitch on`) activates them only when design work begins.
  */
-import type {
-  ExtensionAPI,
-  ExtensionContext,
+import {
+  getMarkdownTheme,
+  type ExtensionAPI,
+  type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Box, Text } from "@earendil-works/pi-tui";
+import { Box, Markdown, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
 import {
@@ -225,35 +226,28 @@ export function registerStitchExtension(
       (message, { expanded, outputPad }, theme) => {
         const badge = theme.fg("accent", theme.bold("[ 🎨 STITCH STUDIO ]"));
         const header = `${badge} ${theme.bold("Google Stitch Design System & Tools")}`;
-        const lines = [header];
         const contentStr =
           typeof message.content === "string"
             ? message.content
-            : JSON.stringify(message.content);
-        if (expanded) {
-          lines.push(
-            ...contentStr
-              .split("\n")
-              .map((l: string) => theme.fg("muted", `  ${l}`)),
-          );
-        } else {
-          const preview = contentStr.split("\n").slice(0, 8);
-          lines.push(
-            ...preview.map((l: string) => theme.fg("muted", `  ${l}`)),
-          );
-          if (contentStr.split("\n").length > 8) {
-            lines.push(
-              theme.fg(
-                "dim",
-                "  ... (expand to view complete design guide/tokens)",
-              ),
-            );
-          }
-        }
+            : JSON.stringify(message.content, null, 2);
         const box = new Box(outputPad ?? 1, 0, (t) =>
           theme.bg("customMessageBg", t),
         );
-        box.addChild(new Text(lines.join("\n"), 0, 0));
+        box.addChild(new Text(header, 0, 0));
+
+        if (contentStr.trim()) {
+          let displayContent = contentStr;
+          if (!expanded) {
+            const rawLines = contentStr.split("\n");
+            if (rawLines.length > 8) {
+              displayContent =
+                rawLines.slice(0, 8).join("\n") +
+                `\n\n*... and ${rawLines.length - 8} more lines (expand to view)*`;
+            }
+          }
+          const mdTheme = getMarkdownTheme();
+          box.addChild(new Markdown(displayContent, 1, 0, mdTheme));
+        }
         return box;
       },
     );

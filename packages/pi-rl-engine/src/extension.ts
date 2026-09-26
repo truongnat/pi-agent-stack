@@ -3,8 +3,12 @@ import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
-import { Box, Text } from '@earendil-works/pi-tui'
+import {
+	getMarkdownTheme,
+	type ExtensionAPI,
+	type ExtensionContext
+} from '@earendil-works/pi-coding-agent'
+import { Box, Markdown, Text } from '@earendil-works/pi-tui'
 
 import { ContextualBandit } from './bandit.ts'
 import { LessonStore } from './lessons.ts'
@@ -270,46 +274,54 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 		pi.registerMessageRenderer('rl-report', (message, { expanded, outputPad }, theme) => {
 			const badge = theme.fg('accent', theme.bold('[ 🧠 RL ENGINE ]'))
 			const header = `${badge} ${theme.bold('Reinforcement Learning & Policy Stats')}`
-			const lines = [header]
 			const contentStr =
-				typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
-			if (expanded) {
-				lines.push(...contentStr.split('\n').map((l: string) => theme.fg('muted', `  ${l}`)))
-			} else {
-				const preview = contentStr.split('\n').slice(0, 6)
-				lines.push(...preview.map((l: string) => theme.fg('muted', `  ${l}`)))
-				if (contentStr.split('\n').length > 6) {
-					displayMore(lines, contentStr.split('\n').length - 6, theme)
-				}
-			}
+				typeof message.content === 'string'
+					? message.content
+					: JSON.stringify(message.content, null, 2)
 			const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
-			box.addChild(new Text(lines.join('\n'), 0, 0))
+			box.addChild(new Text(header, 0, 0))
+
+			if (contentStr.trim()) {
+				let displayContent = contentStr
+				if (!expanded) {
+					const rawLines = contentStr.split('\n')
+					if (rawLines.length > 8) {
+						displayContent =
+							rawLines.slice(0, 8).join('\n') +
+							`\n\n*... and ${rawLines.length - 8} more lines (expand to view)*`
+					}
+				}
+				const mdTheme = getMarkdownTheme()
+				box.addChild(new Markdown(displayContent, 1, 0, mdTheme))
+			}
 			return box
 		})
 
 		pi.registerMessageRenderer('rl-lesson', (message, { expanded, outputPad }, theme) => {
 			const badge = theme.fg('success', theme.bold('[ 💡 LESSON MEMORY ]'))
 			const header = `${badge} ${theme.bold('Episodic Knowledge & Rules')}`
-			const lines = [header]
 			const contentStr =
-				typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
-			if (expanded) {
-				lines.push(...contentStr.split('\n').map((l: string) => theme.fg('muted', `  ${l}`)))
-			} else {
-				const preview = contentStr.split('\n').slice(0, 6)
-				lines.push(...preview.map((l: string) => theme.fg('muted', `  ${l}`)))
-				if (contentStr.split('\n').length > 6) {
-					displayMore(lines, contentStr.split('\n').length - 6, theme)
-				}
-			}
+				typeof message.content === 'string'
+					? message.content
+					: JSON.stringify(message.content, null, 2)
 			const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
-			box.addChild(new Text(lines.join('\n'), 0, 0))
+			box.addChild(new Text(header, 0, 0))
+
+			if (contentStr.trim()) {
+				let displayContent = contentStr
+				if (!expanded) {
+					const rawLines = contentStr.split('\n')
+					if (rawLines.length > 8) {
+						displayContent =
+							rawLines.slice(0, 8).join('\n') +
+							`\n\n*... and ${rawLines.length - 8} more lines (expand to view)*`
+					}
+				}
+				const mdTheme = getMarkdownTheme()
+				box.addChild(new Markdown(displayContent, 1, 0, mdTheme))
+			}
 			return box
 		})
-	}
-
-	function displayMore(lines: string[], count: number, theme: any) {
-		lines.push(theme.fg('dim', `  ... and ${count} more lines (expand to view)`))
 	}
 
 	function sendRLMessage(
@@ -353,7 +365,7 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 			const qSummary = qEntries
 				.map(
 					(q) =>
-						`  • [${q.taskType}] ${q.model} (${q.thinkingLevel}): Q=${q.qValue.toFixed(2)} (${q.successes}/${q.trials})`
+						`- **[${q.taskType}]** \`${q.model}\` (${q.thinkingLevel}): Q=\`${q.qValue.toFixed(2)}\` (${q.successes}/${q.trials})`
 				)
 				.join('\n')
 
@@ -362,11 +374,12 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 
 			const report = [
 				`### 🧠 Pi RL Engine (${config.mode.toUpperCase()})`,
-				`• Verifications: ${stats.verifications} (Passed: ${stats.passedVerifications}, Failed: ${stats.failedVerifications}, Skipped: ${stats.skippedVerifications})`,
-				`• Average Reward: ${avgReward}`,
-				`• Learned Lessons for "${repoName}": ${lessonCount} lesson(s) stored`,
-				`• Q-Table Policy Highlights:`,
-				qSummary || '  (no Q-table trials recorded yet)'
+				'',
+				`- **Verifications**: \`${stats.verifications}\` (Passed: \`${stats.passedVerifications}\`, Failed: \`${stats.failedVerifications}\`, Skipped: \`${stats.skippedVerifications}\`)`,
+				`- **Average Reward**: \`${avgReward}\``,
+				`- **Learned Lessons for "${repoName}"**: \`${lessonCount}\` lesson(s) stored`,
+				`- **Q-Table Policy Highlights**:`,
+				qSummary || '  *(no Q-table trials recorded yet)*'
 			].join('\n')
 
 			sendRLMessage(ctx, 'rl-report', report, { stats, mode: config.mode })
@@ -424,12 +437,12 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 				}
 				const lines = matched.map(
 					(l) =>
-						`• \`${l.id}\` **[${l.taskType.toUpperCase()}] ${l.taskSummary}**\n  💡 *Rule*: ${l.ruleLearned}\n  🏷 *Tags*: [${(l.tags || []).join(', ')}]`
+						`- \`${l.id}\` **[${l.taskType.toUpperCase()}] ${l.taskSummary}**\n  > 💡 *Rule*: ${l.ruleLearned}\n  > 🏷 *Tags*: [${(l.tags || []).join(', ')}]`
 				)
 				sendRLMessage(
 					ctx,
 					'rl-lesson',
-					`### 🔍 Matched Lessons for "${query}":\n\n${lines.join('\n\n')}`,
+					`### 🔍 Matched Lessons for "${query}"\n\n${lines.join('\n\n')}`,
 					{ action: 'search' }
 				)
 				return
@@ -457,8 +470,8 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 				.slice(-10)
 				.reverse()
 				.map((l) => {
-					const tagsStr = l.tags && l.tags.length > 0 ? `  🏷 \`${l.tags.join(', ')}\`` : ''
-					return `• \`${l.id}\` **[${l.taskType.toUpperCase()}] ${l.taskSummary}**\n  💡 *${l.ruleLearned}*${tagsStr ? '\n' + tagsStr : ''}`
+					const tagsStr = l.tags && l.tags.length > 0 ? `\n  > 🏷 \`${l.tags.join(', ')}\`` : ''
+					return `- \`${l.id}\` **[${l.taskType.toUpperCase()}] ${l.taskSummary}**\n  > 💡 *${l.ruleLearned}*${tagsStr}`
 				})
 				.join('\n\n')
 
@@ -528,11 +541,11 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 			const outcome =
 				res.status === 'skipped'
 					? `Skipped: ${res.details.test?.reason ?? 'not verifiable'}`
-					: `Reward: ${res.totalReward} (Passed: ${res.passed})`
+					: `Reward: \`${res.totalReward}\` (Passed: \`${res.passed}\`)`
 			sendRLMessage(
 				ctx,
 				'rl-report',
-				`### 🧪 RL Verification Report\n• ${outcome}\n• Test Command: \`${res.details.test?.command || 'none'}\`\n• Execution Latency: ${res.details.latencyMs ?? 0}ms`,
+				`### 🧪 RL Verification Report\n\n- **Status**: ${outcome}\n- **Test Command**: \`${res.details.test?.command || 'none'}\`\n- **Execution Latency**: \`${res.details.latencyMs ?? 0}ms\``,
 				{ action: 'verify', result: res }
 			)
 		}

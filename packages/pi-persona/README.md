@@ -9,7 +9,7 @@ User Preference Reinforcement Learning (Persona Engine) for the Pi coding agent 
 ### Core Features
 
 - **User Preference Reinforcement Learning (UPRL)**: Self-tuning Q-value weights for individual developer habits.
-- **Implicit Habit Mining**: Automatically extracts preference signals and corrections from user prompts (e.g. *"đừng dùng any"*, *"dùng early return"*, *"trả lời ngắn gọn"*).
+- **Implicit Habit Mining**: Automatically extracts preference signals and corrections from user prompts (e.g. _"đừng dùng any"_, _"dùng early return"_, _"trả lời ngắn gọn"_).
 - **Zero-Bloat Contextual Injection**: Synthesizes the top relevant constraints (~60 tokens) and injects them seamlessly before generation.
 - **Human & Machine Stores**:
   - `~/.pi/agent/persona.json`: Machine state with historical Q-weights and reinforcement counters.
@@ -26,7 +26,7 @@ User Preference Reinforcement Learning (Persona Engine) for the Pi coding agent 
 Add bridge in `~/.pi/agent/extensions/pi-persona.ts`:
 
 ```ts
-export { default } from '../pi-agent-stack/packages/pi-persona/index.ts'
+export { default } from "../pi-agent-stack/packages/pi-persona/index.ts";
 ```
 
 Or run `scripts/install.sh`.

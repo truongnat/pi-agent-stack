@@ -1,18 +1,18 @@
 {
-	"name": "pi-persona",
-	"version": "0.1.0",
-	"description": "User Preference Reinforcement Learning (Persona Engine) for Pi Coding Agent",
-	"type": "module",
-	"main": "index.ts",
-	"scripts": {
-		"typecheck": "tsc --noEmit",
-		"test": "node --test test/*.test.ts",
-		"check": "bun run typecheck && bun test test/*.test.ts"
-	},
-	"dependencies": {
-		"typebox": "^1.1.2"
-	},
-	"peerDependencies": {
-		"@earendil-works/pi-coding-agent": ">=0.87.0"
-	}
+  "name": "pi-persona",
+  "version": "0.1.0",
+  "description": "User Preference Reinforcement Learning (Persona Engine) for Pi Coding Agent",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.ts",
+    "check": "bun run typecheck && bun test test/*.test.ts"
+  },
+  "dependencies": {
+    "typebox": "^1.1.2"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.87.0"
+  }
 }

@@ -19,12 +19,13 @@ import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { stripVTControlCharacters } from 'node:util'
 import { isRetryableAssistantError } from '@earendil-works/pi-ai'
-import type {
-	ExtensionAPI,
-	ExtensionContext,
-	ProviderModelConfig
+import {
+	getMarkdownTheme,
+	type ExtensionAPI,
+	type ExtensionContext,
+	type ProviderModelConfig
 } from '@earendil-works/pi-coding-agent'
-import { Box, Text } from '@earendil-works/pi-tui'
+import { Box, Markdown, Text } from '@earendil-works/pi-tui'
 
 import {
 	accessToken,
@@ -692,9 +693,17 @@ export default function (pi: ExtensionAPI): void {
 	if (typeof pi.registerMessageRenderer === 'function') {
 		pi.registerMessageRenderer('account-switched', (message, { outputPad }, theme) => {
 			const badge = theme.fg('warning', theme.bold('[ 🔄 ACCOUNT SWITCH ]'))
-			const text = `${badge} ${theme.fg('muted', String(message.content))}`
+			const header = `${badge} ${theme.bold('Account Rotation & Providers')}`
+			const contentStr =
+				typeof message.content === 'string'
+					? message.content
+					: JSON.stringify(message.content, null, 2)
 			const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
-			box.addChild(new Text(text, 0, 0))
+			box.addChild(new Text(header, 0, 0))
+			if (contentStr.trim()) {
+				const mdTheme = getMarkdownTheme()
+				box.addChild(new Markdown(contentStr, 1, 0, mdTheme))
+			}
 			return box
 		})
 	}
@@ -863,9 +872,10 @@ export default function (pi: ExtensionAPI): void {
 			const summaries = compactSummaries(snapshot)
 			const content = [
 				'### 🔌 Subscription Providers Readiness',
-				`• Cursor: ${summaries.cursor}`,
-				`• Antigravity: ${summaries.antigravity}`,
-				`• Claude Code: ${snapshot?.['claude-code']?.ready ? '● Ready' : '○ Standby'}`
+				'',
+				`- **Cursor**: ${summaries.cursor}`,
+				`- **Antigravity**: ${summaries.antigravity}`,
+				`- **Claude Code**: ${snapshot?.['claude-code']?.ready ? '🟢 Ready' : '⚪ Standby'}`
 			].join('\n')
 			if (typeof pi.sendMessage === 'function') {
 				pi.sendMessage({

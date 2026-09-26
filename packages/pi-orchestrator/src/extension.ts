@@ -1,5 +1,9 @@
-import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
-import { Box, Text } from '@earendil-works/pi-tui'
+import {
+	getMarkdownTheme,
+	type ExtensionAPI,
+	type ExtensionContext
+} from '@earendil-works/pi-coding-agent'
+import { Box, Markdown, Text } from '@earendil-works/pi-tui'
 import { loadOrchestratorConfig, saveOrchestratorConfig } from './config.ts'
 import { checkOrchestratorGuard } from './guard.ts'
 import { SubagentManager } from './manager.ts'
@@ -36,20 +40,26 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 		pi.registerMessageRenderer('orchestrator', (message, { expanded, outputPad }, theme) => {
 			const badge = theme.fg('accent', theme.bold('[ 🎭 ORCHESTRATOR ]'))
 			const header = `${badge} ${theme.bold('Multi-Agent Supervisor & Task DAG')}`
-			const lines = [header]
 			const contentStr =
-				typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
-			if (expanded) {
-				lines.push(...contentStr.split('\n').map((l: string) => theme.fg('muted', `  ${l}`)))
-			} else {
-				const preview = contentStr.split('\n').slice(0, 3)
-				lines.push(...preview.map((l: string) => theme.fg('muted', `  ${l}`)))
-				if (contentStr.split('\n').length > 3) {
-					lines.push(theme.fg('dim', '  ... (expand to view full instructions)'))
-				}
-			}
+				typeof message.content === 'string'
+					? message.content
+					: JSON.stringify(message.content, null, 2)
 			const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
-			box.addChild(new Text(lines.join('\n'), 0, 0))
+			box.addChild(new Text(header, 0, 0))
+
+			if (contentStr.trim()) {
+				let displayContent = contentStr
+				if (!expanded) {
+					const rawLines = contentStr.split('\n')
+					if (rawLines.length > 8) {
+						displayContent =
+							rawLines.slice(0, 8).join('\n') +
+							`\n\n*... and ${rawLines.length - 8} more lines (expand to view)*`
+					}
+				}
+				const mdTheme = getMarkdownTheme()
+				box.addChild(new Markdown(displayContent, 1, 0, mdTheme))
+			}
 			return box
 		})
 
@@ -58,20 +68,26 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 			const role = typeof details?.role === 'string' ? details.role.toUpperCase() : 'SUBAGENT'
 			const badge = theme.fg('success', theme.bold(`[ 🤖 ${role} COMPLETE ]`))
 			const header = `${badge} ${theme.bold(String(details?.agentId || 'Result'))}`
-			const lines = [header]
 			const contentStr =
-				typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
-			if (expanded) {
-				lines.push(...contentStr.split('\n').map((l: string) => theme.fg('muted', `  ${l}`)))
-			} else {
-				const preview = contentStr.split('\n').slice(0, 4)
-				lines.push(...preview.map((l: string) => theme.fg('muted', `  ${l}`)))
-				if (contentStr.split('\n').length > 4) {
-					lines.push(theme.fg('dim', '  ... (expand to view full result)'))
-				}
-			}
+				typeof message.content === 'string'
+					? message.content
+					: JSON.stringify(message.content, null, 2)
 			const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
-			box.addChild(new Text(lines.join('\n'), 0, 0))
+			box.addChild(new Text(header, 0, 0))
+
+			if (contentStr.trim()) {
+				let displayContent = contentStr
+				if (!expanded) {
+					const rawLines = contentStr.split('\n')
+					if (rawLines.length > 8) {
+						displayContent =
+							rawLines.slice(0, 8).join('\n') +
+							`\n\n*... and ${rawLines.length - 8} more lines (expand to view)*`
+					}
+				}
+				const mdTheme = getMarkdownTheme()
+				box.addChild(new Markdown(displayContent, 1, 0, mdTheme))
+			}
 			return box
 		})
 	}
@@ -360,14 +376,22 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 					return
 				}
 				const rows = list.map(
-					(s) => `• **${s.name}** (\`${s.role}\`) — *${s.status}* | \`${s.id}\``
+					(s) => `- **${s.name}** (\`${s.role}\`) — *${s.status}* | \`${s.id}\``
 				)
-				sendOrchestratorMessage(ctx, `### Subagents:\n\n${rows.join('\n')}`, { action: 'list' })
+				sendOrchestratorMessage(
+					ctx,
+					`### 🤖 Active Subagents (${list.length})\n\n${rows.join('\n')}`,
+					{ action: 'list' }
+				)
 			} else if (picked.startsWith('👥 View')) {
 				const roles = Object.values(DEFAULT_ROSTER).map(
-					(r) => `• **${r.name}** (${r.label}) [Model: \`${r.defaultModelTier}\`]`
+					(r) => `- **${r.name}** (${r.label}) [Model: \`${r.defaultModelTier}\`]`
 				)
-				sendOrchestratorMessage(ctx, `### Roster:\n\n${roles.join('\n')}`, { action: 'roster' })
+				sendOrchestratorMessage(
+					ctx,
+					`### 👥 Available Roster (${roles.length})\n\n${roles.join('\n')}`,
+					{ action: 'roster' }
+				)
 			} else if (picked.startsWith('🛑 Kill All')) {
 				const count = manager.killAll()
 				updateStatus(ctx)

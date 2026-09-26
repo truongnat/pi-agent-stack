@@ -1,5 +1,9 @@
-import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
-import { Box, Text } from '@earendil-works/pi-tui'
+import {
+	getMarkdownTheme,
+	type ExtensionAPI,
+	type ExtensionContext
+} from '@earendil-works/pi-coding-agent'
+import { Box, Markdown, Text } from '@earendil-works/pi-tui'
 
 import { evaluateGoalWithJev } from './evaluator.ts'
 import { applyTurnMetrics, evaluateStopRules } from './loop.ts'
@@ -94,17 +98,29 @@ export function createGoalExtension(pi: ExtensionAPI) {
 			}
 
 			const contentStr =
-				typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
-			if (expanded) {
-				lines.push(...contentStr.split('\n').map((l: string) => theme.fg('dim', `  ${l}`)))
-			}
-
+				typeof message.content === 'string'
+					? message.content
+					: JSON.stringify(message.content, null, 2)
 			const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
 			box.addChild(new Text(lines.join('\n'), 0, 0))
+
+			if (contentStr.trim()) {
+				let displayContent = contentStr
+				if (!expanded) {
+					const rawLines = contentStr.split('\n')
+					if (rawLines.length > 8) {
+						displayContent =
+							rawLines.slice(0, 8).join('\n') +
+							`\n\n*... and ${rawLines.length - 8} more lines (expand to view)*`
+					}
+				}
+				const mdTheme = getMarkdownTheme()
+				box.addChild(new Markdown(displayContent, 1, 0, mdTheme))
+			}
 			return box
 		})
 
-		pi.registerMessageRenderer('goal-reminder', (_message, { outputPad }, theme) => {
+		pi.registerMessageRenderer('goal-reminder', (message, { outputPad }, theme) => {
 			const badge = theme.fg('warning', theme.bold('[ 🎯 GOAL REMINDER ]'))
 			const header = `${badge} ${theme.bold('Active Goal Tracking')}`
 			const lines = [header]
@@ -113,6 +129,11 @@ export function createGoalExtension(pi: ExtensionAPI) {
 			}
 			const box = new Box(outputPad ?? 1, 0, (t) => theme.bg('customMessageBg', t))
 			box.addChild(new Text(lines.join('\n'), 0, 0))
+			const contentStr = typeof message.content === 'string' ? message.content : ''
+			if (contentStr.trim()) {
+				const mdTheme = getMarkdownTheme()
+				box.addChild(new Markdown(contentStr, 1, 0, mdTheme))
+			}
 			return box
 		})
 	}
@@ -510,11 +531,12 @@ export function createGoalExtension(pi: ExtensionAPI) {
 				pi.sendUserMessage(`Resume goal (turn ${currentGoal.turns + 1}).`)
 			} else if (picked?.startsWith('📊 View')) {
 				const details = [
-					`### 🎯 Goal Status:`,
-					`• Objective: "${currentGoal.objective}"`,
-					`• Status: ${currentGoal.status.toUpperCase()} (Turn ${currentGoal.turns})`,
-					`• Token Budget: ${budgetText}`,
-					`• Elapsed Time: ${durationText}`
+					`### 🎯 Goal Status`,
+					'',
+					`- **Objective**: "${currentGoal.objective}"`,
+					`- **Status**: \`${currentGoal.status.toUpperCase()}\` (Turn ${currentGoal.turns})`,
+					`- **Token Budget**: ${budgetText}`,
+					`- **Elapsed Time**: ${durationText}`
 				].join('\n')
 				sendGoalMessage(ctx, details, { action: 'status' })
 			} else if (picked === '✏️  Edit objective') {
