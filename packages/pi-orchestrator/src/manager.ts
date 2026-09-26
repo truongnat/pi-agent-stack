@@ -211,6 +211,9 @@ export class SubagentManager {
 		cwd: string,
 		signal?: AbortSignal
 	): Promise<string | undefined> {
+		if (process.env.NODE_ENV === 'test' || process.env.BUN_TEST) {
+			return undefined
+		}
 		return new Promise<string | undefined>((resolve) => {
 			try {
 				const child = spawn(command, args, {
@@ -246,10 +249,15 @@ export class SubagentManager {
 
 				child.on('close', (code) => {
 					clearTimeout(timer)
-					if (code === 0 && stdout.trim()) {
-						resolve(stdout.trim())
+					const cleanOut = stdout.trim()
+					if (
+						code === 0 &&
+						cleanOut &&
+						!/failed to authenticate|oauth session expired|login required/i.test(cleanOut)
+					) {
+						resolve(cleanOut)
 					} else {
-						resolve(stdout.trim() || stderr.trim() || undefined)
+						resolve(undefined)
 					}
 				})
 			} catch {
@@ -287,13 +295,6 @@ export class SubagentManager {
 				cwd,
 				options.signal
 			)
-		} else if (modelLower.includes('claude')) {
-			cliResult = await this.execSubprocessWorker(
-				'claude',
-				['-p', `${systemPrompt}\n\nTask:\n${instance.prompt}`],
-				cwd,
-				options.signal
-			)
 		} else if (modelLower.includes('cursor')) {
 			cliResult = await this.execSubprocessWorker(
 				'cursor-agent',
@@ -301,6 +302,24 @@ export class SubagentManager {
 				cwd,
 				options.signal
 			)
+		} else if (modelLower.includes('claude')) {
+			cliResult = await this.execSubprocessWorker(
+				'claude',
+				['-p', `${systemPrompt}\n\nTask:\n${instance.prompt}`],
+				cwd,
+				options.signal
+			)
+		} else {
+			// Auto-select available CLI worker across the stack
+			const candidateWorkers = ['claude', 'agy', 'cursor-agent']
+			for (const worker of candidateWorkers) {
+				const args =
+					worker === 'agy'
+						? ['--prompt', `${systemPrompt}\n\nTask:\n${instance.prompt}`]
+						: ['-p', `${systemPrompt}\n\nTask:\n${instance.prompt}`]
+				cliResult = await this.execSubprocessWorker(worker, args, cwd, options.signal)
+				if (cliResult) break
+			}
 		}
 
 		if (cliResult) {

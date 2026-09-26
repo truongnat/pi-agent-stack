@@ -25,3 +25,8 @@
 ## 4. Design & UI System (Google Stitch Integration)
 - For UI/UX and frontend features, leverage Google Stitch (`create_project`, `generate_screen_from_text`, `get_screen`, `create_design_system`).
 - Reference and adhere to existing design tokens, components, and responsive layout standards.
+
+## 5. Strict Language Consistency & Anti-Drift Ground Truth
+- **Primary Language**: ALWAYS respond in Vietnamese (Tiếng Việt) when the user prompt or conversation is in Vietnamese, or in English when the prompt is in English.
+- **Zero Foreign Drift**: Absolutely NEVER output responses, summaries, analysis, plans, or subagent orchestrations in unexpected foreign languages (such as Mongolian, Russian, Cyrillic, etc.) unless explicitly instructed by the user.
+- **Handoffs & Synthesis**: Keep all synthesized reports, bug analysis, plans, checklists, and answers strictly in Vietnamese (or English as requested).
