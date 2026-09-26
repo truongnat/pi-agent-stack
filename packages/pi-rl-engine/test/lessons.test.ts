@@ -79,3 +79,56 @@ test('volatile lessons (current model facts, model pins) are refused; tooling me
 		rmSync(tempDir, { recursive: true, force: true })
 	}
 })
+
+test('LessonStore supports deletion, clearing, and enhanced semantic ranking', () => {
+	const tempDir = mkdtempSync(join(tmpdir(), 'pi-lessons-delete-test-'))
+	try {
+		const store = new LessonStore(tempDir)
+		const repo = 'ranking_test_repo'
+
+		const l1 = synthesizeLessonFromTrajectory({
+			taskType: 'fix',
+			prompt: 'Fix Redis connection pool exhaustion on websocket handlers',
+			repo,
+			modifiedFiles: ['src/redis/pool.ts'],
+			verificationPassed: true,
+			errorOutputs: ['Error: Redis connection timeout at acquireClient (pool.ts:42)'],
+			customNote: 'Always release redis clients in a finally block'
+		})
+
+		const l2 = synthesizeLessonFromTrajectory({
+			taskType: 'refactor',
+			prompt: 'Refactor GraphQL resolvers schema typing',
+			repo,
+			modifiedFiles: ['src/graphql/schema.ts'],
+			verificationPassed: true,
+			customNote: 'Use strict TypeScript types for all GraphQL resolver args'
+		})
+
+		store.saveLesson(l1)
+		store.saveLesson(l2)
+
+		assert.equal(store.getLessons(repo).length, 2)
+		assert.equal(l1.rootCause, 'Error: Redis connection timeout at acquireClient (pool.ts:42)')
+		assert.ok(l1.tags.includes('redis'))
+		assert.ok(l1.tags.includes('websocket'))
+
+		// Ranked Search: Redis query should rank l1 first with high score
+		const matchedRedis = store.findRelevantLessons('redis pool leak in websocket', repo, 5)
+		assert.equal(matchedRedis.length, 1)
+		assert.equal(matchedRedis[0].id, l1.id)
+
+		// Test deleteLesson
+		const deleted = store.deleteLesson(repo, l1.id)
+		assert.equal(deleted, true)
+		assert.equal(store.getLessons(repo).length, 1)
+		assert.equal(store.getLessons(repo)[0].id, l2.id)
+
+		// Test clearLessons
+		const cleared = store.clearLessons(repo)
+		assert.equal(cleared, true)
+		assert.equal(store.getLessons(repo).length, 0)
+	} finally {
+		rmSync(tempDir, { recursive: true, force: true })
+	}
+})

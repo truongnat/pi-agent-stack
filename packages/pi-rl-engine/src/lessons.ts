@@ -106,6 +106,35 @@ export class LessonStore {
 		}
 	}
 
+	public deleteLesson(repo: string, lessonId: string): boolean {
+		const file = this.getRepoFilePath(repo)
+		if (!existsSync(file)) return false
+		try {
+			const existing = this.getLessons(repo)
+			const filtered = existing.filter((l) => l.id !== lessonId)
+			if (filtered.length === existing.length) return false
+
+			const content = filtered.map((l) => JSON.stringify(l)).join('\n') + (filtered.length > 0 ? '\n' : '')
+			writeFileSync(file, content, 'utf8')
+			this.updateSummaryMarkdown(repo)
+			return true
+		} catch {
+			return false
+		}
+	}
+
+	public clearLessons(repo: string): boolean {
+		const file = this.getRepoFilePath(repo)
+		const summaryFile = this.getRepoSummaryPath(repo)
+		try {
+			if (existsSync(file)) writeFileSync(file, '', 'utf8')
+			if (existsSync(summaryFile)) writeFileSync(summaryFile, '', 'utf8')
+			return true
+		} catch {
+			return false
+		}
+	}
+
 	public getAllLessons(): LessonEntry[] {
 		if (!existsSync(this.baseDir)) return []
 		const files = readdirSync(this.baseDir).filter((f: string) => f.endsWith('.jsonl'))
@@ -125,21 +154,29 @@ export class LessonStore {
 		return all
 	}
 
+	/**
+	 * Enhanced Semantic Ranking:
+	 * 1. Multi-token & exact substring matching
+	 * 2. Tag & Path overlap boosting
+	 * 3. Task type congruence boost
+	 * 4. Confidence & recency weighting
+	 */
 	public findRelevantLessons(prompt: string, repo: string, limit = 3): LessonEntry[] {
-		// Rows saved before validation existed are filtered on the way out.
 		const lessons = this.getLessons(repo).filter((lesson) => !volatileLesson(lesson))
 		if (lessons.length === 0) return []
 
-		const tokens = prompt
-			.toLowerCase()
+		const promptLower = prompt.toLowerCase()
+		const tokens = promptLower
 			.split(/[^a-zA-Z0-9_\u00C0-\u1EF9\u3040-\u30FF\u4E00-\u9FAF]+/)
-			.filter((t) => t.length >= 2)
+			.filter((t) => t.length >= 2 && !['in', 'on', 'at', 'to', 'for', 'of', 'and', 'the', 'a', 'an', 'is'].includes(t))
 
 		if (tokens.length === 0) return lessons.slice(-limit)
 
+		const now = Date.now()
+
 		const scored = lessons.map((lesson) => {
 			let score = 0
-			const haystack = [
+			const haystackText = [
 				lesson.taskSummary,
 				lesson.ruleLearned,
 				lesson.successfulStrategy,
@@ -150,16 +187,82 @@ export class LessonStore {
 				.join(' ')
 				.toLowerCase()
 
+			const haystackTokens = new Set(
+				haystackText
+					.split(/[^a-zA-Z0-9_\u00C0-\u1EF9\u3040-\u30FF\u4E00-\u9FAF]+/)
+					.filter((t) => t.length >= 2)
+			)
+
+			// 1. Token presence score (exact token or prefix match)
 			for (const tok of tokens) {
-				if (haystack.includes(tok)) {
-					score += tok.length >= 4 ? 2 : 1
+				if (haystackTokens.has(tok)) {
+					score += tok.length >= 5 ? 4 : tok.length >= 3 ? 3 : 2
+				} else {
+					// Check if any haystack token starts with this token (for stemming, e.g. "pool" in "pools")
+					for (const hTok of haystackTokens) {
+						if (hTok.startsWith(tok) || (tok.length >= 4 && tok.startsWith(hTok))) {
+							score += 2
+							break
+						}
+					}
 				}
 			}
 
-			// Boost if specific tags match
+			// 2. Exact phrase bonus (bigrams/trigrams)
+			if (lesson.taskSummary && promptLower.includes(lesson.taskSummary.toLowerCase().slice(0, 30))) {
+				score += 6
+			}
+			if (lesson.ruleLearned && promptLower.includes(lesson.ruleLearned.toLowerCase().slice(0, 30))) {
+				score += 6
+			}
+
+			// 3. Tag exact match bonus
 			for (const tag of lesson.tags || []) {
-				if (prompt.toLowerCase().includes(tag.toLowerCase())) {
-					score += 3
+				const tagLower = tag.toLowerCase()
+				if (promptLower.includes(tagLower)) {
+					score += 4
+				}
+			}
+
+			// 4. File name / path match bonus
+			for (const file of lesson.files || []) {
+				const base = basename(file).toLowerCase()
+				if (promptLower.includes(base) || promptLower.includes(file.toLowerCase())) {
+					score += 5
+				}
+			}
+
+			// 5. Task-type congruence
+			if (
+				(promptLower.includes('fix') || promptLower.includes('bug') || promptLower.includes('error')) &&
+				lesson.taskType === 'fix'
+			) {
+				score += 2
+			} else if (
+				(promptLower.includes('refactor') || promptLower.includes('clean')) &&
+				lesson.taskType === 'refactor'
+			) {
+				score += 2
+			} else if (
+				(promptLower.includes('test') || promptLower.includes('spec')) &&
+				lesson.taskType === 'test'
+			) {
+				score += 2
+			}
+
+			// 6. Confidence multiplier & recency boost only if there's a match
+			if (score > 0) {
+				const conf = lesson.confidence ?? 0.8
+				score *= conf
+
+				// Slight recency boost (within 7 days)
+				try {
+					const createdMs = new Date(lesson.createdAt).getTime()
+					const daysOld = (now - createdMs) / (1000 * 60 * 60 * 24)
+					if (daysOld <= 7) score += 1.5
+					else if (daysOld <= 30) score += 0.5
+				} catch {
+					// ignore date parsing error
 				}
 			}
 
@@ -177,7 +280,8 @@ export class LessonStore {
 		if (lessons.length === 0) return ''
 		const lines: string[] = ['### 💡 Relevant Lessons & Rules from Past Work in this Codebase:']
 		for (const [idx, item] of lessons.entries()) {
-			lines.push(`${idx + 1}. **[${item.taskType.toUpperCase()}] ${item.taskSummary}**`)
+			const tagsStr = item.tags && item.tags.length > 0 ? ` [${item.tags.join(', ')}]` : ''
+			lines.push(`${idx + 1}. **[${item.taskType.toUpperCase()}] ${item.taskSummary}**${tagsStr}`)
 			if (item.ruleLearned) {
 				lines.push(`   - **Rule/Lesson**: ${item.ruleLearned}`)
 			}
@@ -193,14 +297,21 @@ export class LessonStore {
 
 	private updateSummaryMarkdown(repo: string): void {
 		const lessons = this.getLessons(repo)
-		if (lessons.length === 0) return
+		if (lessons.length === 0) {
+			try {
+				writeFileSync(this.getRepoSummaryPath(repo), `# Learned Lessons & Memory for Repository: \`${repo}\`\n\n*(No lessons recorded)*\n`, 'utf8')
+			} catch {
+				// ignore
+			}
+			return
+		}
 		const mdLines: string[] = [
 			`# Learned Lessons & Memory for Repository: \`${repo}\``,
 			'',
 			`*Total Lessons Recorded*: ${lessons.length}`,
 			'',
-			'| ID | Task | Rule / Lesson Learned | Strategy | Date |',
-			'| --- | --- | --- | --- | --- |'
+			'| ID | Task | Rule / Lesson Learned | Strategy | Tags | Date |',
+			'| --- | --- | --- | --- | --- | --- |'
 		]
 
 		for (const l of lessons.slice(-30).reverse()) {
@@ -208,7 +319,8 @@ export class LessonStore {
 			const rule = (l.ruleLearned || '-').replace(/\|/g, '\\|')
 			const strat = (l.successfulStrategy || '-').replace(/\|/g, '\\|')
 			const summary = (l.taskSummary || '-').replace(/\|/g, '\\|')
-			mdLines.push(`| \`${l.id}\` | ${summary} | **${rule}** | ${strat} | ${dateStr} |`)
+			const tags = (l.tags || []).join(', ')
+			mdLines.push(`| \`${l.id}\` | ${summary} | **${rule}** | ${strat} | \`${tags}\` | ${dateStr} |`)
 		}
 
 		mdLines.push('')

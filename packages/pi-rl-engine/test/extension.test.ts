@@ -103,6 +103,10 @@ test('RL Extension E2E: Full lifecycle execution test (Lesson capture, Reflectio
 		// 7. Verify /rl stats
 		await registeredCommands['rl'].handler('', mockCtx)
 		assert.ok(notifications.some((n) => n.includes('Pi RL Engine')))
+
+		// 8. Test /lessons clear
+		await registeredCommands['lessons'].handler('clear', mockCtx)
+		assert.ok(notifications.some((n) => n.includes('Cleared all learned lessons')))
 	} finally {
 		rmSync(tempDir, { recursive: true, force: true })
 	}

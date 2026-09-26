@@ -310,11 +310,32 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 	// 2. Command: /lessons
 	pi.registerCommand('lessons', {
 		description:
-			'Manage learned lessons & episodic reflections: /lessons [list|search <query>|summary]',
+			'Manage learned lessons & episodic reflections: /lessons [list|search <query>|delete <id>|clear|summary]',
 		handler: async (args, ctx) => {
 			const input = (args ?? '').trim()
 			const repoName = lessonStore.sanitizeRepoName(ctx.cwd)
 			const lessons = lessonStore.getLessons(repoName)
+
+			if (input.startsWith('delete ')) {
+				const idToDelete = input.replace('delete ', '').trim()
+				if (!idToDelete) {
+					ctx.ui.notify('Usage: /lessons delete <lesson-id>', 'warning')
+					return
+				}
+				const ok = lessonStore.deleteLesson(repoName, idToDelete)
+				if (ok) {
+					ctx.ui.notify(`✓ Deleted lesson \`${idToDelete}\` from "${repoName}" knowledge store.`, 'info')
+				} else {
+					ctx.ui.notify(`Lesson \`${idToDelete}\` not found in "${repoName}".`, 'warning')
+				}
+				return
+			}
+
+			if (input === 'clear' || input === 'clean') {
+				lessonStore.clearLessons(repoName)
+				ctx.ui.notify(`✓ Cleared all learned lessons for repository "${repoName}".`, 'info')
+				return
+			}
 
 			if (input.startsWith('search ')) {
 				const query = input.replace('search ', '').trim()
@@ -325,9 +346,9 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 				}
 				const lines = matched.map(
 					(l) =>
-						`• **${l.taskSummary}**\n  - *Rule*: ${l.ruleLearned}\n  - *Tags*: [${(l.tags || []).join(', ')}]`
+						`• \`${l.id}\` **[${l.taskType.toUpperCase()}] ${l.taskSummary}**\n  💡 *Rule*: ${l.ruleLearned}\n  🏷 *Tags*: [${(l.tags || []).join(', ')}]`
 				)
-				ctx.ui.notify(`### Matched Lessons for "${query}":\n\n${lines.join('\n\n')}`, 'info')
+				ctx.ui.notify(`### 🔍 Matched Lessons for "${query}":\n\n${lines.join('\n\n')}`, 'info')
 				return
 			}
 
@@ -348,11 +369,14 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 			const items = lessons
 				.slice(-10)
 				.reverse()
-				.map((l) => `• \`${l.id}\` **${l.taskSummary}**\n  💡 *${l.ruleLearned}*`)
+				.map((l) => {
+					const tagsStr = l.tags && l.tags.length > 0 ? `  🏷 \`${l.tags.join(', ')}\`` : ''
+					return `• \`${l.id}\` **[${l.taskType.toUpperCase()}] ${l.taskSummary}**\n  💡 *${l.ruleLearned}*${tagsStr ? '\n' + tagsStr : ''}`
+				})
 				.join('\n\n')
 
 			ctx.ui.notify(
-				`### 📚 Learned Lessons for "${repoName}" (Total: ${lessons.length})\n\n${items}\n\n*Use \`/lessons search <term>\` or check \`${lessonStore.getRepoSummaryPath(repoName)}\`*`,
+				`### 📚 Learned Lessons for "${repoName}" (${lessons.length} total)\n\n${items}\n\n*Commands: \`/lessons search <term>\`, \`/lessons delete <id>\`, \`/lessons clear\`*`,
 				'info'
 			)
 		}
