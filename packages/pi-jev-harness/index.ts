@@ -16,6 +16,7 @@ import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-a
 
 import { ask, choiceOf, goalQuestions, noulOf } from './jev.ts'
 import { generateAdvisorBriefing, type AdvisorBriefingResult } from './advisor.ts'
+import { compactHistory, verifyCachePrefixIntegrity } from './compactor.ts'
 import { onBeforeAgentStart } from './route.ts'
 import { onToolCall, onToolResult, withReminder } from './tools.ts'
 import { active, type Config, type Harness, type Stats } from './types.ts'
@@ -82,12 +83,13 @@ function log(entry: Record<string, unknown>): void {
 function report(h: Harness, ctx: ExtensionContext): void {
 	const s = h.stats
 	const avg = s.jevCalls ? Math.round(s.jevMs / s.jevCalls) : 0
-	const saved = Math.round(s.charsSaved / 4)
+	const saved = Math.round((s.charsSaved + s.compactionCharsSaved) / 4)
 	const cost = ((s.jevTokens / 1e6) * PRICE_PER_MTOK).toFixed(4)
 	ctx.ui.notify(
 		[
 			`jev-harness ${h.config.mode} · ${s.turns} turns seen, ${s.advisorBriefings} advisor briefings, ${s.prefetched} files pre-fetched, ${s.prefetchSkipped} turns skipped (named file), ${s.toolsHidden} tool schemas hidden`,
-			`${s.trimmed} results trimmed (~${saved.toLocaleString()} model tokens saved), ${s.loopsCaught} loops caught, guard asked ${s.guardAsked} blocked ${s.guardBlocked}`,
+			`${s.trimmed} results trimmed, ${s.compactionRuns} history compactions (~${saved.toLocaleString()} tokens saved), ${s.loopsCaught} loops caught, guard asked ${s.guardAsked} blocked ${s.guardBlocked}`,
+			`cache & prefix: ${s.cachePrefixChecks} prefix checks (${s.cachePrefixViolations} violations), prefix integrity guarded for prompt-caching`,
 			`policy: ${s.modelDecisions} Jev model decisions, ${s.modelSwitches} cheaper model switches, ${s.thinkingSwitches} thinking reductions, ${s.routeHiddenTools} cost-effective tool routes`,
 			`subscription: ${s.subscriptionDecisions} subscription picks, ${s.providerFallbacks} fallbacks, ${s.unavailableProviderSkips} unavailable skips, ~$${s.marginalCostAvoided.toFixed(3)}/MTok marginal avoided`,
 			shadowSummary(s),
@@ -158,6 +160,10 @@ export function emptyStats(): Stats {
 		unavailableProviderSkips: 0,
 		marginalCostAvoided: 0,
 		advisorBriefings: 0,
+		compactionRuns: 0,
+		compactionCharsSaved: 0,
+		cachePrefixChecks: 0,
+		cachePrefixViolations: 0,
 		shadowTurns: 0,
 		shadowAgree: 0,
 		shadowBaselineCost: 0,
@@ -177,7 +183,7 @@ export function shadowSummary(s: Stats): string {
 export default function (pi: ExtensionAPI) {
 	const h = createHarness()
 
-	// Expose goal & advisor evaluator bridge for pi-agent-stack
+	// Expose goal, compactor & advisor evaluator bridge for pi-agent-stack
 	;(globalThis as any).piAgentStackJev = {
 		evaluateGoal: async (params: {
 			objective: string
@@ -215,6 +221,22 @@ export default function (pi: ExtensionAPI) {
 				prompt,
 				candidatePaths
 			)
+		},
+		compactContext: (messages: any[], opts?: any) => {
+			const res = compactHistory(messages, opts)
+			if (res.compactedCount > 0) {
+				h.stats.compactionRuns++
+				h.stats.compactionCharsSaved += res.charsSaved
+			}
+			return res
+		},
+		checkPrefixIntegrity: (prompt: string) => {
+			h.stats.cachePrefixChecks++
+			const check = verifyCachePrefixIntegrity(prompt)
+			if (!check.isDeterministic) {
+				h.stats.cachePrefixViolations += check.violations.length
+			}
+			return check
 		}
 	}
 
@@ -225,7 +247,18 @@ export default function (pi: ExtensionAPI) {
 		h.status(ctx, undefined)
 	})
 
-	pi.on('before_agent_start', (event, ctx) => onBeforeAgentStart(h, pi, event, ctx))
+	pi.on('before_agent_start', (event, ctx) => {
+		// Guard cache prefix integrity for systemPrompt
+		if (event.systemPrompt) {
+			h.stats.cachePrefixChecks++
+			const check = verifyCachePrefixIntegrity(event.systemPrompt)
+			if (!check.isDeterministic) {
+				h.stats.cachePrefixViolations += check.violations.length
+				h.log({ what: 'cache_prefix_violation', violations: check.violations })
+			}
+		}
+		return onBeforeAgentStart(h, pi, event, ctx)
+	})
 
 	pi.on('agent_end', () => {
 		if (!h.allTools) return
@@ -252,4 +285,22 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify(`jev-harness ${mode}`, 'info')
 		}
 	})
+
+	pi.registerCommand('compact', {
+		description: 'Context Compactor: inspect prompt cache prefix & compaction status',
+		handler: async (_args, ctx) => {
+			const s = h.stats
+			const saved = Math.round(s.compactionCharsSaved / 4)
+			const info = [
+				`### 🗜 JEV Context Compactor & Prefix Cache Status`,
+				`• Compaction Runs: ${s.compactionRuns} history passes`,
+				`• Tokens Saved via Compaction: ~${saved.toLocaleString()} tokens`,
+				`• Prefix Cache Checks: ${s.cachePrefixChecks} turns inspected`,
+				`• Prefix Cache Violations: ${s.cachePrefixViolations === 0 ? '0 (✓ Deterministic Prefix Intact)' : `${s.cachePrefixViolations} warnings detected`}`,
+				`• Spill Storage: Retains raw outputs in \`~/.jev-harness/spill/\``
+			].join('\n')
+			ctx.ui.notify(info, 'info')
+		}
+	})
 }
+

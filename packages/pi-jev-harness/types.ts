@@ -60,6 +60,10 @@ export type Stats = {
 	unavailableProviderSkips: number
 	marginalCostAvoided: number
 	advisorBriefings: number
+	compactionRuns: number
+	compactionCharsSaved: number
+	cachePrefixChecks: number
+	cachePrefixViolations: number
 	/** Shadow comparison: turns where JEV decided, and where it agreed with the plain route. */
 	shadowTurns: number
 	shadowAgree: number
