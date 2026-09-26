@@ -218,7 +218,7 @@ export function registerStitchExtension(
   });
 
   pi.registerCommand("stitch", {
-    description: "Google Stitch: status | key | on | off",
+    description: "Google Stitch UI Studio: tokens | guide | status | key | on | off",
     handler: async (args, ctx: ExtensionContext) => {
       const cmd = (args ?? "").trim();
       if (cmd === "key") {
@@ -235,14 +235,101 @@ export function registerStitchExtension(
         if (cmd === "on" && registered.size === 0) register(await list());
         setStitchActive(cmd === "on");
       }
+      if (cmd === "tokens") {
+        const tokenSheet = [
+          "┌─[ 🎨 Google Stitch Design System: Ember Copper ]──────────────────┐",
+          "│                                                                     │",
+          "│  Surface Tokens:                                                    │",
+          "│  • Base Canvas:       #24273a (Slate Violet)                        │",
+          "│  • Recessed Panel:    #1e2030 (Dark Code Stream)                    │",
+          "│  • Elevated Modal:    #181926 (Popup & Dialog Surface)              │",
+          "│  • Active Glow Border: #f5a97f (Radiant Ember Copper)               │",
+          "│                                                                     │",
+          "│  Accent & Telemetry Tokens:                                         │",
+          "│  • Ember Copper: #f5a97f  • Mauve Thought: #c6a0f6                  │",
+          "│  • Emerald Pass: #a6da95  • Amber Warn:    #eed49f                  │",
+          "│  • Red Error:    #ed8796  • Sapphire Diff: #7dc4e4                  │",
+          "│                                                                     │",
+          "│  Typography & Glyph Rules:                                          │",
+          "│  • Monospace JetBrains/SF Mono with 1px Unicode borders             │",
+          "│  • Standard Pill Badges: [ ● active ] [ ○ idle ] [ ✂ Trimmed ]      │",
+          "└─────────────────────────────────────────────────────────────────────┘",
+        ].join("\n");
+        ctx.ui.notify(tokenSheet, "info");
+        return;
+      }
+      if (cmd === "guide") {
+        ctx.ui.notify(stitchGuide(findDesignSkills()), "info");
+        return;
+      }
+
+      if (!ctx.hasUI) {
+        const active = activeStitch();
+        ctx.ui.notify(
+          [
+            `Stitch UI Studio: ${registered.size} tools, ${active.length ? "active" : "inactive (call /stitch on)"}`,
+            readApiKey() ? "API key: configured" : NO_KEY,
+          ].join("\n"),
+          "info",
+        );
+        return;
+      }
+
       const active = activeStitch();
-      ctx.ui.notify(
-        [
-          `Stitch: ${registered.size} tools, ${active.length ? "active" : "inactive (call stitch_design or /stitch on)"}`,
-          readApiKey() ? "API key: configured" : NO_KEY,
-        ].join("\n"),
-        "info",
+      const menuItems = [
+        `🎨 Inspect Design Tokens & Palette`,
+        `📖 View Stitch UI Design Guide & Skills`,
+        active.length ? `🔴 Deactivate Stitch Tools` : `🟢 Activate Stitch Tools (/stitch on)`,
+        `🔑 Update Stitch API Key`,
+        `❌ Close Menu`,
+      ];
+
+      const picked = await ctx.ui.select(
+        `Google Stitch UI Studio (Ember UX)\nTools: ${registered.size} registered (${active.length ? "Active" : "Standby"})`,
+        menuItems,
       );
+
+      if (!picked) return;
+      if (picked.startsWith("🎨 Inspect")) {
+        const tokenSheet = [
+          "┌─[ 🎨 Google Stitch Design System: Ember Copper ]──────────────────┐",
+          "│                                                                     │",
+          "│  Surface Tokens:                                                    │",
+          "│  • Base Canvas:       #24273a (Slate Violet)                        │",
+          "│  • Recessed Panel:    #1e2030 (Dark Code Stream)                    │",
+          "│  • Elevated Modal:    #181926 (Popup & Dialog Surface)              │",
+          "│  • Active Glow Border: #f5a97f (Radiant Ember Copper)               │",
+          "│                                                                     │",
+          "│  Accent & Telemetry Tokens:                                         │",
+          "│  • Ember Copper: #f5a97f  • Mauve Thought: #c6a0f6                  │",
+          "│  • Emerald Pass: #a6da95  • Amber Warn:    #eed49f                  │",
+          "│  • Red Error:    #ed8796  • Sapphire Diff: #7dc4e4                  │",
+          "│                                                                     │",
+          "│  Typography & Glyph Rules:                                          │",
+          "│  • Monospace JetBrains/SF Mono with 1px Unicode borders             │",
+          "│  • Standard Pill Badges: [ ● active ] [ ○ idle ] [ ✂ Trimmed ]      │",
+          "└─────────────────────────────────────────────────────────────────────┘",
+        ].join("\n");
+        ctx.ui.notify(tokenSheet, "info");
+      } else if (picked.startsWith("📖 View")) {
+        ctx.ui.notify(stitchGuide(findDesignSkills()), "info");
+      } else if (picked.includes("Activate")) {
+        if (registered.size === 0) register(await list());
+        setStitchActive(true);
+        ctx.ui.notify("Google Stitch design tools activated.", "info");
+      } else if (picked.includes("Deactivate")) {
+        setStitchActive(false);
+        ctx.ui.notify("Google Stitch design tools deactivated.", "info");
+      } else if (picked.startsWith("🔑 Update")) {
+        const key = await ctx.ui.input(
+          "Stitch API key (stitch.withgoogle.com/settings)",
+          "",
+        );
+        if (key?.trim()) {
+          saveApiKey(key);
+          ctx.ui.notify("Stitch API key saved to ~/.keys/stitch.env", "info");
+        }
+      }
     },
   });
 }
