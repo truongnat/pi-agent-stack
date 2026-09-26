@@ -18,7 +18,9 @@
 		"typescript": "^5.9.0"
 	},
 	"scripts": {
-		"test": "node --test packages/*/test/*.test.ts packages/*/*.test.ts"
+		"check": "bun run --filter '*' check",
+		"typecheck": "bun run --filter '*' typecheck",
+		"test": "node --test packages/*/test/*.test.ts packages/*/*.test.ts packages/pi-jev-harness/lint/oxlint-rules/src/rules/*.test.ts"
 	}
 }
 
