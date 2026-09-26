@@ -146,8 +146,16 @@ mod tests {
         let root = temp.path();
 
         fs::create_dir_all(root.join("src")).unwrap();
-        fs::write(root.join("src/main.rs"), "fn main() {\n    println!(\"TargetFound\");\n}\n").unwrap();
-        fs::write(root.join("src/lib.rs"), "pub const FLAG: &str = \"NotThis\";\n").unwrap();
+        fs::write(
+            root.join("src/main.rs"),
+            "fn main() {\n    println!(\"TargetFound\");\n}\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/lib.rs"),
+            "pub const FLAG: &str = \"NotThis\";\n",
+        )
+        .unwrap();
 
         let matches = search_workspace(root, "TargetFound", 10);
         assert_eq!(matches.len(), 1);

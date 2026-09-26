@@ -1,5 +1,6 @@
 //! Pi Core Native Engine - C-ABI FFI Exports
 
+pub mod ast;
 pub mod dcp;
 pub mod scanner;
 pub mod tokenizer;
@@ -11,7 +12,7 @@ use std::path::Path;
 /// Returns the version string of pi-core.
 #[no_mangle]
 pub extern "C" fn pi_core_version() -> *mut c_char {
-    let s = CString::new("0.2.0").unwrap();
+    let s = CString::new("0.3.0").unwrap();
     s.into_raw()
 }
 
@@ -123,6 +124,36 @@ pub extern "C" fn pi_search_workspace(
 
     CString::new(json_str)
         .unwrap_or_else(|_| CString::new("[]").unwrap())
+        .into_raw()
+}
+
+/// Skeletonizes source code using Tree-Sitter AST parser, stripping function bodies.
+#[no_mangle]
+pub extern "C" fn pi_skeletonize_code(
+    source: *const c_char,
+    language: *const c_char,
+) -> *mut c_char {
+    if source.is_null() {
+        return CString::new("{}").unwrap().into_raw();
+    }
+
+    let Ok(src_str) = (unsafe { CStr::from_ptr(source) }).to_str() else {
+        return CString::new("{}").unwrap().into_raw();
+    };
+
+    let lang_str = if !language.is_null() {
+        (unsafe { CStr::from_ptr(language) })
+            .to_str()
+            .unwrap_or("ts")
+    } else {
+        "ts"
+    };
+
+    let res = ast::skeletonize_code(src_str, lang_str);
+    let json_str = serde_json::to_string(&res).unwrap_or_else(|_| "{}".to_string());
+
+    CString::new(json_str)
+        .unwrap_or_else(|_| CString::new("{}").unwrap())
         .into_raw()
 }
 

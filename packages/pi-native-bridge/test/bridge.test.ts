@@ -7,13 +7,14 @@ import {
 	hashToolSignature,
 	isNativeAvailable,
 	scanDirectory,
-	searchWorkspace
+	searchWorkspace,
+	skeletonizeCode
 } from '../src/index.ts'
 
 test('bridge exports version and availability status', () => {
 	const version = getNativeVersion()
 	assert.ok(typeof version === 'string')
-	assert.match(version, /^0\.2\.0/)
+	assert.match(version, /^0\.3\.0/)
 	assert.equal(typeof isNativeAvailable(), 'boolean')
 })
 
@@ -83,4 +84,29 @@ test('searchWorkspace finds matching lines in parallel', () => {
 	assert.ok(matches.length > 0, 'Should find pi-agent-stack in repository')
 	assert.ok(matches[0].path.length > 0)
 	assert.ok(matches[0].line_number > 0)
+})
+
+test('skeletonizeCode strips implementation bodies via Tree-Sitter AST', () => {
+	const tsCode = `
+import { Config } from './types.ts'
+
+export interface StateData {
+	id: string
+	count: number
+}
+
+export function heavyProcessor(input: StateData, factor: number): number {
+	const temp = factor * 2;
+	let acc = 0;
+	for (let i = 0; i < 1000; i++) {
+		acc += temp + i;
+	}
+	return acc;
+}
+`
+	const res = skeletonizeCode(tsCode, 'ts')
+	assert.ok(res.reduction_percentage > 20, `Reduction was: ${res.reduction_percentage}%`)
+	assert.ok(res.skeleton.includes('interface StateData'))
+	assert.ok(res.skeleton.includes('heavyProcessor'))
+	assert.ok(!res.skeleton.includes('const temp = factor * 2'))
 })

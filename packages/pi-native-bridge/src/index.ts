@@ -14,6 +14,14 @@ export interface SearchMatch {
 	line_text: string
 }
 
+export interface SkeletonResult {
+	language: string
+	skeleton: string
+	original_bytes: number
+	skeleton_bytes: number
+	reduction_percentage: number
+}
+
 export interface NativeBridge {
 	isAvailable: boolean
 	version: string
@@ -22,6 +30,7 @@ export interface NativeBridge {
 	hashToolSignature: (toolName: string, canonicalArgs: string) => string
 	scanDirectory: (dirPath: string, maxDepth?: number) => FileEntry[]
 	searchWorkspace: (dirPath: string, query: string, maxResults?: number) => SearchMatch[]
+	skeletonizeCode: (source: string, language?: string) => SkeletonResult
 }
 
 // Fallback implementations in pure TypeScript
@@ -45,6 +54,40 @@ function fallbackScanDirectory(): FileEntry[] {
 
 function fallbackSearchWorkspace(): SearchMatch[] {
 	return []
+}
+
+function fallbackSkeletonizeCode(source: string, language = 'ts'): SkeletonResult {
+	const lines = source.split('\n')
+	const kept: string[] = []
+	for (const line of lines) {
+		const trimmed = line.trim()
+		if (
+			trimmed.startsWith('import ') ||
+			trimmed.startsWith('export ') ||
+			trimmed.startsWith('use ') ||
+			trimmed.startsWith('def ') ||
+			trimmed.startsWith('class ') ||
+			trimmed.startsWith('interface ') ||
+			trimmed.startsWith('type ')
+		) {
+			kept.push(line)
+		}
+	}
+	const skeleton = kept.join('\n')
+	const original_bytes = source.length
+	const skeleton_bytes = skeleton.length
+	const reduction_percentage =
+		original_bytes > 0 && original_bytes >= skeleton_bytes
+			? Math.round(((original_bytes - skeleton_bytes) / original_bytes) * 1000) / 10
+			: 0
+
+	return {
+		language,
+		skeleton,
+		original_bytes,
+		skeleton_bytes,
+		reduction_percentage
+	}
 }
 
 // Locate native library
@@ -88,7 +131,7 @@ function findNativeLibrary(): string | null {
 
 let nativeLib: any = null
 let isNative = false
-let nativeVersion = '0.2.0-ts-fallback'
+let nativeVersion = '0.3.0-ts-fallback'
 
 try {
 	const libPath = findNativeLibrary()
@@ -117,6 +160,10 @@ try {
 			},
 			pi_search_workspace: {
 				args: ['ptr', 'ptr', 'u32'],
+				returns: 'ptr'
+			},
+			pi_skeletonize_code: {
+				args: ['ptr', 'ptr'],
 				returns: 'ptr'
 			},
 			pi_free_string: {
@@ -227,6 +274,25 @@ export function searchWorkspace(dirPath: string, query: string, maxResults = 50)
 	}
 }
 
+export function skeletonizeCode(source: string, language = 'ts'): SkeletonResult {
+	if (!isNative || !nativeLib) {
+		return fallbackSkeletonizeCode(source, language)
+	}
+
+	try {
+		const srcBuf = Buffer.from(`${source}\0`, 'utf8')
+		const langBuf = Buffer.from(`${language}\0`, 'utf8')
+		const { ptr, CString } = (globalThis as any).Bun.FFI
+		const resPtr = nativeLib.symbols.pi_skeletonize_code(ptr(srcBuf), ptr(langBuf))
+		if (!resPtr) return fallbackSkeletonizeCode(source, language)
+		const jsonStr = new CString(resPtr).toString()
+		nativeLib.symbols.pi_free_string(resPtr)
+		return JSON.parse(jsonStr)
+	} catch {
+		return fallbackSkeletonizeCode(source, language)
+	}
+}
+
 export const bridge: NativeBridge = {
 	isAvailable: isNative,
 	version: nativeVersion,
@@ -234,7 +300,8 @@ export const bridge: NativeBridge = {
 	countTokensBPE,
 	hashToolSignature,
 	scanDirectory,
-	searchWorkspace
+	searchWorkspace,
+	skeletonizeCode
 }
 
 export default bridge

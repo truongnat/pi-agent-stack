@@ -1,6 +1,8 @@
 //! Fast native BPE tokenizer module for Pi Agent Stack powered by tiktoken-rs.
 
-use tiktoken_rs::{cl100k_base_singleton, o200k_base_singleton, p50k_base_singleton, r50k_base_singleton};
+use tiktoken_rs::{
+    cl100k_base_singleton, o200k_base_singleton, p50k_base_singleton, r50k_base_singleton,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelFamily {
@@ -20,7 +22,12 @@ impl From<&str> for ModelFamily {
             || lower.contains("antigravity")
         {
             ModelFamily::Gemini
-        } else if lower.contains("gpt") || lower.contains("openai") || lower.contains("codex") || lower.contains("o1") || lower.contains("o3") {
+        } else if lower.contains("gpt")
+            || lower.contains("openai")
+            || lower.contains("codex")
+            || lower.contains("o1")
+            || lower.contains("o3")
+        {
             ModelFamily::OpenAI
         } else {
             ModelFamily::Generic
