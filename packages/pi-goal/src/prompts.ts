@@ -26,14 +26,14 @@ ${escapedObjective}
 </objective>${noteSection}
 
 Instructions for this turn:
-1. Work directly towards completing the objective above. Inspect and edit actual workspace files, run verification tests/commands, and do not stop prematurely.
-2. Before declaring completion, perform a rigorous requirement-by-requirement audit:
-   - Check all acceptance criteria.
-   - Run tests, builds, or lint checks to verify nothing is broken.
-3. Completion and Blocker Reporting:
-   - If ALL requirements are fully met and verified, call \`update_goal({ status: "complete", reason: "<summary of what was verified>" })\`.
-   - If you are genuinely blocked (e.g. missing credentials or unsolvable external error for 3 consecutive turns), call \`update_goal({ status: "blocked", reason: "<explanation>" })\`.
-   - Otherwise, proceed with the next concrete implementation or verification step.`
+1. Autonomous Execution: Continue executing the goal objective above step-by-step. Inspect, modify files, run commands, and execute tests.
+2. DO NOT Stop Prematurely: Finishing a single step or a planning turn is NOT goal completion. Continue immediately with the next pending task.
+3. Verification & Completion:
+   - Only when ALL checklist items and requirements are completely implemented and verified by running tests/builds, call:
+     \`update_goal({ status: "complete", reason: "<detailed summary of what was completed and verified>" })\`
+   - If genuinely blocked by an unsolvable external obstacle, call:
+     \`update_goal({ status: "blocked", reason: "<detailed blocker description>" })\`
+   - Otherwise, do NOT call update_goal; proceed directly with the next implementation or verification action.`
 }
 
 /**

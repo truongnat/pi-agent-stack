@@ -198,6 +198,37 @@ export function createGoalExtension(pi: ExtensionAPI) {
 		return undefined
 	})
 
+	function processMessageSignals(msg: any) {
+		if (!msg) return
+		if (msg.role === 'assistant' || msg.type === 'assistant') {
+			if (typeof msg.content === 'string' && msg.content.trim()) {
+				turnHasText = true
+				lastAssistantText += msg.content
+			} else if (Array.isArray(msg.content)) {
+				for (const part of msg.content) {
+					if (part?.type === 'text' && typeof part.text === 'string' && part.text.trim()) {
+						turnHasText = true
+						lastAssistantText += part.text
+					}
+					if (part?.type === 'thinking' || typeof part?.thinking === 'string') {
+						turnHasThinking = true
+					}
+					if (part?.type === 'toolCall' || part?.type === 'tool_use' || part?.toolCallId) {
+						turnHasToolCalls = true
+					}
+				}
+			}
+		}
+	}
+
+	pi.on('message_update', (event: any) => {
+		processMessageSignals(event?.message)
+	})
+
+	pi.on('message_end', (event: any) => {
+		processMessageSignals(event?.message)
+	})
+
 	pi.on('tool_call', (event, _ctx) => {
 		turnHasToolCalls = true
 		const inputStr = JSON.stringify(event.input)
@@ -206,6 +237,13 @@ export function createGoalExtension(pi: ExtensionAPI) {
 	})
 
 	pi.on('agent_end', (event: any, ctx) => {
+		// Ensure messages are fully inspected
+		if (Array.isArray(event?.messages)) {
+			for (const msg of event.messages) {
+				processMessageSignals(msg)
+			}
+		}
+
 		const metrics: TurnMetrics = {
 			inputTokens: event?.usage?.input ?? 0,
 			outputTokens: event?.usage?.output ?? 0,
@@ -246,10 +284,11 @@ export function createGoalExtension(pi: ExtensionAPI) {
 			evaluatorResult = await evaluateGoalWithJev({
 				objective: currentGoal.objective,
 				lastAssistantMessage: lastAssistantText,
-				toolSummary: lastToolSummary.join('; ')
+				toolSummary: lastToolSummary.join('; '),
+				reason: metrics.selfReportedReason
 			})
 			if (!evaluatorResult.met && evaluatorResult.confidence >= 0.6) {
-				lastEvaluatorNote = `JEV evaluator determined the goal is not met yet: ${evaluatorResult.reason}`
+				lastEvaluatorNote = `Goal continuation required: ${evaluatorResult.reason}`
 			}
 		}
 
