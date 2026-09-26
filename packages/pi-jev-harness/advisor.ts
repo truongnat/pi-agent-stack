@@ -26,6 +26,61 @@ export type AdvisorBriefingResult = {
 	summaryNote: string
 }
 
+export function detectProjectVerificationTarget(cwd: string): string {
+	// 1. Rust Cargo
+	if (existsSync(join(cwd, 'Cargo.toml'))) {
+		return 'cargo test'
+	}
+
+	// 2. Go
+	if (existsSync(join(cwd, 'go.mod'))) {
+		return 'go test ./...'
+	}
+
+	// 3. Python (pytest)
+	if (
+		existsSync(join(cwd, 'pytest.ini')) ||
+		existsSync(join(cwd, 'pyproject.toml')) ||
+		existsSync(join(cwd, 'tests'))
+	) {
+		return 'pytest'
+	}
+
+	// 4. JS/TS (always bun per user global rules)
+	const pkgPath = join(cwd, 'package.json')
+	if (existsSync(pkgPath)) {
+		try {
+			const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
+			if (pkg.scripts?.test && !pkg.scripts.test.includes('no test specified')) {
+				return 'bun test'
+			}
+			if (pkg.scripts?.typecheck) {
+				return 'bun run typecheck'
+			}
+			if (pkg.scripts?.build) {
+				return 'bun run build'
+			}
+		} catch {
+			// Ignore file read errors
+		}
+		return 'bun test'
+	}
+
+	// 5. Makefile
+	const makefile = join(cwd, 'Makefile')
+	if (existsSync(makefile)) {
+		try {
+			if (/^test\s*:/m.test(readFileSync(makefile, 'utf8'))) {
+				return 'make test'
+			}
+		} catch {
+			// Ignore file read errors
+		}
+	}
+
+	return 'diff_review'
+}
+
 /**
  * Fast offline heuristic advisor for when JEV API is offline or unconfigured.
  * Evaluates prompt keywords, repo configs, and file patterns in < 2ms.
@@ -51,24 +106,12 @@ export function evaluateOfflineAdvisor(
 
 	// 2. Detect Verification Target
 	let verification = 'diff_review'
-	let testCmd = ''
-	try {
-		const pkgPath = join(cwd, 'package.json')
-		if (existsSync(pkgPath)) {
-			const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
-			if (pkg.scripts?.test) testCmd = 'npm test'
-			else if (pkg.scripts?.build) testCmd = 'npm run build'
-		}
-	} catch {
-		// Ignore file read errors
-	}
+	const detectedTestCmd = detectProjectVerificationTarget(cwd)
 
 	if (category === 'research') {
 		verification = 'none'
-	} else if (category === 'bugfix' || category === 'feature') {
-		verification = testCmd || 'unit_test'
-	} else if (category === 'verification') {
-		verification = testCmd || 'unit_test'
+	} else if (category === 'bugfix' || category === 'feature' || category === 'verification') {
+		verification = detectedTestCmd || 'diff_review'
 	}
 
 	// 3. Engineering Guidance
@@ -137,16 +180,16 @@ export function formatAdvisorBriefingText(params: {
 	const guidanceLabels: Record<string, string> = {
 		root_cause_first: 'Root-cause triaging: Identify target surface & inspect error logs/trace first before speculative changes',
 		tdd_first: 'TDD: Reproduce/verify with failing test first before modifying implementation',
-		type_safety: 'Strict typing: Adhere strictly to TypeScript interfaces and contracts',
+		type_safety: 'Strict typing: Adhere strictly to TypeScript/language interfaces and contracts',
 		minimal_diff: 'Minimal diff: Preserve existing styles, comments, and structure',
 		read_first: 'Read before write: Locate and inspect existing patterns before creating files',
 		standard: 'Standard concise coding'
 	}
 
 	const verificationLabels: Record<string, string> = {
-		unit_test: 'Run test suite (e.g. npm test) before concluding turn',
-		type_check: 'Run static type check (e.g. tsc / typecheck) before concluding turn',
-		build: 'Run build command (e.g. npm run build) before concluding turn',
+		unit_test: 'Run test suite (e.g. bun test, cargo test) before concluding turn',
+		type_check: 'Run static type check (e.g. bun run typecheck) before concluding turn',
+		build: 'Run build command (e.g. bun run build, cargo build) before concluding turn',
 		diff_review: 'Inspect git diff to ensure clean, focused changes',
 		none: 'No test verification needed (informational query)'
 	}
@@ -156,7 +199,9 @@ export function formatAdvisorBriefingText(params: {
 		lines.push(`• Monorepo Map: ${params.repoMap}`)
 	}
 	lines.push(`• Objective: ${categoryLabels[params.category] ?? params.category}`)
-	lines.push(`• Verification Target: ${verificationLabels[params.verification] ?? params.verification}`)
+	const targetDesc =
+		verificationLabels[params.verification] ?? `Run \`${params.verification}\` before concluding turn`
+	lines.push(`• Verification Target: ${targetDesc}`)
 	lines.push(`• Engineering Guidance: ${guidanceLabels[params.guidance] ?? params.guidance}`)
 
 	if (params.focusPaths.length > 0) {

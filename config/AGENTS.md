@@ -12,7 +12,7 @@
 - **Root-Cause First**: Always investigate and fix the root cause of a bug or regression. Never apply superficial quick-patches or suppress errors with typecasts/ignores without understanding the failure origin.
 - **Type Safety**: Strictly avoid `any` or loose untyped constructs in TypeScript/Dart/Python. Always declare proper interfaces, schemas, and return types.
 - **Code Structure**: Prefer clean code, early returns (`guard clauses`), functional immutability where suitable, and concise well-named functions over deeply nested blocks.
-- **Verification & TDD**: Verify every change using unit tests, type checks, or targeted CLI runs (`npm test`, `cargo test`, `flutter test`, `pytest`) before concluding the task.
+- **Verification & TDD**: Verify every change using unit tests, type checks, or targeted CLI runs (`bun test`, `cargo test`, `flutter test`, `pytest`) before concluding the task.
 
 ## 3. Multi-Agent Orchestration & Subagent Delegation
 - **Autonomous Delegation**: You have full access to autonomous subagents via `invoke_subagent` across available providers (Codex, AGY, Claude, Cursor).
@@ -36,6 +36,6 @@
 - **3-Phase Lifecycle**:
   1. *Phase 1 (Investigate)*: Dispatch `researcher`/`debugger` to locate root causes and files.
   2. *Phase 2 (Implement)*: Dispatch `coder` (or use `edit`/`write`) to make the actual code changes immediately. NEVER stop after Phase 1 to just show a report.
-  3. *Phase 3 (Verify)*: Dispatch `tester` (or run `cargo test`, `npm test`, `pytest`) to verify fixes and ensure zero build/test errors.
+  3. *Phase 3 (Verify)*: Dispatch `tester` (or run `cargo test`, `bun test`, `pytest`) to verify fixes and ensure zero build/test errors.
 - **No Redundant Re-Reading**: Do not perform dozens of redundant manual read calls on files that subagents have already scanned and reported. Act on their findings directly.
 

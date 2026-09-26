@@ -210,15 +210,15 @@ export class SubagentManager {
 		args: string[],
 		cwd: string,
 		signal?: AbortSignal
-	): Promise<string | undefined> {
-		if (process.env.NODE_ENV === 'test' || process.env.BUN_TEST) {
-			return undefined
-		}
-		return new Promise<string | undefined>((resolve) => {
+	): Promise<{ stdout: string; stderr: string; code: number | null }> {
+		const envPath = `${homedir()}/.bun/bin:${homedir()}/.local/bin:${process.env.PATH || ''}`
+		const env = { ...process.env, PATH: envPath }
+
+		return new Promise((resolve) => {
 			try {
 				const child = spawn(command, args, {
 					cwd,
-					env: process.env,
+					env,
 					stdio: ['ignore', 'pipe', 'pipe']
 				})
 				let stdout = ''
@@ -233,35 +233,34 @@ export class SubagentManager {
 
 				const timer = setTimeout(() => {
 					child.kill('SIGTERM')
-					resolve(stdout.trim() || undefined)
+					resolve({
+						stdout: stdout.trim(),
+						stderr: stderr.trim() || 'Process timed out after 60s',
+						code: -1
+					})
 				}, 60000)
 
 				signal?.addEventListener('abort', () => {
 					clearTimeout(timer)
 					child.kill('SIGTERM')
-					resolve(undefined)
+					resolve({ stdout: stdout.trim(), stderr: 'Aborted by signal', code: -1 })
 				})
 
-				child.on('error', () => {
+				child.on('error', (err) => {
 					clearTimeout(timer)
-					resolve(undefined)
+					resolve({ stdout: '', stderr: err.message, code: -1 })
 				})
 
 				child.on('close', (code) => {
 					clearTimeout(timer)
-					const cleanOut = stdout.trim()
-					if (
-						code === 0 &&
-						cleanOut &&
-						!/failed to authenticate|oauth session expired|login required/i.test(cleanOut)
-					) {
-						resolve(cleanOut)
-					} else {
-						resolve(undefined)
-					}
+					resolve({ stdout: stdout.trim(), stderr: stderr.trim(), code })
 				})
-			} catch {
-				resolve(undefined)
+			} catch (err) {
+				resolve({
+					stdout: '',
+					stderr: err instanceof Error ? err.message : String(err),
+					code: -1
+				})
 			}
 		})
 	}
@@ -272,71 +271,95 @@ export class SubagentManager {
 		cwd: string,
 		options: { signal?: AbortSignal }
 	): Promise<{ output: string; tokensUsed: number }> {
-		// Isolated execution environment
 		this.logToScratchpad(instance, {
 			timestamp: Date.now(),
 			type: 'thought',
 			message: `Evaluating prompt with system prompt: "${systemPrompt.slice(0, 80)}…"`
 		})
 
-		// Check abort signal
 		if (options.signal?.aborted) {
 			throw new Error('Task aborted by user.')
 		}
 
-		// Check if execution targets a local CLI provider (agy / claude / cursor-agent)
-		const modelLower = (instance.model || '').toLowerCase()
-		let cliResult: string | undefined
-
-		if (modelLower.includes('agy') || modelLower.includes('antigravity')) {
-			cliResult = await this.execSubprocessWorker(
-				'agy',
-				['--prompt', `${systemPrompt}\n\nTask:\n${instance.prompt}`],
-				cwd,
-				options.signal
-			)
-		} else if (modelLower.includes('cursor')) {
-			cliResult = await this.execSubprocessWorker(
-				'cursor-agent',
-				['-p', `${systemPrompt}\n\nTask:\n${instance.prompt}`],
-				cwd,
-				options.signal
-			)
-		} else if (modelLower.includes('claude')) {
-			cliResult = await this.execSubprocessWorker(
-				'claude',
-				['-p', `${systemPrompt}\n\nTask:\n${instance.prompt}`],
-				cwd,
-				options.signal
-			)
-		} else {
-			// Auto-select available CLI worker across the stack
-			const candidateWorkers = ['claude', 'agy', 'cursor-agent']
-			for (const worker of candidateWorkers) {
-				const args =
-					worker === 'agy'
-						? ['--prompt', `${systemPrompt}\n\nTask:\n${instance.prompt}`]
-						: ['-p', `${systemPrompt}\n\nTask:\n${instance.prompt}`]
-				cliResult = await this.execSubprocessWorker(worker, args, cwd, options.signal)
-				if (cliResult) break
-			}
-		}
-
-		if (cliResult) {
+		// Unit test mock mode
+		if (process.env.NODE_ENV === 'test' || process.env.BUN_TEST) {
+			const mockHeader = `### 📋 [${instance.role.toUpperCase()}] ${instance.name}\n- **Model**: \`${instance.model}\`\n- **Workspace**: \`${cwd}\`\n- **Scratchpad**: \`${instance.scratchpadDir}\`\n\n`
+			const mockBody = `**Task Prompt**:\n${instance.prompt}\n\n**Status**: Completed successfully.`
 			return {
-				output: cliResult,
-				tokensUsed: Math.max(150, Math.round(cliResult.length / 4))
+				output: `${mockHeader}${mockBody}`,
+				tokensUsed: Math.max(150, instance.prompt.length)
 			}
 		}
 
-		// Fallback / standard subagent output synthesis
-		const header = `### 📋 [${instance.role.toUpperCase()}] ${instance.name}\n- **Model**: \`${instance.model}\`\n- **Workspace**: \`${cwd}\`\n- **Scratchpad**: \`${instance.scratchpadDir}\`\n\n`
-		const body = `**Task Prompt**:\n${instance.prompt}\n\n**Status**: Completed successfully.`
+		const fullPrompt = `${systemPrompt}\n\nTask:\n${instance.prompt}`
+		const roleDef = getRoleDefinition(instance.role)
+		const allowedTools = roleDef.allowedTools || ['read', 'grep', 'find', 'ls']
 
-		return {
-			output: `${header}${body}`,
-			tokensUsed: Math.max(150, instance.prompt.length)
+		// 1. Try Native Pi Subagent Execution (Primary & Most Capable)
+		const piArgs = [
+			'--tools',
+			allowedTools.join(','),
+			'-p',
+			fullPrompt
+		]
+		if (
+			instance.model &&
+			instance.model !== 'flash' &&
+			instance.model !== 'sonnet' &&
+			instance.model !== 'mini' &&
+			instance.model !== 'pro'
+		) {
+			piArgs.unshift('--model', instance.model)
 		}
+
+		this.logToScratchpad(instance, {
+			timestamp: Date.now(),
+			type: 'info',
+			message: `Dispatching native pi worker with tools: [${allowedTools.join(', ')}]`
+		})
+
+		const piResult = await this.execSubprocessWorker('pi', piArgs, cwd, options.signal)
+		if (piResult.code === 0 && piResult.stdout) {
+			return {
+				output: piResult.stdout,
+				tokensUsed: Math.max(150, Math.round(piResult.stdout.length / 4))
+			}
+		}
+
+		if (piResult.stderr) {
+			this.logToScratchpad(instance, {
+				timestamp: Date.now(),
+				type: 'error',
+				message: `pi worker notice/error: ${piResult.stderr.slice(0, 300)}`
+			})
+		}
+
+		// 2. Try Secondary CLI Workers if pi runner failed
+		const candidateWorkers = ['agy', 'cursor-agent', 'claude']
+		for (const worker of candidateWorkers) {
+			const args =
+				worker === 'agy'
+					? ['--dangerously-skip-permissions', '--prompt', fullPrompt]
+					: ['-p', fullPrompt]
+
+			const res = await this.execSubprocessWorker(worker, args, cwd, options.signal)
+			if (
+				res.code === 0 &&
+				res.stdout &&
+				!/failed to authenticate|oauth session expired|login required/i.test(res.stdout)
+			) {
+				return {
+					output: res.stdout,
+					tokensUsed: Math.max(150, Math.round(res.stdout.length / 4))
+				}
+			}
+		}
+
+		// If all execution backends failed, DO NOT fake success. Report actual failure!
+		const failureReason = piResult.stderr || 'Subprocess exited with non-zero code or empty output'
+		throw new Error(
+			`Subagent "${instance.name}" (${instance.role}) failed to execute. Cause: ${failureReason}`
+		)
 	}
 
 	public async invokeBatch(

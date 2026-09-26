@@ -41,6 +41,7 @@ export function getAvailableProviders(): string[] {
 		const subStatusFile = join(homedir(), '.pi', 'agent', 'subscription-providers-status.json')
 		if (existsSync(subStatusFile)) {
 			const sub = JSON.parse(readFileSync(subStatusFile, 'utf8'))
+			// Handle array format
 			if (Array.isArray(sub.providers)) {
 				for (const p of sub.providers) {
 					if (p.ready && p.provider) {
@@ -48,12 +49,36 @@ export function getAvailableProviders(): string[] {
 					}
 				}
 			}
+			// Handle dictionary / object format: { [key]: { provider, ready, ... } }
+			for (const [key, val] of Object.entries(sub)) {
+				if (val && typeof val === 'object' && (val as any).ready) {
+					const pName = (val as any).provider || key
+					providers.add(String(pName).toLowerCase())
+				}
+			}
 		}
 	} catch {
 		// Ignore parse errors
 	}
 
-	// 4. Check Claude CLI OAuth credentials
+	// 4. Check ~/.pi/agent/models-store.json for active providers
+	try {
+		const modelsStoreFile = join(homedir(), '.pi', 'agent', 'models-store.json')
+		if (existsSync(modelsStoreFile)) {
+			const store = JSON.parse(readFileSync(modelsStoreFile, 'utf8'))
+			if (store && typeof store === 'object') {
+				for (const key of Object.keys(store)) {
+					if (key.includes('/')) {
+						providers.add(key.split('/')[0].toLowerCase())
+					}
+				}
+			}
+		}
+	} catch {
+		// Ignore
+	}
+
+	// 5. Check Claude CLI OAuth credentials
 	try {
 		const claudeCreds = join(homedir(), '.claude', '.credentials.json')
 		if (existsSync(claudeCreds)) {
