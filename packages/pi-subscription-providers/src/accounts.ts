@@ -87,7 +87,43 @@ function writeSecret(path: string, value: unknown): void {
 }
 
 export function readStore(p: Paths = defaultPaths()): AccountStore {
-	return (readObject(storePath(p)) as AccountStore | undefined) ?? {}
+	const raw = (readObject(storePath(p)) as AccountStore | undefined) ?? {}
+	let changed = false
+	const sanitized: AccountStore = {}
+	for (const [pool, pData] of Object.entries(raw)) {
+		if (!pData || typeof pData !== 'object' || !pData.accounts) {
+			sanitized[pool] = pData
+			continue
+		}
+		const accounts: Record<string, Account> = {}
+		const entries = Object.entries(pData.accounts)
+		for (const [key, acc] of entries) {
+			const id = acc?.credential && typeof acc.credential === 'object' ? identify(acc.credential as Record<string, unknown>) : undefined
+			// If key doesn't match canonical identity, check if canonical identity is already present or should take precedence
+			const canonicalKey = id?.key ?? key
+			if (canonicalKey !== key && entries.some(([k]) => k === canonicalKey)) {
+				// Redundant legacy slot; skip it
+				changed = true
+				continue
+			}
+			accounts[canonicalKey] = canonicalKey !== key ? { ...acc, key: canonicalKey } : acc
+			if (canonicalKey !== key) changed = true
+		}
+		let active = pData.active
+		if (active && !accounts[active]) {
+			const activeAcc = entries.find(([k]) => k === active)?.[1]
+			const id = activeAcc?.credential && typeof activeAcc.credential === 'object' ? identify(activeAcc.credential as Record<string, unknown>) : undefined
+			if (id && accounts[id.key]) {
+				active = id.key
+				changed = true
+			} else {
+				active = Object.keys(accounts)[0]
+				changed = true
+			}
+		}
+		sanitized[pool] = { active, accounts }
+	}
+	return sanitized
 }
 
 export function writeStore(store: AccountStore, p: Paths = defaultPaths()): void {
