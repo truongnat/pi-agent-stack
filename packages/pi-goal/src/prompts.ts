@@ -79,3 +79,26 @@ export function buildUserMessageReminder(state: GoalState): string {
 		state.objective.length > 100 ? `${state.objective.slice(0, 100)}…` : state.objective
 	return `[Active Goal Reminder: "${summary}" · Turn ${state.turns}] Please address this user message first, then proceed with the active goal.`
 }
+
+/**
+ * Immediate injection prompt — sent via /goal inject <message> to push context
+ * into the running goal loop right now, without waiting for the next turn cycle.
+ */
+export function buildInjectPrompt(state: GoalState, message: string): string {
+	const escapedObjective = escapeXml(state.objective)
+	const escapedMessage = escapeXml(message)
+
+	return `[Goal Injection · Turn ${state.turns + 1}]
+<objective>
+${escapedObjective}
+</objective>
+
+<injected_message>
+${escapedMessage}
+</injected_message>
+
+A message has been injected mid-loop by the user. Please:
+1. Acknowledge and incorporate this message into your ongoing execution plan.
+2. Adapt your next actions accordingly if needed.
+3. Continue making progress toward the goal without calling update_goal unless truly complete or blocked.`
+}

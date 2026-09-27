@@ -10,6 +10,7 @@ import { applyTurnMetrics, evaluateStopRules } from './loop.ts'
 import {
 	buildBudgetLimitPrompt,
 	buildContinuationPrompt,
+	buildInjectPrompt,
 	buildObjectiveUpdatedPrompt,
 	buildUserMessageReminder
 } from './prompts.ts'
@@ -378,7 +379,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 	// 3. Register Command /goal
 	pi.registerCommand('goal', {
 		description:
-			'Autonomous goal loop: /goal <objective> | status | pause | resume | clear | edit | budget',
+			'Autonomous goal loop: /goal <objective> | status | pause | resume | retry | clear | edit | inject | budget',
 		handler: async (args, ctx) => {
 			const input = (args ?? '').trim()
 
@@ -455,6 +456,34 @@ export function createGoalExtension(pi: ExtensionAPI) {
 				currentGoal = null
 				updateStatus(ctx)
 				sendGoalMessage(ctx, '🗑️ Active goal cleared.', { action: 'clear' })
+				return
+			}
+
+			if (input.startsWith('inject ') || input === 'inject') {
+				const msg = input.replace(/^inject\s*/, '').trim()
+				if (!msg) {
+					sendGoalMessage(
+						ctx,
+						'Usage: `/goal inject <message>` — immediately injects a message into the running goal loop.',
+						{ action: 'inject' }
+					)
+					return
+				}
+				if (!currentGoal || currentGoal.status !== 'active') {
+					sendGoalMessage(
+						ctx,
+						'⚠️ No active goal to inject into. Start a goal with `/goal <objective>` first.',
+						{ action: 'inject' }
+					)
+					return
+				}
+				// Mark next turn as a continuation so before_agent_start injects the steering block
+				isContinuationTurn = true
+				// Carry the injection text as an evaluator note so the steering block also sees it
+				lastEvaluatorNote = `[User Injection]: ${msg}`
+				// Send the full inject prompt as the user message that triggers the next agent turn
+				pi.sendUserMessage(buildInjectPrompt(currentGoal, msg))
+				sendGoalMessage(ctx, `💉 Injected into goal loop: "${msg}"`, { action: 'inject' })
 				return
 			}
 
