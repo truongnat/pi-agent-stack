@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+	buildPiWorkerArgs,
 	describeIdleTimeout,
 	formatActivityMarkdown,
 	shellJoin,
@@ -95,6 +96,21 @@ test('describeIdleTimeout explains empty stream vs quota', () => {
 		stderr: 'API error: RESOURCE_EXHAUSTED (code 429): Individual quota reached'
 	})
 	assert.match(quota, /quota\/rate-limit/)
+})
+
+test('buildPiWorkerArgs uses a session dir so SoL-Pi can start', () => {
+	const args = buildPiWorkerArgs({
+		model: 'antigravity/gemini-3.8-flash-high',
+		sessionDir: '/tmp/scratch/pi-session',
+		tools: ['read', 'grep'],
+		prompt: 'hello'
+	})
+	assert.equal(args.includes('--no-session'), false)
+	const dirAt = args.indexOf('--session-dir')
+	assert.ok(dirAt >= 0)
+	assert.equal(args[dirAt + 1], '/tmp/scratch/pi-session')
+	assert.ok(args.includes('--mode'))
+	assert.ok(args.includes('antigravity/gemini-3.8-flash-high'))
 })
 
 test('shellJoin quotes argv for spawnSupervised', () => {

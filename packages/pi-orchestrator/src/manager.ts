@@ -40,6 +40,29 @@ export function describeIdleTimeout(opts: {
 	return `${base}. Stream went silent after progress (long thinking or stalled generation).`
 }
 
+export function buildPiWorkerArgs(opts: {
+	model?: string
+	sessionDir: string
+	tools: string[]
+	prompt: string
+}): string[] {
+	const args = [
+		'--mode',
+		'json',
+		'--session-dir',
+		opts.sessionDir,
+		'--no-skills',
+		'--no-themes',
+		'--tools',
+		opts.tools.join(','),
+		opts.prompt
+	]
+	if (opts.model && opts.model !== 'default') {
+		args.unshift('--model', opts.model)
+	}
+	return args
+}
+
 export function shellJoin(bin: string, args: string[]): string {
 	const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 	return [q(bin), ...args.map(q)].join(' ')
@@ -498,19 +521,14 @@ export class SubagentManager {
 		// 1. Try Native Pi Subagent Execution (Primary & Most Capable)
 		// Crucial: Load extensions so custom providers (antigravity, cursor, claude) are available,
 		// but set PI_SUBAGENT_WORKER=1 to prevent recursive orchestrator nesting.
-		const piArgs = [
-			'--mode',
-			'json',
-			'--no-session',
-			'--no-skills',
-			'--no-themes',
-			'--tools',
-			builtInAllowed.join(','),
-			fullPrompt
-		]
-		if (instance.model && instance.model !== 'default') {
-			piArgs.unshift('--model', instance.model)
-		}
+		const workerSessionDir = join(instance.scratchpadDir, 'pi-session')
+		mkdirSync(workerSessionDir, { recursive: true })
+		const piArgs = buildPiWorkerArgs({
+			model: instance.model,
+			sessionDir: workerSessionDir,
+			tools: builtInAllowed,
+			prompt: fullPrompt
+		})
 
 		this.logToScratchpad(instance, {
 			timestamp: Date.now(),
