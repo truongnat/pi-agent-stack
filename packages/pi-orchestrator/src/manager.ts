@@ -8,6 +8,7 @@ import { loadOrchestratorConfig, type OrchestratorConfig } from './config.ts'
 import { evaluateConsensus, type ConsensusOptions, type ConsensusResult } from './consensus.ts'
 import { getAvailableProviders } from './guard.ts'
 import { getAvailableModelPool, selectOptimalModelForTask } from './pool.ts'
+import { consumeJsonl, summarizeJsonEvent } from './json-stream.ts'
 import { generateAgentCodename, getRoleDefinition } from './roster.ts'
 import type {
 	SubagentExecutionResult,
@@ -479,11 +480,13 @@ export class SubagentManager {
 		// Crucial: Load extensions so custom providers (antigravity, cursor, claude) are available,
 		// but set PI_SUBAGENT_WORKER=1 to prevent recursive orchestrator nesting.
 		const piArgs = [
+			'--mode',
+			'json',
+			'--no-session',
 			'--no-skills',
 			'--no-themes',
 			'--tools',
 			builtInAllowed.join(','),
-			'-p',
 			fullPrompt
 		]
 		if (instance.model && instance.model !== 'default') {
@@ -493,59 +496,84 @@ export class SubagentManager {
 		this.logToScratchpad(instance, {
 			timestamp: Date.now(),
 			type: 'info',
-			message: `Dispatching native pi worker with model "${instance.model}" and tools: [${builtInAllowed.join(', ')}]`
+			message: `Dispatching native pi worker (--mode json) with model "${instance.model}" and tools: [${builtInAllowed.join(', ')}]`
 		})
 
-		let streamedBytes = 0
-		let latestLine = ''
+		let jsonBuf = ''
+		let assembledAssistant = ''
+		const activityTrail: string[] = []
+
+		const emitActivity = (line: string) => {
+			const trimmed = line.trim()
+			if (!trimmed) return
+			if (activityTrail[activityTrail.length - 1] !== trimmed) {
+				activityTrail.push(trimmed)
+				if (activityTrail.length > 3) activityTrail.shift()
+			}
+			const elapsedSec = Math.max(1, Math.floor((Date.now() - instance.startedAt) / 1000))
+			options.onProgress?.({
+				id: instance.id,
+				role: instance.role,
+				name: instance.name,
+				status: 'streaming',
+				currentActivity: `(${elapsedSec}s)\n         ${activityTrail.join('\n         ')}`
+			})
+		}
 
 		const ticker = setInterval(() => {
 			const elapsedSec = Math.max(1, Math.floor((Date.now() - instance.startedAt) / 1000))
-			if (streamedBytes > 0 && latestLine) {
+			if (activityTrail.length > 0) {
 				options.onProgress?.({
 					id: instance.id,
 					role: instance.role,
 					name: instance.name,
 					status: 'streaming',
-					currentActivity: `(${elapsedSec}s) ✍️ ${latestLine.slice(0, 90)}`
+					currentActivity: `(${elapsedSec}s)\n         ${activityTrail.join('\n         ')}`
 				})
 			} else {
-				const phases = [
-					'Analyzing task context & tools...',
-					'Exploring workspace & files...',
-					'Inspecting code & running actions...',
-					'Synthesizing findings & formulating report...'
-				]
-				const phaseIndex = Math.min(Math.floor(elapsedSec / 8), phases.length - 1)
 				options.onProgress?.({
 					id: instance.id,
 					role: instance.role,
 					name: instance.name,
 					status: 'running',
-					currentActivity: `(${elapsedSec}s) ${phases[phaseIndex]}`
+					currentActivity: `(${elapsedSec}s) ⏳ waiting for worker stream (thinking / tools / text)…`
 				})
 			}
 		}, 1200)
 
-		const handleChunk = (chunkStr: string) => {
-			streamedBytes += chunkStr.length
+		const handlePiJsonChunk = (chunkStr: string) => {
 			const cleaned = stripVTControlCharacters(chunkStr)
-			const lines = cleaned
+			jsonBuf = consumeJsonl(jsonBuf + cleaned, (obj) => {
+				if (!obj || typeof obj !== 'object') return
+				const rec = obj as Record<string, unknown>
+				const summary = summarizeJsonEvent(rec)
+				if (summary.activity) {
+					emitActivity(summary.activity)
+					const kind =
+						rec.type === 'tool_execution_start' || rec.type === 'tool_execution_end'
+							? 'tool'
+							: summary.activity.startsWith('💭')
+								? 'thought'
+								: 'info'
+					this.logToScratchpad(instance, {
+						timestamp: Date.now(),
+						type: kind,
+						message: summary.activity
+					})
+				}
+				if (summary.assistantDelta) assembledAssistant += summary.assistantDelta
+				if (summary.assistantFinal) assembledAssistant = summary.assistantFinal
+			})
+		}
+
+		const handlePlainChunk = (chunkStr: string) => {
+			const cleaned = stripVTControlCharacters(chunkStr)
+			const line = cleaned
 				.split('\n')
 				.map((l) => l.trim())
-				.filter(Boolean)
-			const line = lines.pop()
-			if (line && line.length > 2) {
-				latestLine = line
-				const elapsedSec = Math.max(1, Math.floor((Date.now() - instance.startedAt) / 1000))
-				options.onProgress?.({
-					id: instance.id,
-					role: instance.role,
-					name: instance.name,
-					status: 'streaming',
-					currentActivity: `(${elapsedSec}s) ✍️ ${line.slice(0, 90)}`
-				})
-			}
+				.filter((l) => l.length > 2)
+				.pop()
+			if (line) emitActivity(`✍️ ${line.slice(0, 90)}`)
 		}
 
 		try {
@@ -554,15 +582,23 @@ export class SubagentManager {
 				piArgs,
 				cwd,
 				options.signal,
-				handleChunk,
+				handlePiJsonChunk,
 				600_000,
 				{ PI_SUBAGENT_WORKER: '1' },
 				instance
 			)
-			if (piResult.code === 0 && piResult.stdout) {
+			if (!assembledAssistant && piResult.stdout) {
+				consumeJsonl(`${piResult.stdout}\n`, (obj) => {
+					if (!obj || typeof obj !== 'object') return
+					const summary = summarizeJsonEvent(obj as Record<string, unknown>)
+					if (summary.assistantFinal) assembledAssistant = summary.assistantFinal
+				})
+			}
+			if (piResult.code === 0) {
+				const output = assembledAssistant.trim() || '(worker finished with no assistant text)'
 				return {
-					output: piResult.stdout,
-					tokensUsed: Math.max(150, Math.round(piResult.stdout.length / 4))
+					output,
+					tokensUsed: Math.max(150, Math.round(output.length / 4))
 				}
 			}
 
@@ -595,7 +631,7 @@ export class SubagentManager {
 					args,
 					cwd,
 					options.signal,
-					handleChunk,
+					handlePlainChunk,
 					600_000,
 					{},
 					instance
