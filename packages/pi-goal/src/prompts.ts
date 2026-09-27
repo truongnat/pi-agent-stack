@@ -25,15 +25,14 @@ export function buildContinuationPrompt(state: GoalState, note?: string): string
 ${escapedObjective}
 </objective>${noteSection}
 
-Instructions for this turn:
-1. Autonomous Execution: Continue executing the goal objective above step-by-step. Inspect, modify files, run commands, and execute tests.
-2. DO NOT Stop Prematurely: Finishing a single step or a planning turn is NOT goal completion. Continue immediately with the next pending task.
-3. Verification & Completion:
-   - Only when ALL checklist items and requirements are completely implemented and verified by running tests/builds, call:
-     \`update_goal({ status: "complete", reason: "<detailed summary of what was completed and verified>" })\`
-   - If genuinely blocked by an unsolvable external obstacle, call:
-     \`update_goal({ status: "blocked", reason: "<detailed blocker description>" })\`
-   - Otherwise, do NOT call update_goal; proceed directly with the next implementation or verification action.`
+Autonomous Execution Directives:
+1. Continuous Progress: Advance the goal step-by-step. Read files, write code, run commands, and execute tests.
+2. Self-Healing & Debugging: If a test fails, a compiler errors, or a command fails, diagnose the root cause and fix it immediately. Do NOT call \`update_goal(status: "blocked")\` for solvable bugs.
+3. Multi-Step Tasks: Completing one subtask or a planning step is NOT goal completion. Proceed immediately to the next task in the plan.
+4. Goal Completion:
+   - Call \`update_goal({ status: "complete", reason: "<detailed proof & verification summary>" })\` ONLY after all requirements are fully implemented and verified via passing test/build commands.
+   - If genuinely blocked by an impossible external dependency (missing human credentials), explain clearly and call \`update_goal({ status: "blocked", reason: "..." })\`.
+   - Otherwise, do NOT call update_goal; execute the next coding/verification action directly.`
 }
 
 /**

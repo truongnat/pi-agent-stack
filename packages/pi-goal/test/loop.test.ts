@@ -131,25 +131,71 @@ test('evaluateStopRules triggers wrap-up turn when token budget is reached', () 
 	assert.equal(decision.newStatus, 'budget_limited')
 })
 
-test('evaluateStopRules pauses when turn cap is reached', () => {
-	const goal = createGoal('Long running task')
-	goal.turns = 30
+test('evaluateStopRules auto-recovers on transient turn errors before maxConsecutiveErrors', () => {
+	const goal = createGoal('Refactor system')
+	goal.consecutiveErrors = 1
 
-	const decision = evaluateStopRules(
-		goal,
-		{
-			inputTokens: 1000,
-			outputTokens: 500,
-			elapsedMs: 1000,
-			hasText: true,
-			hasThinking: false,
-			hasToolCalls: true
-		},
-		undefined,
-		{ maxTurns: 30 }
-	)
+	const decision = evaluateStopRules(goal, {
+		inputTokens: 100,
+		outputTokens: 0,
+		elapsedMs: 100,
+		hasText: false,
+		hasThinking: false,
+		hasToolCalls: false,
+		error: 'API 503 Service Unavailable'
+	})
 
-	assert.equal(decision.shouldStop, true)
-	assert.equal(decision.newStatus, 'paused')
-	assert.match(decision.reason!, /Turn cap reached/)
+	assert.equal(decision.shouldStop, false)
+	assert.match(decision.reason!, /Turn error encountered \(1\/3\)/)
+
+	// After 3 consecutive errors, it should block
+	goal.consecutiveErrors = 3
+	const finalDecision = evaluateStopRules(goal, {
+		inputTokens: 100,
+		outputTokens: 0,
+		elapsedMs: 100,
+		hasText: false,
+		hasThinking: false,
+		hasToolCalls: false,
+		error: 'API 503 Service Unavailable'
+	})
+
+	assert.equal(finalDecision.shouldStop, true)
+	assert.equal(finalDecision.newStatus, 'blocked')
+	assert.match(finalDecision.reason!, /Turn failed after 3 consecutive errors/)
+})
+
+test('evaluateStopRules gives grace period for self-reported blockers before halting', () => {
+	const goal = createGoal('Fix failing test')
+	goal.sameBlockerTurns = 1
+
+	const decision1 = evaluateStopRules(goal, {
+		inputTokens: 500,
+		outputTokens: 200,
+		elapsedMs: 1000,
+		hasText: true,
+		hasThinking: false,
+		hasToolCalls: true,
+		selfReportedStatus: 'blocked',
+		selfReportedReason: 'TypeScript compilation error in auth.ts'
+	})
+
+	assert.equal(decision1.shouldStop, false)
+	assert.match(decision1.reason!, /Attempting alternative approach \(attempt 1\/3\)/)
+
+	// After 3 consecutive blocker turns with same reason, it stops
+	goal.sameBlockerTurns = 3
+	const decision2 = evaluateStopRules(goal, {
+		inputTokens: 500,
+		outputTokens: 200,
+		elapsedMs: 1000,
+		hasText: true,
+		hasThinking: false,
+		hasToolCalls: true,
+		selfReportedStatus: 'blocked',
+		selfReportedReason: 'TypeScript compilation error in auth.ts'
+	})
+
+	assert.equal(decision2.shouldStop, true)
+	assert.equal(decision2.newStatus, 'blocked')
 })

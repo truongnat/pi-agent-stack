@@ -10,6 +10,7 @@ export interface GoalState {
 	turns: number
 	emptyTurns: number
 	sameBlockerTurns: number
+	consecutiveErrors?: number
 	lastReason?: string
 	lastBlocker?: string
 	createdAt: number
@@ -21,6 +22,7 @@ export interface GoalConfig {
 	maxObjectiveLength?: number
 	maxEmptyTurns?: number
 	maxBlockerTurns?: number
+	maxConsecutiveErrors?: number
 }
 
 export interface TurnMetrics {

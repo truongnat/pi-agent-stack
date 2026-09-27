@@ -4,7 +4,8 @@ export const DEFAULT_CONFIG: Required<GoalConfig> = {
 	maxTurns: 100,
 	maxObjectiveLength: 4000,
 	maxEmptyTurns: 3,
-	maxBlockerTurns: 3
+	maxBlockerTurns: 3,
+	maxConsecutiveErrors: 3
 }
 
 export function applyTurnMetrics(state: GoalState, metrics: TurnMetrics): GoalState {
@@ -14,6 +15,7 @@ export function applyTurnMetrics(state: GoalState, metrics: TurnMetrics): GoalSt
 
 	const isEmpty = !metrics.hasText && !metrics.hasThinking && !metrics.hasToolCalls
 	const emptyTurns = isEmpty ? state.emptyTurns + 1 : 0
+	const consecutiveErrors = metrics.error ? (state.consecutiveErrors || 0) + 1 : 0
 
 	let sameBlockerTurns = state.sameBlockerTurns
 	let lastBlocker = state.lastBlocker
@@ -37,6 +39,7 @@ export function applyTurnMetrics(state: GoalState, metrics: TurnMetrics): GoalSt
 		turns: newTurns,
 		emptyTurns,
 		sameBlockerTurns,
+		consecutiveErrors,
 		lastBlocker,
 		updatedAt: Date.now()
 	}
@@ -68,12 +71,18 @@ export function evaluateStopRules(
 		}
 	}
 
-	// 3. Model reported blocked
+	// 3. Model reported blocked (allow grace attempts for self-healing)
 	if (metrics.selfReportedStatus === 'blocked') {
+		if (state.sameBlockerTurns >= effectiveConfig.maxBlockerTurns) {
+			return {
+				shouldStop: true,
+				newStatus: 'blocked',
+				reason: metrics.selfReportedReason || 'Model reported persistent blocker'
+			}
+		}
 		return {
-			shouldStop: true,
-			newStatus: 'blocked',
-			reason: metrics.selfReportedReason || 'Model reported blocked'
+			shouldStop: false,
+			reason: `Obstacle reported: "${metrics.selfReportedReason}". Attempting alternative approach (attempt ${state.sameBlockerTurns}/${effectiveConfig.maxBlockerTurns})...`
 		}
 	}
 
@@ -103,16 +112,23 @@ export function evaluateStopRules(
 		}
 	}
 
-	// 6. Fatal turn error
+	// 6. Turn error (auto-recover up to maxConsecutiveErrors before halting)
 	if (metrics.error) {
+		const maxErrors = effectiveConfig.maxConsecutiveErrors
+		if ((state.consecutiveErrors || 0) >= maxErrors) {
+			return {
+				shouldStop: true,
+				newStatus: 'blocked',
+				reason: `Turn failed after ${state.consecutiveErrors} consecutive errors: ${metrics.error}`
+			}
+		}
 		return {
-			shouldStop: true,
-			newStatus: 'blocked',
-			reason: `Turn failed with error: ${metrics.error}`
+			shouldStop: false,
+			reason: `Turn error encountered (${state.consecutiveErrors}/${maxErrors}): ${metrics.error}. Attempting automatic recovery...`
 		}
 	}
 
-	// 7. No progress for 3 consecutive turns
+	// 7. No progress for maxEmptyTurns consecutive turns
 	if (state.emptyTurns >= effectiveConfig.maxEmptyTurns) {
 		return {
 			shouldStop: true,

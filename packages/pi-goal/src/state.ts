@@ -53,6 +53,7 @@ export function createGoal(
 		turns: 0,
 		emptyTurns: 0,
 		sameBlockerTurns: 0,
+		consecutiveErrors: 0,
 		createdAt: now,
 		updatedAt: now
 	}

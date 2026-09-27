@@ -302,6 +302,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 			})
 			saveState(currentGoal)
 			updateStatus(ctx)
+			lastMetrics = null
 
 			if (ctx.hasUI) {
 				const isComplete = finalStatus === 'complete'
@@ -329,6 +330,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 			updateStatus(ctx)
 			pendingWrapUp = true
 			isContinuationTurn = true
+			lastMetrics = null
 			if (ctx.hasUI) {
 				ctx.ui.notify(
 					`[Goal Turn ${currentGoal.turns}]: +${(metrics.inputTokens + metrics.outputTokens).toLocaleString()} tokens · Total Tokens: ${currentGoal.tokensUsed.toLocaleString()} (~${formatTokens(currentGoal.tokensUsed)})\n⚠️ Token budget reached. Starting final wrap-up turn...`,
@@ -339,7 +341,12 @@ export function createGoalExtension(pi: ExtensionAPI) {
 			return
 		}
 
-		// Continue goal loop
+		// Continue goal loop with decision reason if available
+		if (decision.reason && !lastEvaluatorNote) {
+			lastEvaluatorNote = decision.reason
+		}
+		lastMetrics = null
+
 		if (ctx.hasUI) {
 			const turnTokens = metrics.inputTokens + metrics.outputTokens
 			ctx.ui.notify(
@@ -418,7 +425,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 				return
 			}
 
-			if (input.startsWith('resume')) {
+			if (input.startsWith('resume') || input.startsWith('retry')) {
 				if (!currentGoal) {
 					sendGoalMessage(ctx, 'No goal to resume. Use `/goal <objective>` to create one.', {
 						action: 'resume'
@@ -427,6 +434,9 @@ export function createGoalExtension(pi: ExtensionAPI) {
 				}
 				currentGoal = updateGoalState(currentGoal, {
 					status: 'active',
+					sameBlockerTurns: 0,
+					consecutiveErrors: 0,
+					emptyTurns: 0,
 					lastReason: undefined
 				})
 				saveState(currentGoal)
