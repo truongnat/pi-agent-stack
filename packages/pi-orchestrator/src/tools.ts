@@ -173,6 +173,7 @@ export function createOrchestratorTools(manager: SubagentManager) {
 					name: string
 					status: string
 					currentActivity?: string
+					previewMarkdown?: string
 					startedAt: number
 					durationMs?: number
 				}
@@ -184,10 +185,12 @@ export function createOrchestratorTools(manager: SubagentManager) {
 					name: p.name,
 					status: p.status,
 					currentActivity: p.currentActivity,
+					previewMarkdown: p.previewMarkdown,
 					startedAt: Date.now()
 				}
 				existing.status = p.status
 				if (p.currentActivity) existing.currentActivity = p.currentActivity
+				if (p.previewMarkdown !== undefined) existing.previewMarkdown = p.previewMarkdown
 				if (p.status === 'completed' || p.status === 'failed' || p.status === 'killed') {
 					existing.durationMs = p.elapsedMs ?? Date.now() - existing.startedAt
 				}
@@ -286,23 +289,41 @@ export function createOrchestratorTools(manager: SubagentManager) {
 				const completedCount = tasks.filter((t) => t.status === 'completed').length
 				const total = tasks.length || 1
 				const badge = theme.fg('accent', theme.bold(`[ ⚡ EXECUTING ${activeCount}/${total} ]`))
-				const lines = [
-					`${badge} ${theme.bold('Multi-Agent Supervisor')} ${theme.fg('muted', `(${rawDetails.parallel ? 'parallel' : 'sequential'} · ${completedCount} finished)`)}`,
-					...tasks.map((t) => {
-						const badgeStr = getColoredRoleBadge(t.role, theme)
-						const statusSymbol =
-							t.status === 'completed'
-								? theme.fg('success', '✓')
-								: t.status === 'failed'
-									? theme.fg('error', '✖')
-									: theme.fg('warning', '▶')
-						const activity = t.currentActivity
-							? theme.fg('dim', `\n     ↳ ${t.currentActivity}`)
-							: ''
-						return `  ${statusSymbol} ${badgeStr} ${theme.bold(t.name)}${activity}`
-					})
-				]
-				return new Text(lines.join('\n'), 0, 0)
+				const mdTheme = getMarkdownTheme()
+				const box = new Box(0, 0, (t) => theme.bg('customMessageBg', t))
+				box.addChild(
+					new Text(
+						`${badge} ${theme.bold('Multi-Agent Supervisor')} ${theme.fg('muted', `(${rawDetails.parallel ? 'parallel' : 'sequential'} · ${completedCount} finished)`)}`,
+						0,
+						0
+					)
+				)
+				for (const t of tasks) {
+					const badgeStr = getColoredRoleBadge(t.role, theme)
+					const statusSymbol =
+						t.status === 'completed'
+							? theme.fg('success', '✓')
+							: t.status === 'failed'
+								? theme.fg('error', '✖')
+								: theme.fg('warning', '▶')
+					box.addChild(new Text(`  ${statusSymbol} ${badgeStr} ${theme.bold(t.name)}`, 0, 0))
+					if (t.currentActivity) {
+						box.addChild(new Markdown(String(t.currentActivity), 4, 0, mdTheme))
+					}
+					if (t.previewMarkdown?.trim()) {
+						let preview = String(t.previewMarkdown).trim()
+						if (!options.expanded) {
+							const lines = preview.split('\n')
+							if (lines.length > 10) {
+								preview =
+									lines.slice(0, 10).join('\n') +
+									`\n\n*… ${lines.length - 10} more lines (expand)*`
+							}
+						}
+						box.addChild(new Markdown(preview, 4, 0, mdTheme))
+					}
+				}
+				return box
 			}
 
 			// 2. Completed State: Lay out each subagent's actual work, findings & thoughts!

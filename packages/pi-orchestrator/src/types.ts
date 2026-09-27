@@ -65,6 +65,8 @@ export interface SubagentProgressEvent {
 	name: string
 	status: 'running' | 'streaming' | 'completed' | 'failed' | 'killed'
 	currentActivity?: string
+	/** Streaming assistant markdown so the TUI can render it live. */
+	previewMarkdown?: string
 	tokensUsed?: number
 	elapsedMs?: number
 }

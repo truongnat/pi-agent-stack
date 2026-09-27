@@ -41,6 +41,11 @@ export function describeIdleTimeout(opts: {
 	return `${base}. Last worker output: ${tail}`
 }
 
+export function formatActivityMarkdown(elapsedSec: number, trail: string[]): string {
+	const items = trail.map((line) => `- ${line}`).join('\n')
+	return `*${elapsedSec}s*\n\n${items}`
+}
+
 export class SubagentManager {
 	private instances = new Map<string, SubagentInstance>()
 	private dispatchedProviderCounts: Record<string, number> = {}
@@ -516,7 +521,8 @@ export class SubagentManager {
 				role: instance.role,
 				name: instance.name,
 				status: 'streaming',
-				currentActivity: `(${elapsedSec}s)\n         ${activityTrail.join('\n         ')}`
+				currentActivity: formatActivityMarkdown(elapsedSec, activityTrail),
+				previewMarkdown: assembledAssistant
 			})
 		}
 
@@ -528,7 +534,8 @@ export class SubagentManager {
 					role: instance.role,
 					name: instance.name,
 					status: 'streaming',
-					currentActivity: `(${elapsedSec}s)\n         ${activityTrail.join('\n         ')}`
+					currentActivity: formatActivityMarkdown(elapsedSec, activityTrail),
+					previewMarkdown: assembledAssistant
 				})
 			} else {
 				options.onProgress?.({
@@ -536,7 +543,9 @@ export class SubagentManager {
 					role: instance.role,
 					name: instance.name,
 					status: 'running',
-					currentActivity: `(${elapsedSec}s) ⏳ waiting for worker stream (thinking / tools / text)…`
+					currentActivity: formatActivityMarkdown(elapsedSec, [
+						'⏳ waiting for worker stream (thinking / tools / text)…'
+					])
 				})
 			}
 		}, 1200)

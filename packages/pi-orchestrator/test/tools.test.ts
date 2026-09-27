@@ -3,6 +3,24 @@ import test from 'node:test'
 import { SubagentManager } from '../src/manager.ts'
 import { createOrchestratorTools } from '../src/tools.ts'
 
+function flattenComponent(c: any): string {
+	if (!c) return ''
+	const bits: string[] = []
+	if (typeof c.text === 'string') bits.push(c.text)
+	if (typeof c.render === 'function') {
+		try {
+			const lines = c.render(100)
+			if (Array.isArray(lines)) bits.push(lines.join('\n'))
+		} catch {
+			// ignore render failures in tests
+		}
+	}
+	if (Array.isArray(c.children)) {
+		for (const ch of c.children) bits.push(flattenComponent(ch))
+	}
+	return bits.join('\n')
+}
+
 test('invoke_subagent tool executes tasks and returns structured markdown artifact', async () => {
 	const manager = new SubagentManager({ guard: false })
 	const { invokeSubagentTool } = createOrchestratorTools(manager)
@@ -189,8 +207,9 @@ test('invoke_subagent renderCall and renderResult render clean TUI components wi
 		mockTheme
 	)
 	assert.ok(liveComp)
-	assert.match(liveComp.text, /EXECUTING/)
-	assert.match(liveComp.text, /Grep src\/auth/)
+	const liveText = flattenComponent(liveComp)
+	assert.match(liveText, /EXECUTING/)
+	assert.match(liveText, /Grep src\/auth/)
 
 	// 4. Result rendering (expanded with Markdown)
 	const expandedComp = (invokeSubagentTool as any).renderResult(
