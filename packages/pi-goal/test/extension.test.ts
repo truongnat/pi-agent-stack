@@ -7,6 +7,7 @@ function createMockPi() {
 	const listeners: Record<string, Function[]> = {}
 	const commands: Record<string, any> = {}
 	const tools: Record<string, any> = {}
+	const shortcuts: Record<string, any> = {}
 	const customEntries: any[] = []
 	const sentMessages: string[] = []
 
@@ -21,6 +22,15 @@ function createMockPi() {
 		registerTool(tool: any) {
 			tools[tool.name] = tool
 		},
+		registerShortcut(key: string, def: any) {
+			shortcuts[key] = def
+		},
+		registerMessageRenderer(_type: string, _renderer: any) {
+			// no-op in tests
+		},
+		registerEntryRenderer(_type: string, _renderer: any) {
+			// no-op in tests
+		},
 		appendEntry(type: string, data: any) {
 			customEntries.push({ type, data })
 		},
@@ -29,7 +39,7 @@ function createMockPi() {
 		}
 	} as unknown as ExtensionAPI
 
-	return { pi, listeners, commands, tools, customEntries, sentMessages }
+	return { pi, listeners, commands, tools, shortcuts, customEntries, sentMessages }
 }
 
 test('createGoalExtension registers tools and /goal command', () => {

@@ -139,7 +139,90 @@ export function createGoalExtension(pi: ExtensionAPI) {
 		})
 	}
 
+	// ── Option A: Ctrl+Enter keyboard shortcut ───────────────────────────────
+	// Explicit inject: user presses Ctrl+Enter to immediately push editor text
+	// into the running goal loop as a steer (mid-streaming inject).
+	// Ctrl+Shift+Enter queues it as a followUp (next-turn inject).
+	pi.registerShortcut('ctrl+enter', {
+		description: '💉 Inject editor text immediately into active goal loop (steer)',
+		handler: (ctx) => {
+			if (!currentGoal || currentGoal.status !== 'active') {
+				ctx.ui.notify('No active goal. Start one with /goal <objective>.', 'warning')
+				return
+			}
+			const text = ctx.ui.getEditorText().trim()
+			if (!text) {
+				ctx.ui.notify('Editor is empty — nothing to inject.', 'warning')
+				return
+			}
+			ctx.ui.setEditorText('')
+			isContinuationTurn = true
+			lastEvaluatorNote = `[Ctrl+Enter inject]: ${text}`
+			pi.sendUserMessage(buildInjectPrompt(currentGoal, text), {
+				deliverAs: 'steer'
+			})
+			sendGoalMessage(
+				ctx,
+				`💉 Ctrl+Enter → injected into goal loop (steer): "${text.slice(0, 80)}${text.length > 80 ? '…' : ''}"`,
+				{ action: 'inject', via: 'ctrl+enter' }
+			)
+		}
+	})
+
+	pi.registerShortcut('ctrl+shift+enter', {
+		description: '💉 Inject editor text into goal loop as follow-up (next turn)',
+		handler: (ctx) => {
+			if (!currentGoal || currentGoal.status !== 'active') {
+				ctx.ui.notify('No active goal. Start one with /goal <objective>.', 'warning')
+				return
+			}
+			const text = ctx.ui.getEditorText().trim()
+			if (!text) {
+				ctx.ui.notify('Editor is empty — nothing to inject.', 'warning')
+				return
+			}
+			ctx.ui.setEditorText('')
+			isContinuationTurn = true
+			lastEvaluatorNote = `[Ctrl+Shift+Enter inject — next turn]: ${text}`
+			pi.sendUserMessage(buildInjectPrompt(currentGoal, text), {
+				deliverAs: 'followUp'
+			})
+			sendGoalMessage(
+				ctx,
+				`💉 Ctrl+Shift+Enter → queued for next turn: "${text.slice(0, 80)}${text.length > 80 ? '…' : ''}"`,
+				{ action: 'inject', via: 'ctrl+shift+enter' }
+			)
+		}
+	})
+
 	// 2. Lifecycle Hooks
+
+	// ── Option B: InputEvent intercept ──────────────────────────────────────
+	// When the goal loop is active and the user sends a message that will be
+	// delivered into the *current* streaming turn (streamingBehavior === 'steer'),
+	// we transparently wrap the raw text in a buildInjectPrompt envelope so the
+	// agent sees proper goal context around it — the user just types normally.
+	//
+	// When the agent is idle (between autonomous turns), messages arrive with no
+	// streamingBehavior; those are handled by the before_agent_start reminder.
+	// We leave those untransformed here and let the reminder hook do its work.
+	pi.on('input', (event, ctx) => {
+		if (!currentGoal || currentGoal.status !== 'active') return
+		if (event.source !== 'interactive') return
+		if (!event.text.trim()) return
+
+		const isStreamingSteer = !ctx.isIdle() && event.streamingBehavior === 'steer'
+		if (!isStreamingSteer) return
+
+		// Agent is running right now: wrap text as an inject prompt so the model
+		// gets proper context (objective + turn counter) alongside the user text.
+		lastEvaluatorNote = `[User mid-stream inject]: ${event.text.trim()}`
+		return {
+			action: 'transform' as const,
+			text: buildInjectPrompt(currentGoal, event.text.trim())
+		}
+	})
+
 	pi.on('session_start', (event: any, ctx) => {
 		const entries = event?.entries || []
 		for (let i = entries.length - 1; i >= 0; i--) {
