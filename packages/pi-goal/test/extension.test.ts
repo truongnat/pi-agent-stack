@@ -10,6 +10,7 @@ function createMockPi() {
 	const shortcuts: Record<string, any> = {}
 	const customEntries: any[] = []
 	const sentMessages: string[] = []
+	const sentOptions: Array<{ deliverAs?: string } | undefined> = []
 
 	const pi = {
 		on(event: string, handler: Function) {
@@ -34,12 +35,13 @@ function createMockPi() {
 		appendEntry(type: string, data: any) {
 			customEntries.push({ type, data })
 		},
-		sendUserMessage(msg: string) {
+		sendUserMessage(msg: string, opts?: { deliverAs?: string }) {
 			sentMessages.push(msg)
+			sentOptions.push(opts)
 		}
 	} as unknown as ExtensionAPI
 
-	return { pi, listeners, commands, tools, shortcuts, customEntries, sentMessages }
+	return { pi, listeners, commands, tools, shortcuts, customEntries, sentMessages, sentOptions }
 }
 
 test('createGoalExtension registers tools and /goal command', () => {
@@ -106,4 +108,28 @@ test('createGoalExtension lifecycle: start goal, steering prompt, complete stop'
 	const finishedGoal = ext.getGoal()
 	assert.equal(finishedGoal?.status, 'complete')
 	assert.equal(finishedGoal?.lastReason, 'Payment tests pass.')
+})
+
+test('sendLoopMessage queues followUp/steer when agent is not idle (reload overlap)', async () => {
+	const mock = createMockPi()
+	const ext = createGoalExtension(mock.pi)
+	const busyCtx = {
+		hasUI: true,
+		isIdle: () => false,
+		ui: {
+			setStatus: () => {},
+			notify: () => {},
+			select: async () => 'Cancel',
+			input: async () => '',
+			confirm: async () => true
+		}
+	}
+
+	await mock.commands.goal.handler('Keep shipping', busyCtx)
+	assert.equal(mock.sentOptions.at(-1)?.deliverAs, 'followUp')
+
+	const injectCtx = { ...busyCtx }
+	await mock.commands.goal.handler('inject mid-stream note', injectCtx)
+	assert.equal(mock.sentOptions.at(-1)?.deliverAs, 'steer')
+	assert.ok(ext.getGoal())
 })

@@ -56,6 +56,27 @@ export function createGoalExtension(pi: ExtensionAPI) {
 		}
 	}
 
+	/** Start a turn when idle; queue steer/followUp when the agent is already running (reload, overlap). */
+	function sendLoopMessage(
+		ctx: ExtensionContext | undefined,
+		text: string,
+		whenBusy: 'steer' | 'followUp' = 'followUp'
+	) {
+		const idle = !ctx || typeof ctx.isIdle !== 'function' || ctx.isIdle()
+		const result = idle
+			? pi.sendUserMessage(text)
+			: pi.sendUserMessage(text, { deliverAs: whenBusy })
+		const pending = result as Promise<void> | void
+		if (pending && typeof pending.catch === 'function') {
+			pending.catch((err: unknown) => {
+				const msg = err instanceof Error ? err.message : String(err)
+				if (/already processing/i.test(msg)) {
+					void pi.sendUserMessage(text, { deliverAs: whenBusy })
+				}
+			})
+		}
+	}
+
 	// 1. Register Tools
 	const { getGoalTool, updateGoalTool } = createGoalTools({
 		getGoal: () => currentGoal,
@@ -421,7 +442,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 					'warning'
 				)
 			}
-			pi.sendUserMessage('Complete the wrap-up summary for the token budget limit.')
+			sendLoopMessage(ctx, 'Complete the wrap-up summary for the token budget limit.', 'followUp')
 			return
 		}
 
@@ -439,7 +460,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 			)
 		}
 		isContinuationTurn = true
-		pi.sendUserMessage(`Continue the goal (turn ${currentGoal.turns + 1}).`)
+		sendLoopMessage(ctx, `Continue the goal (turn ${currentGoal.turns + 1}).`, 'followUp')
 	})
 
 	function sendGoalMessage(
@@ -531,7 +552,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 					{ action: 'resume' }
 				)
 				isContinuationTurn = true
-				pi.sendUserMessage(`Resume goal (turn ${currentGoal.turns + 1}).`)
+				sendLoopMessage(ctx, `Resume goal (turn ${currentGoal.turns + 1}).`, 'followUp')
 				return
 			}
 
@@ -565,7 +586,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 				// Carry the injection text as an evaluator note so the steering block also sees it
 				lastEvaluatorNote = `[User Injection]: ${msg}`
 				// Send the full inject prompt as the user message that triggers the next agent turn
-				pi.sendUserMessage(buildInjectPrompt(currentGoal, msg))
+				sendLoopMessage(ctx, buildInjectPrompt(currentGoal, msg), 'steer')
 				sendGoalMessage(ctx, `💉 Injected into goal loop: "${msg}"`, { action: 'inject' })
 				return
 			}
@@ -582,7 +603,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 					const old = currentGoal.objective
 					currentGoal = updateGoalState(currentGoal, { objective: newObjective })
 					if (isContinuationTurn) {
-						pi.sendUserMessage(buildObjectiveUpdatedPrompt(old, newObjective))
+						sendLoopMessage(ctx, buildObjectiveUpdatedPrompt(old, newObjective), 'steer')
 					}
 				}
 				saveState(currentGoal)
@@ -624,7 +645,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 				updateStatus(ctx)
 				sendGoalMessage(ctx, `🎯 Goal initiated: "${currentGoal.objective}"`, { action: 'start' })
 				isContinuationTurn = true
-				pi.sendUserMessage(`Start working on goal: "${currentGoal.objective}".`)
+				sendLoopMessage(ctx, `Start working on goal: "${currentGoal.objective}".`, 'followUp')
 				return
 			}
 
@@ -646,7 +667,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 					updateStatus(ctx)
 					sendGoalMessage(ctx, `🎯 Goal initiated: "${currentGoal.objective}"`, { action: 'start' })
 					isContinuationTurn = true
-					pi.sendUserMessage(`Start working on goal: "${currentGoal.objective}".`)
+					sendLoopMessage(ctx, `Start working on goal: "${currentGoal.objective}".`, 'followUp')
 				}
 				return
 			}
@@ -689,7 +710,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 				updateStatus(ctx)
 				sendGoalMessage(ctx, '▶️ Resuming goal execution.', { action: 'resume' })
 				isContinuationTurn = true
-				pi.sendUserMessage(`Resume goal (turn ${currentGoal.turns + 1}).`)
+				sendLoopMessage(ctx, `Resume goal (turn ${currentGoal.turns + 1}).`, 'followUp')
 			} else if (picked?.startsWith('📊 View')) {
 				const details = [
 					`### 🎯 Goal Status`,
