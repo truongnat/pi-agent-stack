@@ -29,6 +29,9 @@
 			"./index.ts"
 		]
 	},
+	"dependencies": {
+		"pi-native-bridge": "workspace:*"
+	},
 	"devDependencies": {
 		"@earendil-works/pi-coding-agent": "^0.87.1",
 		"@ianvs/prettier-plugin-sort-imports": "4.7.1",

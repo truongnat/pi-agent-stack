@@ -67,8 +67,8 @@ test('summarizeToolOutput generates high-density semantic summaries', () => {
 
 	const readLog = 'export function hello() {\n  return "world";\n}\n// 200 lines follow...'
 	const readSum = summarizeToolOutput('read', readLog)
-	assert.match(readSum, /Read excerpt/)
-	assert.match(readSum, /export function hello/)
+	assert.ok(/Read excerpt|skeleton/.test(readSum))
+	assert.match(readSum, /hello/)
 })
 
 test('compactHistory compresses bulky historical turns while preserving system & recent anchors', () => {

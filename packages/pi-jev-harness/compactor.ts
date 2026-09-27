@@ -8,6 +8,7 @@
  * 4. Spill-backed Lossless Storage: Retains raw truncated outputs on disk for deterministic recovery.
  */
 import { basename } from 'node:path'
+import { skeletonizeCode } from 'pi-native-bridge'
 
 import { spill, spillHint } from './spill.ts'
 
@@ -78,6 +79,13 @@ export function verifyCachePrefixIntegrity(systemPrompt: string): {
  * Prunes code or diff outputs cleanly at natural structural boundaries
  * (diff hunk markers, class/function blocks, or clean newlines) rather than arbitrary byte boundaries.
  */
+function guessSourceLanguage(text: string): string | null {
+	if (/\b(fn |pub struct |impl |mod )/.test(text)) return 'rust'
+	if (/\bdef |class .+:/.test(text) && !text.includes('function ')) return 'python'
+	if (/\b(export |function |const |interface |type )/.test(text)) return 'typescript'
+	return null
+}
+
 export function pruneBySyntaxBoundaries(text: string, maxChars: number): string {
 	if (text.length <= maxChars) return text
 
@@ -133,8 +141,19 @@ export function summarizeToolOutput(toolName: string, text: string): string {
 		}
 	}
 
-	// File read summary
-	if (toolName === 'read' || toolName === 'view_file') {
+	// File read summary — Tree-Sitter skeleton when it actually shrinks the body
+	if (toolName === 'read' || toolName === 'view_file' || toolName === 'read_file') {
+		const lang = guessSourceLanguage(trimmed)
+		if (lang && trimmed.length >= 400) {
+			try {
+				const skel = skeletonizeCode(trimmed, lang)
+				if (skel.reduction_percentage >= 15 && skel.skeleton.trim()) {
+					return `[ 🗜 Compactor: skeleton −${skel.reduction_percentage}%]\n${skel.skeleton}`
+				}
+			} catch {
+				// fall through to excerpt
+			}
+		}
 		const firstLine = lines[0] || 'file content'
 		return `[ 🗜 Compactor: Read excerpt (${lines.length} lines): ${firstLine.slice(0, 100)} ]`
 	}

@@ -8,7 +8,7 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
-import { trigramSimilarity } from 'pi-native-bridge'
+import { rankDocuments, trigramSimilarity } from 'pi-native-bridge'
 
 export interface LessonEntry {
 	id: string
@@ -180,8 +180,30 @@ export class LessonStore {
 
 		const now = Date.now()
 
+		const nativeRank = new Map<string, number>()
+		try {
+			for (const row of rankDocuments(
+				promptLower,
+				lessons.map((lesson) => ({
+					id: lesson.id,
+					text: [lesson.taskSummary, lesson.ruleLearned, lesson.successfulStrategy]
+						.filter(Boolean)
+						.join(' '),
+					tags: lesson.tags,
+					utility: lesson.confidence ?? 0
+				})),
+				Math.max(limit * 4, 8)
+			)) {
+				nativeRank.set(row.id, row.score)
+			}
+		} catch {
+			// ranking is optional
+		}
+
 		const scored = lessons.map((lesson) => {
 			let score = 0
+			const nr = nativeRank.get(lesson.id) ?? 0
+			if (nr > 0.22) score += nr * 6
 			const haystackText = [
 				lesson.taskSummary,
 				lesson.ruleLearned,
