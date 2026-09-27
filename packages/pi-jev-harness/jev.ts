@@ -254,9 +254,29 @@ export const advisorQuestions: Record<string, Question> = {
 
 export const THRESHOLDS = {
 	toolNeeded: 0.35, // keep a tool if Jev gives it at least this much
-	prefetchFile: 0.6, // read a candidate file at or above this
+	prefetchFile: 0.55, // SWE-agent ACI: slightly easier second-file prefetch
 	dropResult: 0.3, // drop a result when relevance is below this and keep says drop
 	stuck: 0.7,
 	secrets: 0.7,
 	askConfidence: 0.5 // hard_to_reverse or destructive needs this much confidence to prompt
+}
+
+export type ThresholdConfig = Partial<{
+	toolNeeded: number
+	prefetchFile: number
+	dropResult: number
+	stuck: number
+	secrets: number
+	askConfidence: number
+}>
+
+/** File-tunable academic knobs. Values outside [0, 1] are ignored. */
+export function applyThresholdOverrides(over?: ThresholdConfig): void {
+	if (!over) return
+	for (const key of Object.keys(THRESHOLDS) as (keyof typeof THRESHOLDS)[]) {
+		const value = over[key]
+		if (typeof value === 'number' && value >= 0 && value <= 1) {
+			THRESHOLDS[key] = value
+		}
+	}
 }

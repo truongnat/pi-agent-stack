@@ -36,6 +36,7 @@ export type Config = {
 	advisorMaxTokens: number
 	advisorSkills: boolean
 	advisorVerification: boolean
+	thresholds?: import('./jev.ts').ThresholdConfig
 }
 
 export type Stats = {

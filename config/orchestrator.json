@@ -1,5 +1,8 @@
 {
 	"enabled": true,
 	"guard": true,
-	"minProvidersRequired": 2
+	"alwaysOrchestrate": true,
+	"minProvidersRequired": 2,
+	"maxConcurrentSubagents": 3,
+	"maxScratchpadsToKeep": 50
 }

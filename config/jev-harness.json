@@ -5,9 +5,9 @@
 	"trim": true,
 	"loop": true,
 	"guard": true,
-	"prefetchFiles": 1,
-	"prefetchLines": 80,
-	"prefetchMaxCandidates": 20,
+	"prefetchFiles": 2,
+	"prefetchLines": 120,
+	"prefetchMaxCandidates": 24,
 	"trimMinChars": 6000,
 	"keepHeadChars": 2000,
 	"timeoutMs": 3000,
@@ -17,12 +17,20 @@
 	"thinkingSwitchConfidence": 0.75,
 	"routeMinHiddenTools": 2,
 	"routeMinSchemaChars": 4500,
-	"compactionReserveTokens": 16384,
+	"compactionReserveTokens": 32768,
 	"subscriptionRouting": true,
 	"subscriptionMaxLatencyMs": 20000,
 	"subscriptionStatusTtlMs": 300000,
 	"advisor": true,
-	"advisorMaxTokens": 150,
+	"advisorMaxTokens": 280,
 	"advisorSkills": true,
-	"advisorVerification": true
+	"advisorVerification": true,
+	"thresholds": {
+		"toolNeeded": 0.35,
+		"prefetchFile": 0.55,
+		"dropResult": 0.3,
+		"stuck": 0.7,
+		"secrets": 0.7,
+		"askConfidence": 0.5
+	}
 }

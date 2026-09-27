@@ -9,6 +9,7 @@ import {
 } from './advisor.ts'
 import { emptyStats } from './index.ts'
 import { scaleThinkingForTurn } from './model-route.ts'
+import { applyThresholdOverrides, THRESHOLDS } from './jev.ts'
 import { scanRepoMap } from './repomap.ts'
 import { onBeforeAgentStart } from './route.ts'
 import { isDangerousSecretAction, isSafeProjectCommand } from './tools.ts'
@@ -221,6 +222,14 @@ test('onBeforeAgentStart injects advisor briefing into transient tail message to
 	assert.equal(res.message.display, false)
 	assert.ok(res.message.content.includes('[Harness Advisor Briefing]'))
 	assert.ok(res.message.content.includes('Bugfix / Regression Resolution'))
+})
+
+test('applyThresholdOverrides clamps academic knobs from config', () => {
+	const before = THRESHOLDS.prefetchFile
+	applyThresholdOverrides({ prefetchFile: 0.4, stuck: 9 })
+	assert.equal(THRESHOLDS.prefetchFile, 0.4)
+	assert.equal(THRESHOLDS.stuck, 0.7)
+	applyThresholdOverrides({ prefetchFile: before })
 })
 
 test('scanRepoMap detects packages and frameworks in workspace', () => {

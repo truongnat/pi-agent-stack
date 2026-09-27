@@ -21,7 +21,7 @@ import { Box, Markdown, Text } from '@earendil-works/pi-tui'
 
 import { generateAdvisorBriefing, type AdvisorBriefingResult } from './advisor.ts'
 import { compactHistory, verifyCachePrefixIntegrity } from './compactor.ts'
-import { ask, choiceOf, goalQuestions, noulOf } from './jev.ts'
+import { applyThresholdOverrides, ask, choiceOf, goalQuestions, noulOf } from './jev.ts'
 import { onBeforeAgentStart } from './route.ts'
 import { onToolCall, onToolResult, withReminder } from './tools.ts'
 import { active, type Config, type Harness, type Stats } from './types.ts'
@@ -33,8 +33,8 @@ const DEFAULTS: Config = {
 	trim: true,
 	loop: true,
 	guard: true,
-	prefetchFiles: 1,
-	prefetchLines: 80,
+	prefetchFiles: 2,
+	prefetchLines: 120,
 	trimMinChars: 3000,
 	keepHeadChars: 1500,
 	timeoutMs: 3000,
@@ -45,14 +45,14 @@ const DEFAULTS: Config = {
 	routeMinHiddenTools: 2,
 	routeMinSchemaChars: 4500,
 	prefetchMaxCandidates: 20,
-	compactionReserveTokens: 16384,
+	compactionReserveTokens: 32768,
 	contextCompaction: true,
 	compactThresholdChars: 24_000,
 	subscriptionRouting: true,
 	subscriptionMaxLatencyMs: 20_000,
 	subscriptionStatusTtlMs: 5 * 60_000,
 	advisor: true,
-	advisorMaxTokens: 150,
+	advisorMaxTokens: 280,
 	advisorSkills: true,
 	advisorVerification: true
 }
@@ -67,7 +67,9 @@ function loadConfig(): Config {
 	try {
 		// SAFETY: the user's own settings file; unknown keys are harmless and missing ones fall back to DEFAULTS.
 		const fromFile = JSON.parse(readFileSync(CONFIG_FILE, 'utf8')) as Partial<Config>
-		return { ...DEFAULTS, ...fromFile }
+		const merged = { ...DEFAULTS, ...fromFile }
+		applyThresholdOverrides(merged.thresholds)
+		return merged
 	} catch {
 		// No config file, or an unreadable one: run with defaults.
 		return { ...DEFAULTS }

@@ -31,7 +31,14 @@
 - **Zero Foreign Drift**: Absolutely NEVER output responses, summaries, analysis, plans, or subagent orchestrations in unexpected foreign languages (such as Mongolian, Russian, Cyrillic, etc.) unless explicitly instructed by the user.
 - **Handoffs & Synthesis**: Keep all synthesized reports, bug analysis, plans, checklists, and answers strictly in Vietnamese (or English as requested).
 
-## 6. End-to-End Action & Implementation Mandate (Never Stall at Analysis)
+## 6. Academic ACI (context as working memory)
+- Keep the **recency window** usable: prefer the last few turns and a small number of prefetched files at the **end** of context. Do not dump whole files or long logs into the middle of the prompt.
+- File views stay **~100–120 lines** (SWE-agent ACI). Use `grep`/`find` with caps; skeletonize bulky reads via DCP.
+- **Single writer**: one coding agent edits a file at a time. Parallel subagents are for research/test/review, not two coders on the same path.
+- Cap live subagents (default 3). If a worker is silent, rotate model; do not spawn more of the same.
+- Compact / DCP **pages** old tool dumps out; do not re-read the same file dozens of times after a subagent already reported it.
+
+## 7. End-to-End Action & Implementation Mandate (Never Stall at Analysis)
 - **Action over Passive Planning**: When the user asks to fix, handle, or implement something (e.g. "xử lý", "fix", "sửa", "làm", "implement", "tạo"), you MUST carry out the full implementation to completion.
 - **3-Phase Lifecycle**:
   1. *Phase 1 (Investigate)*: Dispatch `researcher`/`debugger` to locate root causes and files.
