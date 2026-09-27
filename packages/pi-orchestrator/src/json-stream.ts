@@ -37,30 +37,20 @@ export function summarizeJsonEvent(evt: Record<string, unknown>): {
 		const inner = evt.assistantMessageEvent as Record<string, unknown> | undefined
 		if (!inner || typeof inner.type !== 'string') return {}
 		switch (inner.type) {
-			case 'thinking_start':
-				return { activity: '💭 thinking…' }
-			case 'thinking_delta':
-				return {
-					activity: `💭 ${clip(String(inner.delta ?? ''), 80)}`
-				}
-			case 'thinking_end':
-				return { activity: '💭 thinking done' }
+			case 'thinking_delta': {
+				const delta = String(inner.delta ?? '').trim()
+				if (delta.length < 24 && !delta.includes('**')) return {}
+				return { activity: `💭 ${clip(delta, 80)}` }
+			}
 			case 'text_delta':
+				return { assistantDelta: String(inner.delta ?? '') }
+			case 'text_end': {
+				const content = String(inner.content ?? '')
+				const headline = firstHeadline(content)
 				return {
-					activity: `✍️ ${clip(String(inner.delta ?? ''), 90)}`,
-					assistantDelta: String(inner.delta ?? '')
+					activity: headline ? `✍️ ${clip(headline, 90)}` : undefined,
+					assistantFinal: content
 				}
-			case 'text_end':
-				return {
-					activity: `✍️ ${clip(String(inner.content ?? ''), 90)}`,
-					assistantFinal: String(inner.content ?? '')
-				}
-			case 'toolcall_start':
-				return { activity: `🔧 ${inner.toolName ?? 'tool'}…` }
-			case 'toolcall_end': {
-				const tc = inner.toolCall as Record<string, unknown> | undefined
-				const name = (tc?.name || inner.toolName || 'tool') as string
-				return { activity: `🔧 ${name}(${clip(JSON.stringify(tc?.arguments ?? {}), 60)})` }
 			}
 			default:
 				return {}
@@ -69,12 +59,12 @@ export function summarizeJsonEvent(evt: Record<string, unknown>): {
 	if (type === 'tool_execution_start') {
 		const name = String(evt.toolName ?? 'tool')
 		const args = clip(JSON.stringify(evt.args ?? {}), 70)
-		return { activity: `▶ ${name} ${args}` }
+		return { activity: `▶ \`${name}\` ${args}` }
 	}
 	if (type === 'tool_execution_end') {
 		const name = String(evt.toolName ?? 'tool')
-		const err = evt.isError ? ' failed' : ''
-		return { activity: `✓ ${name}${err}` }
+		if (evt.isError) return { activity: `✖ \`${name}\` failed` }
+		return { activity: `✓ \`${name}\`` }
 	}
 	if (type === 'message_end') {
 		const msg = evt.message as Record<string, unknown> | undefined
@@ -83,10 +73,19 @@ export function summarizeJsonEvent(evt: Record<string, unknown>): {
 			if (text.trim()) return { assistantFinal: text }
 		}
 	}
-	if (type === 'agent_start' || type === 'turn_start') {
-		return { activity: '⏳ model turn started' }
+	if (type === 'turn_start') {
+		return { activity: '⏳ new turn' }
 	}
 	return {}
+}
+
+function firstHeadline(content: string): string {
+	for (const line of content.split('\n')) {
+		const t = line.trim()
+		if (t.startsWith('#')) return t.replace(/^#+\s*/, '')
+		if (t.length >= 20) return t
+	}
+	return ''
 }
 
 function clip(s: string, n: number): string {

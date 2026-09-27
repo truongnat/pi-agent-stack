@@ -513,7 +513,7 @@ export class SubagentManager {
 			if (!trimmed) return
 			if (activityTrail[activityTrail.length - 1] !== trimmed) {
 				activityTrail.push(trimmed)
-				if (activityTrail.length > 3) activityTrail.shift()
+				if (activityTrail.length > 5) activityTrail.shift()
 			}
 			const elapsedSec = Math.max(1, Math.floor((Date.now() - instance.startedAt) / 1000))
 			options.onProgress?.({
@@ -564,11 +564,13 @@ export class SubagentManager {
 							: summary.activity.startsWith('💭')
 								? 'thought'
 								: 'info'
-					this.logToScratchpad(instance, {
-						timestamp: Date.now(),
-						type: kind,
-						message: summary.activity
-					})
+					if (kind !== 'info' || rec.type === 'turn_start' || rec.type === 'text_end') {
+						this.logToScratchpad(instance, {
+							timestamp: Date.now(),
+							type: kind,
+							message: summary.activity
+						})
+					}
 				}
 				if (summary.assistantDelta) assembledAssistant += summary.assistantDelta
 				if (summary.assistantFinal) assembledAssistant = summary.assistantFinal

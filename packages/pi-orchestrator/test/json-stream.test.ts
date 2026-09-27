@@ -13,24 +13,33 @@ test('summarizeJsonEvent maps thinking, text, and tools to activity lines', () =
 	assert.equal(
 		summarizeJsonEvent({
 			type: 'message_update',
-			assistantMessageEvent: { type: 'thinking_delta', delta: 'plan the edit' }
+			assistantMessageEvent: { type: 'thinking_delta', delta: 'and' }
 		}).activity,
-		'💭 plan the edit'
+		undefined
 	)
-	assert.match(
+	assert.equal(
 		summarizeJsonEvent({
 			type: 'message_update',
-			assistantMessageEvent: { type: 'text_delta', delta: 'Implementing radio keys' }
-		}).activity || '',
-		/✍️ Implementing radio keys/
+			assistantMessageEvent: {
+				type: 'thinking_delta',
+				delta: '**Planning baseline inspection approach**'
+			}
+		}).activity,
+		'💭 **Planning baseline inspection approach**'
 	)
+	const textDelta = summarizeJsonEvent({
+		type: 'message_update',
+		assistantMessageEvent: { type: 'text_delta', delta: 'Implementing radio keys' }
+	})
+	assert.equal(textDelta.activity, undefined)
+	assert.equal(textDelta.assistantDelta, 'Implementing radio keys')
 	assert.match(
 		summarizeJsonEvent({
 			type: 'tool_execution_start',
 			toolName: 'read',
 			args: { path: 'crates/ui/src/radio.rs' }
 		}).activity || '',
-		/▶ read/
+		/▶ `read`/
 	)
 	assert.equal(
 		summarizeJsonEvent({
@@ -38,7 +47,15 @@ test('summarizeJsonEvent maps thinking, text, and tools to activity lines', () =
 			toolName: 'edit',
 			isError: false
 		}).activity,
-		'✓ edit'
+		'✓ `edit`'
+	)
+	assert.equal(
+		summarizeJsonEvent({
+			type: 'tool_execution_end',
+			toolName: 'read',
+			isError: true
+		}).activity,
+		'✖ `read` failed'
 	)
 })
 
