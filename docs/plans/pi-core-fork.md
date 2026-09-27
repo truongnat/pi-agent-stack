@@ -3,6 +3,8 @@
 Research date: 2026-09-27  
 Source session: Antigravity `640437a3-da98-4eae-a1ac-6e2ae2289434` (quota exhausted mid-write)
 
+Deeper follow-up (Rust wiring + fork options): [rust-harness-and-pi-fork.md](./rust-harness-and-pi-fork.md).
+
 ---
 
 ## 1. What upstream Pi actually is
