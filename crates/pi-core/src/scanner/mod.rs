@@ -1,9 +1,22 @@
 //! Ripgrep-class fast workspace and file scanner module using the `ignore` crate.
+//!
+//! Large-repo safety: cap walk size, skip binary and oversized files, stop search early.
 
 use ignore::WalkBuilder;
+use memchr::memmem;
 use rayon::prelude::*;
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// Skip files larger than this when searching (1 MiB).
+pub const MAX_SEARCH_FILE_BYTES: u64 = 1_048_576;
+/// Hard cap on directory-scan entries returned to JS.
+pub const MAX_SCAN_ENTRIES: usize = 20_000;
+/// Do not search more than this many candidate files in one call.
+pub const MAX_FILES_SEARCHED: usize = 8_000;
+/// Default walk depth for unbounded search.
+pub const DEFAULT_SEARCH_DEPTH: usize = 12;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FileEntry {
@@ -55,6 +68,9 @@ pub fn scan_directory(root: &Path, max_depth: usize) -> Vec<FileEntry> {
             is_dir,
             size,
         });
+        if entries.len() >= MAX_SCAN_ENTRIES {
+            break;
+        }
     }
 
     entries
@@ -62,32 +78,66 @@ pub fn scan_directory(root: &Path, max_depth: usize) -> Vec<FileEntry> {
 
 /// Ultra-fast parallel search across workspace files matching a substring query.
 pub fn search_workspace(root: &Path, query: &str, max_results: usize) -> Vec<SearchMatch> {
-    if query.is_empty() {
+    if query.is_empty() || max_results == 0 {
         return Vec::new();
     }
 
     let mut builder = WalkBuilder::new(root);
     builder
         .hidden(true)
+        .max_depth(Some(DEFAULT_SEARCH_DEPTH))
         .git_ignore(true)
         .git_global(true)
         .git_exclude(true)
         .require_git(false)
+        .follow_links(false)
         .standard_filters(true);
 
     let file_paths: Vec<std::path::PathBuf> = builder
         .build()
         .filter_map(|r| r.ok())
         .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+        .filter(|e| {
+            e.metadata()
+                .map(|m| m.len() > 0 && m.len() <= MAX_SEARCH_FILE_BYTES)
+                .unwrap_or(false)
+        })
         .map(|e| e.into_path())
+        .take(MAX_FILES_SEARCHED)
         .collect();
 
-    // Search in parallel across CPU cores using Rayon
-    let query_lower = query.to_lowercase();
-    let matches: Vec<SearchMatch> = file_paths
+    let found = AtomicUsize::new(0);
+    let query_bytes = query.as_bytes();
+    let query_lower = query.to_ascii_lowercase();
+    let ascii_query = query.is_ascii();
+
+    file_paths
         .par_iter()
         .flat_map(|path| {
-            let Ok(content) = fs::read_to_string(path) else {
+            if found.load(Ordering::Relaxed) >= max_results {
+                return Vec::new();
+            }
+
+            let Ok(bytes) = fs::read(path) else {
+                return Vec::new();
+            };
+            if bytes.contains(&0) {
+                return Vec::new();
+            }
+
+            let haystack_ok = if ascii_query {
+                memmem::find(&bytes, query_bytes).is_some()
+                    || contains_ascii_ignore_case(&bytes, query_lower.as_bytes())
+            } else {
+                std::str::from_utf8(&bytes)
+                    .map(|s| s.to_lowercase().contains(&query.to_lowercase()))
+                    .unwrap_or(false)
+            };
+            if !haystack_ok {
+                return Vec::new();
+            }
+
+            let Ok(content) = std::str::from_utf8(&bytes) else {
                 return Vec::new();
             };
 
@@ -99,7 +149,18 @@ pub fn search_workspace(root: &Path, query: &str, max_results: usize) -> Vec<Sea
 
             let mut file_matches = Vec::new();
             for (line_idx, line) in content.lines().enumerate() {
-                if line.to_lowercase().contains(&query_lower) {
+                if found.load(Ordering::Relaxed) >= max_results {
+                    break;
+                }
+                let hit = if ascii_query {
+                    line.as_bytes()
+                        .windows(query_bytes.len())
+                        .any(|w| w.eq_ignore_ascii_case(query_bytes))
+                } else {
+                    line.to_lowercase().contains(&query.to_lowercase())
+                };
+                if hit {
+                    found.fetch_add(1, Ordering::Relaxed);
                     file_matches.push(SearchMatch {
                         path: rel_path.clone(),
                         line_number: line_idx + 1,
@@ -110,9 +171,16 @@ pub fn search_workspace(root: &Path, query: &str, max_results: usize) -> Vec<Sea
             file_matches
         })
         .take_any(max_results)
-        .collect();
+        .collect()
+}
 
-    matches
+fn contains_ascii_ignore_case(haystack: &[u8], needle_lower: &[u8]) -> bool {
+    if needle_lower.is_empty() || haystack.len() < needle_lower.len() {
+        return false;
+    }
+    haystack
+        .windows(needle_lower.len())
+        .any(|w| w.eq_ignore_ascii_case(needle_lower))
 }
 
 #[cfg(test)]
@@ -161,5 +229,33 @@ mod tests {
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].path, "src/main.rs");
         assert_eq!(matches[0].line_number, 2);
+    }
+
+    #[test]
+    fn search_skips_binary_and_oversized_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/hit.rs"), "needle here\n").unwrap();
+        fs::write(root.join("src/blob.bin"), [0u8, 1, 2, b'n', b'e', b'e', b'd', b'l', b'e']).unwrap();
+        let huge = vec![b'x'; (MAX_SEARCH_FILE_BYTES as usize) + 8];
+        fs::write(root.join("src/huge.txt"), huge).unwrap();
+
+        let matches = search_workspace(root, "needle", 20);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].path, "src/hit.rs");
+    }
+
+    #[test]
+    fn scan_stops_at_entry_cap() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir_all(root.join("src")).unwrap();
+        for i in 0..50 {
+            fs::write(root.join(format!("src/f{i}.txt")), "x").unwrap();
+        }
+        let scanned = scan_directory(root, 5);
+        assert!(scanned.len() <= MAX_SCAN_ENTRIES);
+        assert!(scanned.len() >= 50);
     }
 }

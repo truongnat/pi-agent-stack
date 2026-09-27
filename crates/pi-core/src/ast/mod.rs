@@ -38,10 +38,30 @@ impl SupportedLanguage {
     }
 }
 
+/// Skip Tree-Sitter on files larger than this; return a line-based fallback instead.
+pub const MAX_SKELETON_SOURCE_BYTES: usize = 512 * 1024;
+
 /// Generates a structural skeleton of the code, stripping bodies while preserving signatures & docstrings.
 pub fn skeletonize_code(source: &str, language: &str) -> SkeletonResult {
     let lang = SupportedLanguage::from_str(language);
     let original_bytes = source.len();
+
+    if original_bytes > MAX_SKELETON_SOURCE_BYTES {
+        let skeleton = fallback_skeleton(source);
+        let skeleton_bytes = skeleton.len();
+        let reduction_percentage = if original_bytes >= skeleton_bytes {
+            ((original_bytes - skeleton_bytes) as f64 / original_bytes as f64) * 100.0
+        } else {
+            0.0
+        };
+        return SkeletonResult {
+            language: language.to_string(),
+            skeleton,
+            original_bytes,
+            skeleton_bytes,
+            reduction_percentage: (reduction_percentage * 10.0).round() / 10.0,
+        };
+    }
 
     if source.trim().is_empty() {
         return SkeletonResult {
@@ -269,13 +289,7 @@ fn skeletonize_rust(source: &str) -> String {
                 ));
             }
             "impl_item" => {
-                let trait_or_type = child
-                    .child_by_field_name("type")
-                    .and_then(|n| n.utf8_text(source_bytes).ok())
-                    .unwrap_or("Type");
-                out.push_str(&format!(
-                    "impl {trait_or_type} {{\n    /* methods omitted */\n}}\n\n"
-                ));
+                format_rust_impl(&child, source_bytes, &mut out);
             }
             _ => {}
         }
@@ -329,17 +343,82 @@ fn skeletonize_python(source: &str) -> String {
                 out.push_str(&format!("\ndef {name}{params}{ret}:\n    ...\n"));
             }
             "class_definition" => {
-                let name = child
-                    .child_by_field_name("name")
-                    .and_then(|n| n.utf8_text(source_bytes).ok())
-                    .unwrap_or("Class");
-                out.push_str(&format!("\nclass {name}:\n    ...\n"));
+                format_python_class(&child, source_bytes, &mut out);
             }
             _ => {}
         }
     }
 
     out.trim().to_string()
+}
+
+fn format_rust_impl(node: &Node, source: &[u8], out: &mut String) {
+    let ty = node
+        .child_by_field_name("type")
+        .and_then(|n| n.utf8_text(source).ok())
+        .unwrap_or("Type");
+    let trait_name = node
+        .child_by_field_name("trait")
+        .and_then(|n| n.utf8_text(source).ok());
+    match trait_name {
+        Some(tr) => out.push_str(&format!("impl {tr} for {ty} {{\n")),
+        None => out.push_str(&format!("impl {ty} {{\n")),
+    }
+
+    if let Some(body) = node.child_by_field_name("body") {
+        let mut cursor = body.walk();
+        for member in body.children(&mut cursor) {
+            if member.kind() != "function_item" {
+                continue;
+            }
+            let name = member
+                .child_by_field_name("name")
+                .and_then(|n| n.utf8_text(source).ok())
+                .unwrap_or("fn");
+            let params = member
+                .child_by_field_name("parameters")
+                .and_then(|n| n.utf8_text(source).ok())
+                .unwrap_or("()");
+            let ret = member
+                .child_by_field_name("return_type")
+                .and_then(|n| n.utf8_text(source).ok())
+                .unwrap_or("");
+            out.push_str(&format!("    fn {name}{params}{ret} {{ /* omitted */ }}\n"));
+        }
+    }
+    out.push_str("}\n\n");
+}
+
+fn format_python_class(node: &Node, source: &[u8], out: &mut String) {
+    let name = node
+        .child_by_field_name("name")
+        .and_then(|n| n.utf8_text(source).ok())
+        .unwrap_or("Class");
+    out.push_str(&format!("\nclass {name}:\n"));
+    let Some(body) = node.child_by_field_name("body") else {
+        out.push_str("    ...\n");
+        return;
+    };
+    let mut wrote = false;
+    let mut cursor = body.walk();
+    for member in body.children(&mut cursor) {
+        if member.kind() != "function_definition" {
+            continue;
+        }
+        let m_name = member
+            .child_by_field_name("name")
+            .and_then(|n| n.utf8_text(source).ok())
+            .unwrap_or("method");
+        let params = member
+            .child_by_field_name("parameters")
+            .and_then(|n| n.utf8_text(source).ok())
+            .unwrap_or("(self)");
+        out.push_str(&format!("    def {m_name}{params}:\n        ...\n"));
+        wrote = true;
+    }
+    if !wrote {
+        out.push_str("    ...\n");
+    }
 }
 
 fn fallback_skeleton(source: &str) -> String {
@@ -428,5 +507,43 @@ pub fn process_event(session: &mut AgentSession, event: &str) -> bool {
         assert!(result.skeleton.contains("pub struct AgentSession"));
         assert!(result.skeleton.contains("fn process_event"));
         assert!(!result.skeleton.contains("println!"));
+    }
+
+    #[test]
+    fn rust_impl_keeps_method_signatures() {
+        let rs = r#"
+pub struct S;
+impl S {
+    pub fn ping(&self) -> u8 {
+        1
+    }
+}
+"#;
+        let result = skeletonize_code(rs, "rust");
+        assert!(result.skeleton.contains("impl S"));
+        assert!(result.skeleton.contains("fn ping"));
+        assert!(!result.skeleton.contains("1"));
+    }
+
+    #[test]
+    fn python_class_keeps_methods() {
+        let py = r#"
+class Worker:
+    def run(self, n: int) -> int:
+        return n + 1
+"#;
+        let result = skeletonize_code(py, "python");
+        assert!(result.skeleton.contains("class Worker"));
+        assert!(result.skeleton.contains("def run"));
+        assert!(!result.skeleton.contains("n + 1"));
+    }
+
+    #[test]
+    fn oversized_source_uses_fallback_not_full_parse() {
+        let mut src = String::from("export function tiny() { return 1 }\n");
+        src.push_str(&"x".repeat(MAX_SKELETON_SOURCE_BYTES));
+        let result = skeletonize_code(&src, "typescript");
+        assert_eq!(result.original_bytes, src.len());
+        assert!(result.skeleton.contains("export function tiny") || result.skeleton_bytes < src.len());
     }
 }

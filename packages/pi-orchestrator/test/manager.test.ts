@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { SubagentManager } from '../src/manager.ts'
+import { describeIdleTimeout, SubagentManager } from '../src/manager.ts'
 import type { SubagentTask } from '../src/types.ts'
 
 test('SubagentManager spawns, executes, and tracks subagents in scratchpads', async () => {
@@ -13,7 +13,7 @@ test('SubagentManager spawns, executes, and tracks subagents in scratchpads', as
 
 	const result = await manager.spawnSubagent(task, process.cwd())
 
-	assert.match(result.name, / - Researcher - Senior$/)
+	assert.match(result.name, / - Researcher - Senior - \(.+\)$/)
 	assert.equal(result.role, 'researcher')
 	assert.equal(result.status, 'completed')
 	assert.ok(result.durationMs >= 0)
@@ -63,4 +63,22 @@ test('SubagentManager kill and killAll operations', async () => {
 	const count = manager.killAll()
 	assert.equal(count, 1)
 	assert.equal(sub.status, 'killed')
+})
+
+test('describeIdleTimeout explains empty stream vs quota', () => {
+	const empty = describeIdleTimeout({
+		idleSec: 180,
+		elapsedSec: 180,
+		model: 'openai-codex/gpt-5.5'
+	})
+	assert.match(empty, /model=openai-codex\/gpt-5\.5/)
+	assert.match(empty, /hung API or a depleted quota/)
+
+	const quota = describeIdleTimeout({
+		idleSec: 180,
+		elapsedSec: 200,
+		model: 'antigravity/gemini-3.1-pro-high',
+		stderr: 'API error: RESOURCE_EXHAUSTED (code 429): Individual quota reached'
+	})
+	assert.match(quota, /quota\/rate-limit/)
 })

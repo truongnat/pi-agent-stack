@@ -148,32 +148,40 @@ export function formatRoleTitle(role: string): string {
 }
 
 /**
+ * "Name - Role - Level - (model)" e.g. "Wozniak - Coder - Senior - (openai-codex/gpt-5.5)"
+ */
+export function withModelSuffix(label: string, model?: string): string {
+	const base = label.replace(/\s+-\s+\([^)]*\)\s*$/, '').trim()
+	if (!model?.trim()) return base
+	return `${base} - (${model.trim()})`
+}
+
+/**
  * Generates an elegant, prestigious codename for a subagent formatted as:
- * "Tên - Role - Level" (e.g., "Sentinel - Tester - Senior", "Athena - Researcher - Senior")
+ * "Tên - Role - Level - (model)" (e.g., "Sentinel - Tester - Senior - (antigravity/gemini-3-flash)")
  */
 export function generateAgentCodename(
 	role: AgentRoleName,
 	customName?: string,
 	_prompt?: string,
-	level = 'Senior'
+	level = 'Senior',
+	model?: string
 ): string {
 	const roleTitle = formatRoleTitle(role)
 	const pool = ROLE_CODENAMES[role.toLowerCase()] || FALLBACK_CODENAMES
 	const index = codenameCounter++ % pool.length
 	const codename = pool[index]!
 
-	// If customName already follows "Name - Role - Level" format
+	let base: string
 	if (customName && customName.includes(' - ')) {
-		return customName.trim()
+		base = customName.trim()
+	} else if (customName && /^[A-Z][a-zA-Z0-9]+$/.test(customName.trim())) {
+		base = `${customName.trim()} - ${roleTitle} - ${level}`
+	} else {
+		base = `${codename} - ${roleTitle} - ${level}`
 	}
 
-	// If customName is a simple clean name without dashes/underscores (e.g. "Atlas", "DaVinci")
-	if (customName && /^[A-Z][a-zA-Z0-9]+$/.test(customName.trim())) {
-		return `${customName.trim()} - ${roleTitle} - ${level}`
-	}
-
-	// Standard format: Tên - Role - Level (mặc định Senior)
-	return `${codename} - ${roleTitle} - ${level}`
+	return withModelSuffix(base, model)
 }
 
 export function getRoleDefinition(role: AgentRoleName): AgentRoleDefinition {

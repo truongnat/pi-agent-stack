@@ -75,6 +75,48 @@ for cli in cursor-agent agy; do
 	fi
 done
 
+ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+native_lib=""
+for cand in \
+	"$AGENT_DIR/pi-agent-stack/crates/pi-core/target/release/libpi_core.dylib" \
+	"$AGENT_DIR/pi-agent-stack/crates/pi-core/target/release/libpi_core.so" \
+	"$AGENT_DIR/pi-agent-stack/crates/pi-core/target/release/pi_core.dll" \
+	"$ROOT_DIR/crates/pi-core/target/release/libpi_core.dylib" \
+	"$ROOT_DIR/crates/pi-core/target/release/libpi_core.so" \
+	"$ROOT_DIR/crates/pi-core/target/release/pi_core.dll"
+do
+	if [[ -f "$cand" ]]; then
+		native_lib="$cand"
+		break
+	fi
+done
+
+if [[ -n "$native_lib" ]]; then
+	echo "OK   native pi-core at $native_lib"
+	if command -v bun >/dev/null 2>&1; then
+		if bun -e "
+			import { isNativeAvailable, getNativeVersion } from '${ROOT_DIR}/packages/pi-native-bridge/src/index.ts'
+			if (!isNativeAvailable()) {
+				console.error('FFI load failed; version=' + getNativeVersion())
+				process.exit(1)
+			}
+			console.log('OK   pi-core FFI ' + getNativeVersion())
+		"; then
+			:
+		else
+			echo "MISS pi-core FFI failed to load"
+			fail=1
+		fi
+	else
+		echo "WARN bun not on PATH; skipped FFI probe"
+	fi
+elif command -v cargo >/dev/null 2>&1; then
+	echo "MISS native pi-core dylib (cargo is installed; run bun run setup or cargo build --release -p pi-core)"
+	fail=1
+else
+	echo "WARN native pi-core not built (no cargo); TypeScript fallbacks are in use"
+fi
+
 echo
 pi list
 

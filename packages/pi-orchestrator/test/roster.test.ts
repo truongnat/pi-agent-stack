@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { DEFAULT_ROSTER, generateAgentCodename, getRoleDefinition } from '../src/roster.ts'
+import { DEFAULT_ROSTER, generateAgentCodename, getRoleDefinition, withModelSuffix } from '../src/roster.ts'
 
 test('DEFAULT_ROSTER defines standard 4 agent roles with proper tool scoping', () => {
 	assert.ok(DEFAULT_ROSTER.researcher)
@@ -40,4 +40,27 @@ test('generateAgentCodename generates prestigious codenames based on role and pr
 
 	const existingFormatted = generateAgentCodename('tester', 'Sentinel - Tester - Senior')
 	assert.equal(existingFormatted, 'Sentinel - Tester - Senior')
+
+	const withModel = generateAgentCodename(
+		'coder',
+		'Wozniak',
+		undefined,
+		'Senior',
+		'openai-codex/gpt-5.5'
+	)
+	assert.equal(withModel, 'Wozniak - Coder - Senior - (openai-codex/gpt-5.5)')
+
+	const existingPlusModel = generateAgentCodename(
+		'tester',
+		'Sentinel - Tester - Senior',
+		undefined,
+		'Senior',
+		'antigravity/gemini-3-flash'
+	)
+	assert.equal(existingPlusModel, 'Sentinel - Tester - Senior - (antigravity/gemini-3-flash)')
+
+	assert.equal(
+		withModelSuffix('Wozniak - Coder - Senior - (old)', 'antigravity/gemini-3-flash'),
+		'Wozniak - Coder - Senior - (antigravity/gemini-3-flash)'
+	)
 })

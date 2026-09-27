@@ -39,8 +39,8 @@ A modular, production-ready extension stack for the [Pi coding agent](https://pi
 ## 🚀 Quick Start
 
 ### 1. Requirements
-- **[Pi CLI](https://pi.dev)**
 - **[Bun](https://bun.sh)** (v1.2+) — *All JS/TS tooling is 100% Bun-first*
+- **[Pi CLI](https://pi.dev)** — `bun run setup` installs `@earendil-works/pi-coding-agent` globally if `pi` is missing
 - *(Optional)* **Rust / Cargo** (for native speedups; pure TS fallbacks are built-in)
 - *(Optional)* **Python 3.10+** (for `xlsx2md` CLI core)
 - *(Optional)* Provider CLIs: `cursor-agent`, `agy`, `claude`, `codex`

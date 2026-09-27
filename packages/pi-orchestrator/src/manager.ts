@@ -17,6 +17,29 @@ import type {
 	SubagentTask
 } from './types.ts'
 
+const QUOTA_RE =
+	/RESOURCE_EXHAUSTED|quota|rate.?limit|429|usage.?limit|token.?limit|insufficient.?quota|individual quota/i
+
+export function describeIdleTimeout(opts: {
+	idleSec: number
+	elapsedSec: number
+	model?: string
+	stdout?: string
+	stderr?: string
+}): string {
+	const blob = `${opts.stderr || ''}\n${opts.stdout || ''}`
+	const modelBit = opts.model ? ` model=${opts.model}` : ''
+	const base = `Process timed out after ${opts.idleSec}s of inactivity (total run: ${opts.elapsedSec}s)${modelBit}`
+	if (QUOTA_RE.test(blob)) {
+		return `${base}. Worker reported quota/rate-limit exhaustion — rotate account or pick another model.`
+	}
+	if (!blob.trim()) {
+		return `${base}. No stdout/stderr — typical when the assigned model is waiting on a hung API or a depleted quota (no stream).`
+	}
+	const tail = blob.trim().slice(-400)
+	return `${base}. Last worker output: ${tail}`
+}
+
 export class SubagentManager {
 	private instances = new Map<string, SubagentInstance>()
 	private dispatchedProviderCounts: Record<string, number> = {}
@@ -149,7 +172,7 @@ export class SubagentManager {
 		this.dispatchedProviderCounts[modelSelection.provider] =
 			(this.dispatchedProviderCounts[modelSelection.provider] || 0) + 1
 
-		const name = generateAgentCodename(task.role, task.name, task.prompt)
+		const name = generateAgentCodename(task.role, task.name, task.prompt, 'Senior', model)
 		const scratchpadDir = join(this.scratchpadRoot, id)
 
 		mkdirSync(scratchpadDir, { recursive: true })
@@ -343,9 +366,13 @@ export class SubagentManager {
 						const elapsedSec = Math.round((Date.now() - startTime) / 1000)
 						resolve({
 							stdout: stdout.trim(),
-							stderr:
-								stderr.trim() ||
-								`Process timed out after ${Math.round(idleTimeoutMs / 1000)}s of inactivity (total run: ${elapsedSec}s)`,
+							stderr: describeIdleTimeout({
+								idleSec: Math.round(idleTimeoutMs / 1000),
+								elapsedSec,
+								model: instance?.model,
+								stdout,
+								stderr
+							}),
 							code: -1
 						})
 					}, idleTimeoutMs)

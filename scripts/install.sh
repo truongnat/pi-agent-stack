@@ -5,10 +5,31 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 AGENT_DIR="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
 export PI_CODING_AGENT_DIR="$AGENT_DIR"
 
-if ! command -v pi >/dev/null 2>&1; then
-	echo "pi is not installed or is not on PATH" >&2
-	exit 1
-fi
+# Published Pi CLI (earendil-works/pi). We install the npm package; we do not vendor the upstream tree.
+PI_NPM_PKG="@earendil-works/pi-coding-agent@^0.87.1"
+
+ensure_pi_cli() {
+	if command -v pi >/dev/null 2>&1; then
+		return 0
+	fi
+	echo "pi CLI not on PATH — installing ${PI_NPM_PKG} globally..."
+	if command -v bun >/dev/null 2>&1; then
+		bun add -g "$PI_NPM_PKG"
+	elif command -v npm >/dev/null 2>&1; then
+		npm install -g "$PI_NPM_PKG"
+	else
+		echo "need bun or npm to install ${PI_NPM_PKG}" >&2
+		exit 1
+	fi
+	hash -r 2>/dev/null || true
+	if ! command -v pi >/dev/null 2>&1; then
+		echo "pi still not on PATH after install; add bun/npm global bin to PATH" >&2
+		exit 1
+	fi
+}
+
+ensure_pi_cli
+
 if ! command -v node >/dev/null 2>&1; then
 	echo "node is required (Node 22+)" >&2
 	exit 1
