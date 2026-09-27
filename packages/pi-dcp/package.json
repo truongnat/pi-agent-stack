@@ -41,6 +41,9 @@
 		],
 		"image": "assets/preview.png"
 	},
+	"dependencies": {
+		"pi-native-bridge": "workspace:*"
+	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*",
 		"typebox": "*"

@@ -7,6 +7,7 @@ use tiktoken_rs::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelFamily {
     OpenAI,
+    OpenAIO200k,
     Anthropic,
     Gemini,
     Generic,
@@ -22,9 +23,16 @@ impl From<&str> for ModelFamily {
             || lower.contains("antigravity")
         {
             ModelFamily::Gemini
+        } else if lower.contains("o200k")
+            || lower.contains("gpt-4o")
+            || lower.contains("gpt-5")
+            || lower.contains("gpt-6")
+            || lower.contains("codex")
+            || lower.contains("luna")
+        {
+            ModelFamily::OpenAIO200k
         } else if lower.contains("gpt")
             || lower.contains("openai")
-            || lower.contains("codex")
             || lower.contains("o1")
             || lower.contains("o3")
         {
@@ -45,6 +53,11 @@ pub fn count_tokens(text: &str, family: ModelFamily) -> usize {
     match family {
         ModelFamily::OpenAI => {
             let bpe = cl100k_base_singleton();
+            let bpe_guard = bpe.lock();
+            bpe_guard.encode_with_special_tokens(text).len()
+        }
+        ModelFamily::OpenAIO200k => {
+            let bpe = o200k_base_singleton();
             let bpe_guard = bpe.lock();
             bpe_guard.encode_with_special_tokens(text).len()
         }
@@ -125,5 +138,13 @@ mod tests {
         let text = "Complex mathematical symbols: ∀x ∈ ℝ, x² ≥ 0";
         let count = count_tokens_with_encoding(text, "o200k_base");
         assert!(count > 0);
+    }
+
+    #[test]
+    fn gpt5_and_codex_use_o200k() {
+        assert_eq!(ModelFamily::from("openai-codex/gpt-5.5"), ModelFamily::OpenAIO200k);
+        assert_eq!(ModelFamily::from("gpt-4o"), ModelFamily::OpenAIO200k);
+        let n = count_tokens("hello from rust tokenizer", ModelFamily::OpenAIO200k);
+        assert!(n > 0);
     }
 }

@@ -135,11 +135,17 @@ export function canonicalJson(value: unknown, seen: WeakSet<object> = new WeakSe
 	return `{${parts.join(',')}}`
 }
 
-/** Build a stable key for deduplication: name + canonical JSON of arguments. */
+/** Build a stable key for deduplication: native xxhash of name + canonical JSON of arguments. */
 export function toolCallKey(call: { name: string; arguments: Record<string, unknown> }): string {
-	return `${call.name}::${canonicalJson(call.arguments)}`
+	const canonical = canonicalJson(call.arguments)
+	try {
+		return hashToolSignature(call.name, canonical)
+	} catch {
+		return `${call.name}::${canonical}`
+	}
 }
 
+import { hashToolSignature } from 'pi-native-bridge'
 // Use and re-export the real tokenizer from tokens.ts.
 import { approxTokens as _approxTokens } from './tokens.ts'
 export { approxTokens } from './tokens.ts'

@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { isNativeAvailable, scanDirectory } from 'pi-native-bridge'
 
 export interface ProjectSurface {
 	path: string
@@ -10,8 +11,44 @@ export interface ProjectSurface {
 /**
  * Fast filesystem scanner (< 5ms) that detects monorepo surfaces and framework types.
  */
+const MONOREPO_PARENTS = new Set(['apps', 'packages', 'services', 'modules', 'src'])
+
+function formatSurfaces(surfaces: ProjectSurface[]): string {
+	const formatted = surfaces
+		.slice(0, 8)
+		.map((s) => `${s.path} [${s.type}]`)
+		.join(', ')
+	return surfaces.length > 8 ? `${formatted}, ... (+${surfaces.length - 8} more)` : formatted
+}
+
+function surfacesFromNativeScan(cwd: string): ProjectSurface[] {
+	if (!isNativeAvailable()) return []
+	const entries = scanDirectory(cwd, 2)
+	const surfaces: ProjectSurface[] = []
+	const seen = new Set<string>()
+	for (const e of entries) {
+		if (!e.is_dir) continue
+		const rel = e.path.replaceAll('\\', '/')
+		const parts = rel.split('/')
+		if (parts.length !== 2 || !MONOREPO_PARENTS.has(parts[0]!)) continue
+		if (seen.has(rel)) continue
+		seen.add(rel)
+		surfaces.push({
+			path: rel,
+			name: parts[1]!,
+			type: identifyProjectType(join(cwd, rel))
+		})
+	}
+	return surfaces
+}
+
 export function scanRepoMap(cwd: string): string | null {
 	try {
+		const nativeSurfaces = surfacesFromNativeScan(cwd)
+		if (nativeSurfaces.length > 0) {
+			return formatSurfaces(nativeSurfaces)
+		}
+
 		const surfaces: ProjectSurface[] = []
 		const checkDirs = ['apps', 'packages', 'services', 'modules', 'src']
 
@@ -48,13 +85,7 @@ export function scanRepoMap(cwd: string): string | null {
 			return null
 		}
 
-		// Format concise 1-2 line summary
-		const formatted = surfaces
-			.slice(0, 8)
-			.map((s) => `${s.path} [${s.type}]`)
-			.join(', ')
-
-		return surfaces.length > 8 ? `${formatted}, ... (+${surfaces.length - 8} more)` : formatted
+		return formatSurfaces(surfaces)
 	} catch {
 		return null
 	}

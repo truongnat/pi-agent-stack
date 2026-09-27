@@ -140,4 +140,19 @@ Optional later: `vendor/pi` submodule **read-only** for debugging upstream, not 
 - **Do not fork Pi into this repository** until a named extension-API wall exists. Keep MIT npm Pi + our stack.
 - **Do not rewrite Pi’s AgentHarness in Rust.**
 
-Next implementation slice (when you say go): JEV `repomap` + DCP skeleton via `pi-native-bridge`, plus orchestrator `spawnSupervised` for the JSON worker.
+## 8. What “xịn” means for *this* crate (not a Pi rewrite)
+
+Amateur today: four languages of skeleton, OpenAI counted as cl100k even for gpt-5.5/Codex, JEV repomap walks `readdirSync` (gitignore-blind), DCP dedup hashes in JS, scan/search FFI unused.
+
+Premium bar:
+
+| Surface | Done | Still open |
+|---|---|---|
+| Tokenizer | gpt-5 / gpt-4o / Codex / luna → **o200k_base** | Gemini-native tokenizer |
+| JEV map | `scanDirectory` (ignore-aware) for `packages/*` surfaces | Prefetch `searchWorkspace` for the actual query |
+| DCP | `hashToolSignature` (xxhash) as dedup key | Skeletonize large tool results |
+| Orchestrator | JSON worker + idle/retry (TS spawn) | `spawnSupervised` FFI |
+| AST | TS/TSX/Rust/Python + impl/class methods | Go, Java, Vue |
+| Scan | Size/binary caps | Streaming iterator, no full path vec |
+
+Shipped in this pass: o200k family, JEV native repomap, DCP native signature hash.
