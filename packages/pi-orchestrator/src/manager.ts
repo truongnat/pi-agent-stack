@@ -9,7 +9,7 @@ import { evaluateConsensus, type ConsensusOptions, type ConsensusResult } from '
 import { getAvailableProviders } from './guard.ts'
 import { getAvailableModelPool, selectOptimalModelForTask } from './pool.ts'
 import { consumeJsonl, summarizeJsonEvent } from './json-stream.ts'
-import { generateAgentCodename, getRoleDefinition } from './roster.ts'
+import { generateAgentCodename, getRoleDefinition, withModelSuffix } from './roster.ts'
 import type {
 	SubagentExecutionResult,
 	SubagentInstance,
@@ -19,7 +19,7 @@ import type {
 } from './types.ts'
 
 const QUOTA_RE =
-	/RESOURCE_EXHAUSTED|quota|rate.?limit|429|usage.?limit|token.?limit|insufficient.?quota|individual quota/i
+	/RESOURCE_EXHAUSTED|individual quota reached|quota reached|quota exhausted|rate.?limit exceeded|HTTP 429\b|status(?:\s+code)?\s*429/i
 
 export function describeIdleTimeout(opts: {
 	idleSec: number
@@ -31,14 +31,13 @@ export function describeIdleTimeout(opts: {
 	const blob = `${opts.stderr || ''}\n${opts.stdout || ''}`
 	const modelBit = opts.model ? ` model=${opts.model}` : ''
 	const base = `Process timed out after ${opts.idleSec}s of inactivity (total run: ${opts.elapsedSec}s)${modelBit}`
-	if (QUOTA_RE.test(blob)) {
+	if (QUOTA_RE.test(opts.stderr || '')) {
 		return `${base}. Worker reported quota/rate-limit exhaustion — rotate account or pick another model.`
 	}
 	if (!blob.trim()) {
-		return `${base}. No stdout/stderr — typical when the assigned model is waiting on a hung API or a depleted quota (no stream).`
+		return `${base}. No stdout/stderr — worker never streamed (hung connect or silent API).`
 	}
-	const tail = blob.trim().slice(-400)
-	return `${base}. Last worker output: ${tail}`
+	return `${base}. Stream went silent after progress (long thinking or stalled generation).`
 }
 
 export function formatActivityMarkdown(elapsedSec: number, trail: string[]): string {
@@ -340,7 +339,8 @@ export class SubagentManager {
 	): Promise<{ stdout: string; stderr: string; code: number | null }> {
 		const envPath = `${homedir()}/.bun/bin:${homedir()}/.local/bin:${process.env.PATH || ''}`
 		const env = { ...process.env, PATH: envPath, ...extraEnv }
-		const idleTimeoutMs = 180_000 // 3 minutes of complete silence
+		// 3 min until first byte; 8 min of silence after the worker has streamed (Codex thinking gaps).
+		let idleTimeoutMs = 180_000
 
 		return new Promise((resolve) => {
 			try {
@@ -356,6 +356,7 @@ export class SubagentManager {
 				}
 				let stdout = ''
 				let stderr = ''
+				let sawStream = false
 				let idleTimer: ReturnType<typeof setTimeout> | null = null
 
 				const resetIdleTimer = () => {
@@ -389,11 +390,19 @@ export class SubagentManager {
 				child.stdout?.on('data', (chunk) => {
 					const str = chunk.toString()
 					stdout += str
+					if (!sawStream) {
+						sawStream = true
+						idleTimeoutMs = 480_000
+					}
 					resetIdleTimer()
 					if (onChunk) onChunk(str)
 				})
 				child.stderr?.on('data', (chunk) => {
 					stderr += chunk.toString()
+					if (!sawStream) {
+						sawStream = true
+						idleTimeoutMs = 480_000
+					}
 					resetIdleTimer()
 				})
 
@@ -588,13 +597,13 @@ export class SubagentManager {
 		}
 
 		try {
-			const piResult = await this.execSubprocessWorker(
+			let piResult = await this.execSubprocessWorker(
 				'pi',
 				piArgs,
 				cwd,
 				options.signal,
 				handlePiJsonChunk,
-				600_000,
+				900_000,
 				{ PI_SUBAGENT_WORKER: '1' },
 				instance
 			)
@@ -619,6 +628,65 @@ export class SubagentManager {
 					type: 'error',
 					message: `pi worker notice/error: ${piResult.stderr.slice(0, 300)}`
 				})
+			}
+
+			const timedOut = /timed out after/i.test(piResult.stderr || '')
+			const quotaHit = QUOTA_RE.test(piResult.stderr || '')
+			if ((timedOut || quotaHit) && instance.model && instance.model !== 'default') {
+				const fallback = selectOptimalModelForTask(
+					{ role: instance.role, prompt: instance.prompt },
+					getAvailableModelPool().filter((m) => m.fullModelName !== instance.model),
+					this.dispatchedProviderCounts
+				)
+				if (fallback.fullModelName !== instance.model && fallback.fullModelName !== 'default') {
+					this.dispatchedProviderCounts[fallback.provider] =
+						(this.dispatchedProviderCounts[fallback.provider] || 0) + 1
+					instance.model = fallback.fullModelName
+					instance.name = withModelSuffix(instance.name, instance.model)
+					options.onProgress?.({
+						id: instance.id,
+						role: instance.role,
+						name: instance.name,
+						status: 'running',
+						currentActivity: `↻ retry with ${instance.model}`
+					})
+					this.logToScratchpad(instance, {
+						timestamp: Date.now(),
+						type: 'info',
+						message: `Retrying on ${instance.model} after stall/quota.`
+					})
+					const retryArgs = [...piArgs]
+					const modelFlag = retryArgs.indexOf('--model')
+					if (modelFlag >= 0) retryArgs[modelFlag + 1] = instance.model
+					else retryArgs.unshift('--model', instance.model)
+					jsonBuf = ''
+					assembledAssistant = ''
+					piResult = await this.execSubprocessWorker(
+						'pi',
+						retryArgs,
+						cwd,
+						options.signal,
+						handlePiJsonChunk,
+						900_000,
+						{ PI_SUBAGENT_WORKER: '1' },
+						instance
+					)
+					if (piResult.code === 0) {
+						if (!assembledAssistant && piResult.stdout) {
+							consumeJsonl(`${piResult.stdout}\n`, (obj) => {
+								if (!obj || typeof obj !== 'object') return
+								const summary = summarizeJsonEvent(obj as Record<string, unknown>)
+								if (summary.assistantFinal) assembledAssistant = summary.assistantFinal
+							})
+						}
+						const output =
+							assembledAssistant.trim() || '(worker finished with no assistant text)'
+						return {
+							output,
+							tokensUsed: Math.max(150, Math.round(output.length / 4))
+						}
+					}
+				}
 			}
 
 			// 2. Try Secondary CLI Workers if pi runner failed

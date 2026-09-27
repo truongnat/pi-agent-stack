@@ -72,7 +72,16 @@ test('describeIdleTimeout explains empty stream vs quota', () => {
 		model: 'openai-codex/gpt-5.5'
 	})
 	assert.match(empty, /model=openai-codex\/gpt-5\.5/)
-	assert.match(empty, /hung API or a depleted quota/)
+	assert.match(empty, /never streamed/)
+
+	const silentAfterWork = describeIdleTimeout({
+		idleSec: 180,
+		elapsedSec: 287,
+		model: 'openai-codex/gpt-5.5',
+		stdout: '{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta"}}'
+	})
+	assert.match(silentAfterWork, /Stream went silent after progress/)
+	assert.doesNotMatch(silentAfterWork, /Worker reported quota/)
 
 	const quota = describeIdleTimeout({
 		idleSec: 180,
