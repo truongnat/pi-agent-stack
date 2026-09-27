@@ -43,9 +43,9 @@ Already in `crates/pi-core` + `pi-native-bridge`: tokens (BPE/o200k), scan, sear
 | **Lesson rank** | `lessons.ts` O(n tokens × lessons) in JS + one trigram | `rankDocuments` (rayon) | **This pass** |
 | JSONL worker parse | `json-stream.ts` | Only if traces >> 10k events/s; TS is fine now | later |
 | `canonicalJson` | DCP `messages.ts` | Nested objects per tool call; JS is enough unless 10k calls/turn | later |
-| Streaming search iterator | `scanner` still collects paths | Memory on huge monorepos | later |
-| More AST langs | Go/Java/Vue | Skeleton coverage | later |
-| Prompt-prefix **fingerprint** | none | xxhash of static system prompt → log cache-hit identity | later (observability) |
+| Streaming search iterator | `scanner` batched walk (48 files) | **This pass** |
+| More AST langs | Go / Java / JS+Vue | **This pass** |
+| Prompt-prefix **fingerprint** | `pi_hash_prompt` + JEV `cache_prefix` log | **This pass** |
 
 ### P2 — maybe
 

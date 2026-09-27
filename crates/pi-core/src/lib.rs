@@ -85,6 +85,18 @@ pub extern "C" fn pi_hash_tool_signature(
     dcp::hash_tool_signature(t_name, args)
 }
 
+/// XXHash64 of a prompt string (prefix-cache fingerprint).
+#[no_mangle]
+pub extern "C" fn pi_hash_prompt(text: *const c_char) -> u64 {
+    if text.is_null() {
+        return 0;
+    }
+    let Ok(s) = (unsafe { CStr::from_ptr(text) }).to_str() else {
+        return 0;
+    };
+    dcp::hash_prompt(s)
+}
+
 /// Scans a directory and returns JSON serialized array of FileEntry using Ripgrep engine.
 #[no_mangle]
 pub extern "C" fn pi_scan_directory(dir_path: *const c_char, max_depth: u32) -> *mut c_char {

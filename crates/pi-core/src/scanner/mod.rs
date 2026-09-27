@@ -6,8 +6,11 @@ use ignore::WalkBuilder;
 use memchr::memmem;
 use rayon::prelude::*;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
+
+const SEARCH_BATCH: usize = 48;
 
 /// Skip files larger than this when searching (1 MiB).
 pub const MAX_SEARCH_FILE_BYTES: u64 = 1_048_576;
@@ -93,85 +96,125 @@ pub fn search_workspace(root: &Path, query: &str, max_results: usize) -> Vec<Sea
         .follow_links(false)
         .standard_filters(true);
 
-    let file_paths: Vec<std::path::PathBuf> = builder
-        .build()
-        .filter_map(|r| r.ok())
-        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
-        .filter(|e| {
-            e.metadata()
-                .map(|m| m.len() > 0 && m.len() <= MAX_SEARCH_FILE_BYTES)
-                .unwrap_or(false)
-        })
-        .map(|e| e.into_path())
-        .take(MAX_FILES_SEARCHED)
-        .collect();
-
     let found = AtomicUsize::new(0);
     let query_bytes = query.as_bytes();
     let query_lower = query.to_ascii_lowercase();
     let ascii_query = query.is_ascii();
+    let out = Mutex::new(Vec::with_capacity(max_results.min(256)));
+    let mut batch: Vec<PathBuf> = Vec::with_capacity(SEARCH_BATCH);
+    let mut files_seen = 0usize;
 
-    file_paths
-        .par_iter()
-        .flat_map(|path| {
+    let flush = |batch: &mut Vec<PathBuf>| {
+        if batch.is_empty() || found.load(Ordering::Relaxed) >= max_results {
+            batch.clear();
+            return;
+        }
+        batch.par_iter().for_each(|path| {
             if found.load(Ordering::Relaxed) >= max_results {
-                return Vec::new();
+                return;
             }
-
-            let Ok(bytes) = fs::read(path) else {
-                return Vec::new();
-            };
-            if bytes.contains(&0) {
-                return Vec::new();
+            let hits = search_one_file(root, path, query, query_bytes, query_lower.as_bytes(), ascii_query, max_results, &found);
+            if hits.is_empty() {
+                return;
             }
-
-            let haystack_ok = if ascii_query {
-                memmem::find(&bytes, query_bytes).is_some()
-                    || contains_ascii_ignore_case(&bytes, query_lower.as_bytes())
-            } else {
-                std::str::from_utf8(&bytes)
-                    .map(|s| s.to_lowercase().contains(&query.to_lowercase()))
-                    .unwrap_or(false)
-            };
-            if !haystack_ok {
-                return Vec::new();
-            }
-
-            let Ok(content) = std::str::from_utf8(&bytes) else {
-                return Vec::new();
-            };
-
-            let rel_path = path
-                .strip_prefix(root)
-                .unwrap_or(path)
-                .to_string_lossy()
-                .to_string();
-
-            let mut file_matches = Vec::new();
-            for (line_idx, line) in content.lines().enumerate() {
-                if found.load(Ordering::Relaxed) >= max_results {
-                    break;
-                }
-                let hit = if ascii_query {
-                    line.as_bytes()
-                        .windows(query_bytes.len())
-                        .any(|w| w.eq_ignore_ascii_case(query_bytes))
-                } else {
-                    line.to_lowercase().contains(&query.to_lowercase())
-                };
-                if hit {
-                    found.fetch_add(1, Ordering::Relaxed);
-                    file_matches.push(SearchMatch {
-                        path: rel_path.clone(),
-                        line_number: line_idx + 1,
-                        line_text: line.trim().to_string(),
-                    });
+            if let Ok(mut guard) = out.lock() {
+                for h in hits {
+                    if guard.len() >= max_results {
+                        break;
+                    }
+                    guard.push(h);
                 }
             }
-            file_matches
-        })
-        .take_any(max_results)
-        .collect()
+        });
+        batch.clear();
+    };
+
+    for result in builder.build() {
+        if found.load(Ordering::Relaxed) >= max_results || files_seen >= MAX_FILES_SEARCHED {
+            break;
+        }
+        let Ok(entry) = result else { continue };
+        if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+            continue;
+        }
+        let ok_size = entry
+            .metadata()
+            .map(|m| m.len() > 0 && m.len() <= MAX_SEARCH_FILE_BYTES)
+            .unwrap_or(false);
+        if !ok_size {
+            continue;
+        }
+        files_seen += 1;
+        batch.push(entry.into_path());
+        if batch.len() >= SEARCH_BATCH {
+            flush(&mut batch);
+        }
+    }
+    flush(&mut batch);
+
+    out.into_inner().unwrap_or_default()
+}
+
+fn search_one_file(
+    root: &Path,
+    path: &Path,
+    query: &str,
+    query_bytes: &[u8],
+    query_lower: &[u8],
+    ascii_query: bool,
+    max_results: usize,
+    found: &AtomicUsize,
+) -> Vec<SearchMatch> {
+    let Ok(bytes) = fs::read(path) else {
+        return Vec::new();
+    };
+    if bytes.contains(&0) {
+        return Vec::new();
+    }
+
+    let haystack_ok = if ascii_query {
+        memmem::find(&bytes, query_bytes).is_some() || contains_ascii_ignore_case(&bytes, query_lower)
+    } else {
+        std::str::from_utf8(&bytes)
+            .map(|s| s.to_lowercase().contains(&query.to_lowercase()))
+            .unwrap_or(false)
+    };
+    if !haystack_ok {
+        return Vec::new();
+    }
+
+    let Ok(content) = std::str::from_utf8(&bytes) else {
+        return Vec::new();
+    };
+
+    let rel_path = path
+        .strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .to_string();
+
+    let mut file_matches = Vec::new();
+    for (line_idx, line) in content.lines().enumerate() {
+        if found.load(Ordering::Relaxed) >= max_results {
+            break;
+        }
+        let hit = if ascii_query {
+            line.as_bytes()
+                .windows(query_bytes.len())
+                .any(|w| w.eq_ignore_ascii_case(query_bytes))
+        } else {
+            line.to_lowercase().contains(&query.to_lowercase())
+        };
+        if hit {
+            found.fetch_add(1, Ordering::Relaxed);
+            file_matches.push(SearchMatch {
+                path: rel_path.clone(),
+                line_number: line_idx + 1,
+                line_text: line.trim().to_string(),
+            });
+        }
+    }
+    file_matches
 }
 
 fn contains_ascii_ignore_case(haystack: &[u8], needle_lower: &[u8]) -> bool {

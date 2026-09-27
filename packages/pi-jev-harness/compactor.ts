@@ -8,7 +8,7 @@
  * 4. Spill-backed Lossless Storage: Retains raw truncated outputs on disk for deterministic recovery.
  */
 import { basename } from 'node:path'
-import { skeletonizeCode } from 'pi-native-bridge'
+import { fingerprintPrompt, skeletonizeCode } from 'pi-native-bridge'
 
 import { spill, spillHint } from './spill.ts'
 
@@ -51,6 +51,7 @@ const DEFAULT_OPTIONS: Required<CompactorOptions> = {
 export function verifyCachePrefixIntegrity(systemPrompt: string): {
 	isDeterministic: boolean
 	violations: string[]
+	fingerprint: string
 } {
 	const violations: string[] = []
 
@@ -71,7 +72,8 @@ export function verifyCachePrefixIntegrity(systemPrompt: string): {
 
 	return {
 		isDeterministic: violations.length === 0,
-		violations
+		violations,
+		fingerprint: fingerprintPrompt(systemPrompt)
 	}
 }
 

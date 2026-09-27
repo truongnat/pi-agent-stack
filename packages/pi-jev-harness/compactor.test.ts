@@ -14,6 +14,7 @@ test('verifyCachePrefixIntegrity detects volatile nonces, timestamps, and counte
 	const checkClean = verifyCachePrefixIntegrity(cleanPrompt)
 	assert.equal(checkClean.isDeterministic, true)
 	assert.equal(checkClean.violations.length, 0)
+	assert.ok(checkClean.fingerprint.length > 0)
 
 	const promptWithIso = 'System Instruction. Current time: 2026-09-26T12:30:00Z. Answer nicely.'
 	const checkIso = verifyCachePrefixIntegrity(promptWithIso)

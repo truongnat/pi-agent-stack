@@ -50,6 +50,7 @@ export interface NativeBridge {
 	countTokens: (text: string, modelFamily?: string) => number
 	countTokensBPE: (text: string, encoding?: string) => number
 	hashToolSignature: (toolName: string, canonicalArgs: string) => string
+	fingerprintPrompt: (text: string) => string
 	scanDirectory: (dirPath: string, maxDepth?: number) => FileEntry[]
 	searchWorkspace: (dirPath: string, query: string, maxResults?: number) => SearchMatch[]
 	skeletonizeCode: (source: string, language?: string) => SkeletonResult
@@ -302,6 +303,10 @@ try {
 				args: ['ptr', 'ptr'],
 				returns: 'u64'
 			},
+			pi_hash_prompt: {
+				args: ['ptr'],
+				returns: 'u64'
+			},
 			pi_scan_directory: {
 				args: ['ptr', 'u32'],
 				returns: 'ptr'
@@ -406,6 +411,21 @@ export function hashToolSignature(toolName: string, canonicalArgs: string): stri
 		return hashVal.toString(16)
 	} catch {
 		return fallbackHashToolSignature(toolName, canonicalArgs)
+	}
+}
+
+export function fingerprintPrompt(text: string): string {
+	if (!text) return '0'
+	if (!isNative || !nativeLib) {
+		return fallbackHashToolSignature('prompt', text)
+	}
+	try {
+		const buf = Buffer.from(`${text}\0`, 'utf8')
+		const { ptr } = (globalThis as any).Bun.FFI
+		const hashVal: bigint = nativeLib.symbols.pi_hash_prompt(ptr(buf))
+		return hashVal.toString(16)
+	} catch {
+		return fallbackHashToolSignature('prompt', text)
 	}
 }
 
@@ -580,6 +600,7 @@ export const bridge: NativeBridge = {
 	countTokens,
 	countTokensBPE,
 	hashToolSignature,
+	fingerprintPrompt,
 	scanDirectory,
 	searchWorkspace,
 	skeletonizeCode,

@@ -348,6 +348,7 @@ export default function (pi: ExtensionAPI) {
 			const check = verifyCachePrefixIntegrity(prompt)
 			if (!check.isDeterministic) {
 				h.stats.cachePrefixViolations += check.violations.length
+				log({ kind: 'cache_prefix', fingerprint: check.fingerprint, ok: check.isDeterministic })
 			}
 			return check
 		}
@@ -366,6 +367,11 @@ export default function (pi: ExtensionAPI) {
 		if (event.systemPrompt) {
 			h.stats.cachePrefixChecks++
 			const check = verifyCachePrefixIntegrity(event.systemPrompt)
+			log({
+				kind: 'cache_prefix',
+				fingerprint: check.fingerprint,
+				ok: check.isDeterministic
+			})
 			if (!check.isDeterministic) {
 				h.stats.cachePrefixViolations += check.violations.length
 				h.log({ what: 'cache_prefix_violation', violations: check.violations })

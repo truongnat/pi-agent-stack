@@ -4,6 +4,7 @@ import {
 	countTokens,
 	countTokensBPE,
 	getNativeVersion,
+	fingerprintPrompt,
 	hashToolSignature,
 	isNativeAvailable,
 	isProcessAlive,
@@ -50,6 +51,14 @@ test('countTokensBPE computes exact byte-pair tokens', () => {
 		'cl100k_base'
 	)
 	assert.ok(countCl100k > 5 && countCl100k < 25, `Actual cl100k count: ${countCl100k}`)
+})
+
+test('fingerprintPrompt is stable for the same system prefix', () => {
+	const a = fingerprintPrompt('You are a coding agent.')
+	const b = fingerprintPrompt('You are a coding agent.')
+	const c = fingerprintPrompt('You are a coding agent. Turn: 2')
+	assert.equal(a, b)
+	assert.notEqual(a, c)
 })
 
 test('hashToolSignature produces deterministic hex signatures', () => {

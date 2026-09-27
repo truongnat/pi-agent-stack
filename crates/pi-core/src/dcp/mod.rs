@@ -13,6 +13,13 @@ pub fn hash_tool_signature(tool_name: &str, canonical_args: &str) -> u64 {
     hasher.finish()
 }
 
+/// Stable fingerprint of a system prompt for prefix-cache identity logs.
+pub fn hash_prompt(text: &str) -> u64 {
+    let mut hasher = XxHash64::default();
+    hasher.write(text.as_bytes());
+    hasher.finish()
+}
+
 /// Identifies duplicate tool call IDs given a list of (tool_call_id, signature_hash).
 /// Iterates newest-first (from end to start) and marks older duplicates.
 pub fn find_duplicate_tool_call_ids<'a>(
@@ -62,5 +69,11 @@ mod tests {
         let dups = find_duplicate_tool_call_ids(&records, &protected);
 
         assert_eq!(dups, vec!["call_1"]);
+    }
+
+    #[test]
+    fn hash_prompt_is_stable() {
+        assert_eq!(hash_prompt("hello"), hash_prompt("hello"));
+        assert_ne!(hash_prompt("hello"), hash_prompt("hello!"));
     }
 }

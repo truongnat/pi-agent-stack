@@ -29,7 +29,10 @@ function languageFromPath(path: string): string | null {
 	if (lower.endsWith('.py')) return 'python'
 	if (lower.endsWith('.tsx') || lower.endsWith('.jsx')) return 'tsx'
 	if (lower.endsWith('.ts') || lower.endsWith('.mts') || lower.endsWith('.cts')) return 'typescript'
-	if (lower.endsWith('.js') || lower.endsWith('.mjs') || lower.endsWith('.cjs')) return 'typescript'
+	if (lower.endsWith('.js') || lower.endsWith('.mjs') || lower.endsWith('.cjs')) return 'javascript'
+	if (lower.endsWith('.go')) return 'go'
+	if (lower.endsWith('.java')) return 'java'
+	if (lower.endsWith('.vue')) return 'vue'
 	return null
 }
 

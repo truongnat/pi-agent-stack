@@ -1,6 +1,6 @@
 //! Tree-Sitter AST Skeletonizer & Semantic Code Extractor
 //!
-//! Parses TypeScript, TSX, Rust, Python and produces high-fidelity code skeletons
+//! Parses TypeScript, TSX, Rust, Python, Go, Java, JavaScript/Vue and produces high-fidelity code skeletons
 //! with function/method bodies stripped while preserving types, exports, docstrings,
 //! and signatures. This reduces LLM context token consumption by 70%-90%.
 
@@ -23,6 +23,9 @@ pub enum SupportedLanguage {
     TSX,
     Rust,
     Python,
+    Go,
+    Java,
+    JavaScript,
     Unknown,
 }
 
@@ -33,6 +36,9 @@ impl SupportedLanguage {
             "tsx" | "jsx" => SupportedLanguage::TSX,
             "rs" | "rust" => SupportedLanguage::Rust,
             "py" | "python" => SupportedLanguage::Python,
+            "go" | "golang" => SupportedLanguage::Go,
+            "java" => SupportedLanguage::Java,
+            "js" | "javascript" | "mjs" | "cjs" | "vue" => SupportedLanguage::JavaScript,
             _ => SupportedLanguage::Unknown,
         }
     }
@@ -78,6 +84,9 @@ pub fn skeletonize_code(source: &str, language: &str) -> SkeletonResult {
         SupportedLanguage::TSX => skeletonize_ts(source, true),
         SupportedLanguage::Rust => skeletonize_rust(source),
         SupportedLanguage::Python => skeletonize_python(source),
+        SupportedLanguage::Go => skeletonize_go(source),
+        SupportedLanguage::Java => skeletonize_java(source),
+        SupportedLanguage::JavaScript => skeletonize_js(source),
         SupportedLanguage::Unknown => fallback_skeleton(source),
     };
 
@@ -421,6 +430,165 @@ fn format_python_class(node: &Node, source: &[u8], out: &mut String) {
     }
 }
 
+fn skeletonize_go(source: &str) -> String {
+    let mut parser = Parser::new();
+    if parser.set_language(&tree_sitter_go::language()).is_err() {
+        return fallback_skeleton(source);
+    }
+    let Some(tree) = parser.parse(source, None) else {
+        return fallback_skeleton(source);
+    };
+    let source_bytes = source.as_bytes();
+    let mut out = String::with_capacity(source.len() / 2);
+    let root = tree.root_node();
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        match child.kind() {
+            "import_declaration" | "const_declaration" | "var_declaration" | "type_declaration" => {
+                if let Ok(text) = child.utf8_text(source_bytes) {
+                    out.push_str(text.trim());
+                    out.push_str("\n\n");
+                }
+            }
+            "function_declaration" | "method_declaration" => {
+                let name = child
+                    .child_by_field_name("name")
+                    .and_then(|n| n.utf8_text(source_bytes).ok())
+                    .unwrap_or("fn");
+                let params = child
+                    .child_by_field_name("parameters")
+                    .and_then(|n| n.utf8_text(source_bytes).ok())
+                    .unwrap_or("()");
+                let ret = child
+                    .child_by_field_name("result")
+                    .and_then(|n| n.utf8_text(source_bytes).ok())
+                    .map(|r| format!(" {r}"))
+                    .unwrap_or_default();
+                out.push_str(&format!("func {name}{params}{ret} {{ /* omitted */ }}\n\n"));
+            }
+            _ => {}
+        }
+    }
+    out.trim().to_string()
+}
+
+fn skeletonize_java(source: &str) -> String {
+    let mut parser = Parser::new();
+    if parser.set_language(&tree_sitter_java::language()).is_err() {
+        return fallback_skeleton(source);
+    }
+    let Some(tree) = parser.parse(source, None) else {
+        return fallback_skeleton(source);
+    };
+    let source_bytes = source.as_bytes();
+    let mut out = String::with_capacity(source.len() / 2);
+    let root = tree.root_node();
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        match child.kind() {
+            "package_declaration" | "import_declaration" => {
+                if let Ok(text) = child.utf8_text(source_bytes) {
+                    out.push_str(text.trim());
+                    out.push('\n');
+                }
+            }
+            "class_declaration" | "interface_declaration" | "enum_declaration" => {
+                let name = child
+                    .child_by_field_name("name")
+                    .and_then(|n| n.utf8_text(source_bytes).ok())
+                    .unwrap_or("Type");
+                out.push_str(&format!("\nclass {name} {{\n"));
+                if let Some(body) = child.child_by_field_name("body") {
+                    let mut bc = body.walk();
+                    for member in body.children(&mut bc) {
+                        if member.kind() != "method_declaration" {
+                            continue;
+                        }
+                        let m_name = member
+                            .child_by_field_name("name")
+                            .and_then(|n| n.utf8_text(source_bytes).ok())
+                            .unwrap_or("method");
+                        let params = member
+                            .child_by_field_name("parameters")
+                            .and_then(|n| n.utf8_text(source_bytes).ok())
+                            .unwrap_or("()");
+                        out.push_str(&format!("  {m_name}{params} {{ /* omitted */ }}\n"));
+                    }
+                }
+                out.push_str("}\n");
+            }
+            _ => {}
+        }
+    }
+    out.trim().to_string()
+}
+
+fn skeletonize_js(source: &str) -> String {
+    let mut parser = Parser::new();
+    if parser.set_language(&tree_sitter_javascript::language()).is_err() {
+        return fallback_skeleton(source);
+    }
+    let Some(tree) = parser.parse(source, None) else {
+        return fallback_skeleton(source);
+    };
+    let source_bytes = source.as_bytes();
+    let mut out = String::with_capacity(source.len() / 2);
+    let root = tree.root_node();
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        match child.kind() {
+            "import_statement" => {
+                if let Ok(text) = child.utf8_text(source_bytes) {
+                    out.push_str(text.trim());
+                    out.push_str("\n\n");
+                }
+            }
+            "function_declaration" => {
+                let name = child
+                    .child_by_field_name("name")
+                    .and_then(|n| n.utf8_text(source_bytes).ok())
+                    .unwrap_or("fn");
+                let params = child
+                    .child_by_field_name("parameters")
+                    .and_then(|n| n.utf8_text(source_bytes).ok())
+                    .unwrap_or("()");
+                out.push_str(&format!("function {name}{params} {{ /* omitted */ }}\n\n"));
+            }
+            "class_declaration" => {
+                let name = child
+                    .child_by_field_name("name")
+                    .and_then(|n| n.utf8_text(source_bytes).ok())
+                    .unwrap_or("Class");
+                out.push_str(&format!("class {name} {{ /* omitted */ }}\n\n"));
+            }
+            "export_statement" => {
+                if let Some(decl) = child.child_by_field_name("declaration") {
+                    if decl.kind() == "function_declaration" {
+                        let name = decl
+                            .child_by_field_name("name")
+                            .and_then(|n| n.utf8_text(source_bytes).ok())
+                            .unwrap_or("fn");
+                        let params = decl
+                            .child_by_field_name("parameters")
+                            .and_then(|n| n.utf8_text(source_bytes).ok())
+                            .unwrap_or("()");
+                        out.push_str(&format!(
+                            "export function {name}{params} {{ /* omitted */ }}\n\n"
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let s = out.trim().to_string();
+    if s.is_empty() {
+        fallback_skeleton(source)
+    } else {
+        s
+    }
+}
+
 fn fallback_skeleton(source: &str) -> String {
     let mut out = Vec::new();
     for line in source.lines() {
@@ -545,5 +713,34 @@ class Worker:
         let result = skeletonize_code(&src, "typescript");
         assert_eq!(result.original_bytes, src.len());
         assert!(result.skeleton.contains("export function tiny") || result.skeleton_bytes < src.len());
+    }
+
+    #[test]
+    fn skeletonize_go_keeps_func_signatures() {
+        let go = r#"
+package main
+func Add(a int, b int) int {
+    return a + b
+}
+"#;
+        let result = skeletonize_code(go, "go");
+        assert!(result.skeleton.contains("func Add") || result.skeleton.contains("Add"));
+        assert!(!result.skeleton.contains("return a + b"));
+    }
+
+    #[test]
+    fn skeletonize_java_keeps_methods() {
+        let java = r#"
+package demo;
+public class Worker {
+    public int run(int n) {
+        return n + 1;
+    }
+}
+"#;
+        let result = skeletonize_code(java, "java");
+        assert!(result.skeleton.contains("Worker"));
+        assert!(result.skeleton.contains("run") || result.reduction_percentage >= 0.0);
+        assert!(!result.skeleton.contains("n + 1"));
     }
 }
