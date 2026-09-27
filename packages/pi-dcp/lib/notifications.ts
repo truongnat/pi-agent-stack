@@ -67,6 +67,11 @@ function buildToastText(result: PipelineResult): string {
 			`${result.compressionsApplied} compression${result.compressionsApplied > 1 ? 's' : ''} applied`
 		)
 	}
+	if (result.skeletonizedCount > 0) {
+		parts.push(
+			`${result.skeletonizedCount} file${result.skeletonizedCount > 1 ? 's' : ''} skeletonized`
+		)
+	}
 	const summary = parts.join(', ')
 	return `pi-dcp: ${summary} (~${formatTokens(result.tokensSaved)} tokens)`
 }

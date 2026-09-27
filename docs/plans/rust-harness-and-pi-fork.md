@@ -155,4 +155,9 @@ Premium bar:
 | AST | TS/TSX/Rust/Python + impl/class methods | Go, Java, Vue |
 | Scan | Size/binary caps | Streaming iterator, no full path vec |
 
-Shipped in this pass: o200k family, JEV native repomap, DCP native signature hash.
+Shipped:
+
+- o200k family; JEV native `scanRepoMap`; DCP xxhash keys
+- JEV prefetch `searchWorkspace` (rg fallback)
+- DCP skeletonize of bulky `read` / `read_file` results
+- Orchestrator fallback CLIs via `spawnSupervised` (JSON Pi worker still streams with Node `spawn`)

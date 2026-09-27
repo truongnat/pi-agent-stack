@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
-import { killProcessGroup } from 'pi-native-bridge'
+import { killProcessGroup, spawnSupervised } from 'pi-native-bridge'
 import { loadOrchestratorConfig, type OrchestratorConfig } from './config.ts'
 import { evaluateConsensus, type ConsensusOptions, type ConsensusResult } from './consensus.ts'
 import { getAvailableProviders } from './guard.ts'
@@ -38,6 +38,11 @@ export function describeIdleTimeout(opts: {
 		return `${base}. No stdout/stderr — worker never streamed (hung connect or silent API).`
 	}
 	return `${base}. Stream went silent after progress (long thinking or stalled generation).`
+}
+
+export function shellJoin(bin: string, args: string[]): string {
+	const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
+	return [q(bin), ...args.map(q)].join(' ')
 }
 
 export function formatActivityMarkdown(elapsedSec: number, trail: string[]): string {
@@ -705,24 +710,19 @@ export class SubagentManager {
 					currentActivity: `Trying fallback worker: ${worker}...`
 				})
 
-				const res = await this.execSubprocessWorker(
-					worker,
-					args,
-					cwd,
-					options.signal,
-					handlePlainChunk,
-					600_000,
-					{},
-					instance
-				)
-				if (
-					res.code === 0 &&
-					res.stdout &&
-					!/failed to authenticate|oauth session expired|login required/i.test(res.stdout)
-				) {
+				const supervised = spawnSupervised(shellJoin(worker, args), cwd, 600_000)
+				if (supervised.stdout.trim()) handlePlainChunk(supervised.stdout)
+				const ok =
+					!supervised.timed_out &&
+					supervised.exit_code === 0 &&
+					supervised.stdout &&
+					!/failed to authenticate|oauth session expired|login required/i.test(
+						supervised.stdout
+					)
+				if (ok) {
 					return {
-						output: res.stdout,
-						tokensUsed: Math.max(150, Math.round(res.stdout.length / 4))
+						output: supervised.stdout,
+						tokensUsed: Math.max(150, Math.round(supervised.stdout.length / 4))
 					}
 				}
 			}

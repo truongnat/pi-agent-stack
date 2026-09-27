@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { describeIdleTimeout, formatActivityMarkdown, SubagentManager } from '../src/manager.ts'
+import {
+	describeIdleTimeout,
+	formatActivityMarkdown,
+	shellJoin,
+	SubagentManager
+} from '../src/manager.ts'
 import type { SubagentTask } from '../src/types.ts'
 
 test('SubagentManager spawns, executes, and tracks subagents in scratchpads', async () => {
@@ -90,6 +95,10 @@ test('describeIdleTimeout explains empty stream vs quota', () => {
 		stderr: 'API error: RESOURCE_EXHAUSTED (code 429): Individual quota reached'
 	})
 	assert.match(quota, /quota\/rate-limit/)
+})
+
+test('shellJoin quotes argv for spawnSupervised', () => {
+	assert.equal(shellJoin('agy', ['-p', "it's"]), `'agy' '-p' 'it'\\''s'`)
 })
 
 test('formatActivityMarkdown is list markdown with elapsed time', () => {

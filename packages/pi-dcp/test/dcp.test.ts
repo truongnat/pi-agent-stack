@@ -60,3 +60,41 @@ test('applyDeduplication replaces older duplicate tool calls', () => {
 	const secondResultText = JSON.stringify(messages[3].content)
 	assert.match(secondResultText, /file content v2/)
 })
+
+test('applySkeletonize replaces bulky read_file bodies with signatures', async () => {
+	const { applySkeletonize } = await import('../lib/strategies/skeletonize.ts')
+	const body = Array.from(
+		{ length: 40 },
+		(_, i) => `	acc += ${i} * factor;\n	if (acc > 10) acc = acc / 2;\n`
+	).join('')
+	const source = `export function heavyProcessor(input: { id: string }, factor: number): number {\n${body}\n	return acc;\n}\n`
+	const messages: any[] = [
+		{
+			role: 'assistant',
+			content: [
+				{
+					type: 'toolCall',
+					id: 'r1',
+					name: 'read_file',
+					arguments: { path: 'src/heavy.ts' }
+				}
+			]
+		},
+		{
+			role: 'toolResult',
+			toolCallId: 'r1',
+			toolName: 'read_file',
+			content: [{ type: 'text', text: source }],
+			isError: false
+		}
+	]
+	const state = createSessionState()
+	const result = applySkeletonize(messages, DEFAULT_CONFIG, state)
+	assert.ok(result.skeletonizedCount === 1 || source.length < 800)
+	if (result.skeletonizedCount === 1) {
+		const text = messages[1].content[0].text as string
+		assert.match(text, /skeleton by pi-dcp/)
+		assert.match(text, /heavyProcessor/)
+		assert.ok(!text.includes('acc += 12'))
+	}
+})

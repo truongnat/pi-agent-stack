@@ -32,6 +32,7 @@ import {
 } from './messages.ts'
 import { applyDeduplication } from './strategies/deduplication.ts'
 import { applyPurgeErrors } from './strategies/purge-errors.ts'
+import { applySkeletonize } from './strategies/skeletonize.ts'
 import type { CompressionRecord, SessionState } from './state.ts'
 import { bumpLifetime } from './stats.ts'
 
@@ -41,6 +42,7 @@ export interface PipelineResult {
 	dedupPruned: number
 	errorInputsPurged: number
 	compressionsApplied: number
+	skeletonizedCount: number
 	tokensSaved: number
 }
 
@@ -116,6 +118,7 @@ export function runPipeline(
 		dedupPruned: 0,
 		errorInputsPurged: 0,
 		compressionsApplied: 0,
+		skeletonizedCount: 0,
 		tokensSaved: 0
 	}
 
@@ -155,14 +158,24 @@ export function runPipeline(
 		const purged = applyPurgeErrors(messages, config, state, protectedByTurn)
 		result.errorInputsPurged = purged.purgedCount
 		result.tokensSaved += purged.tokensSaved
+
+		const skel = applySkeletonize(messages, config, state, protectedByTurn)
+		result.skeletonizedCount = skel.skeletonizedCount
+		result.tokensSaved += skel.tokensSaved
 	}
 
-	if (result.dedupPruned || result.errorInputsPurged || result.compressionsApplied) {
+	if (
+		result.dedupPruned ||
+		result.errorInputsPurged ||
+		result.compressionsApplied ||
+		result.skeletonizedCount
+	) {
 		state.stats.compressionsApplied += result.compressionsApplied
 		logger.info('pipeline applied', {
 			dedupPruned: result.dedupPruned,
 			errorInputsPurged: result.errorInputsPurged,
 			compressionsApplied: result.compressionsApplied,
+			skeletonizedCount: result.skeletonizedCount,
 			tokensSaved: result.tokensSaved
 		})
 		bumpLifetime({

@@ -229,6 +229,13 @@ test('scanRepoMap detects packages and frameworks in workspace', () => {
 	assert.ok(map.includes('packages/pi-jev-harness') || map.includes('Single Project'))
 })
 
+test('nativeSearchCandidates finds terms in this package', async () => {
+	const { nativeSearchCandidates } = await import('./route.ts')
+	const hits = nativeSearchCandidates(process.cwd(), ['scanRepoMap'], new Set(), 8)
+	if (hits.length === 0) return
+	assert.ok(hits.some((h) => h.path.includes('repomap') || h.matched.some((m) => m.term === 'scanRepoMap')))
+})
+
 test('scaleThinkingForTurn dynamically scales thinking down for exploration and up for complex tasks', () => {
 	const h = createMockHarness()
 	let currentThinking = 'high'

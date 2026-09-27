@@ -6,6 +6,7 @@ import type {
 	ExtensionContext
 } from '@earendil-works/pi-coding-agent'
 
+import { isNativeAvailable, searchWorkspace } from 'pi-native-bridge'
 import { generateAdvisorBriefing } from './advisor.ts'
 import { compactHistory } from './compactor.ts'
 import { choiceOf, noulOf, relevanceQuestions, routingQuestions, THRESHOLDS } from './jev.ts'
@@ -116,6 +117,35 @@ async function hasNamedFile(
 	return false
 }
 
+export function nativeSearchCandidates(
+	cwd: string,
+	terms: string[],
+	sent: Set<string>,
+	maxFiles: number
+): Candidate[] {
+	if (!isNativeAvailable() || terms.length === 0) return []
+	const files = new Map<string, Candidate['matched']>()
+	for (const term of terms) {
+		if (files.size >= maxFiles) break
+		if (term.length < 3) continue
+		let hits: ReturnType<typeof searchWorkspace> = []
+		try {
+			hits = searchWorkspace(cwd, term, 24)
+		} catch {
+			continue
+		}
+		for (const hit of hits) {
+			if (files.size >= maxFiles) break
+			if (sent.has(hit.path)) continue
+			files.set(hit.path, [
+				...(files.get(hit.path) ?? []),
+				{ term, line: hit.line_text.slice(0, 120), at: hit.line_number }
+			])
+		}
+	}
+	return [...files.entries()].map(([path, matched]) => ({ path, matched }))
+}
+
 async function candidateFiles(
 	h: Harness,
 	pi: ExtensionAPI,
@@ -123,6 +153,9 @@ async function candidateFiles(
 	terms: string[],
 	sent: Set<string>
 ): Promise<Candidate[]> {
+	const native = nativeSearchCandidates(ctx.cwd, terms, sent, h.config.prefetchMaxCandidates)
+	if (native.length > 0) return native
+
 	const files = new Map<string, Candidate['matched']>()
 	const options = { cwd: ctx.cwd, timeout: 2000, ...(ctx.signal ? { signal: ctx.signal } : {}) }
 	for (const term of terms) {
