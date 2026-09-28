@@ -23,6 +23,15 @@ export const CONFIG_PATH = join(
   "persona-config.json",
 );
 
+/** ~/.pi/agent/persona-config.json over the defaults; unreadable or missing means defaults. */
+export function loadPersonaConfig(path = CONFIG_PATH): Partial<PersonaConfig> {
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as Partial<PersonaConfig>;
+  } catch {
+    return {};
+  }
+}
+
 export const DEFAULT_CONFIG: PersonaConfig = {
   enabled: true,
   maxInjectedTokens: 100,
@@ -229,9 +238,10 @@ export class PersonaStore {
       const existing = this.profile.preferences[existingIndex]!;
       existing.rule = rule;
       existing.category = category;
+      // Reinforcing moves the weight toward 1; averaging pulled a 1.0 rule down to 0.9.
       existing.weight = Math.min(
         1.0,
-        Math.max(0.1, (existing.weight + initialWeight) / 2),
+        existing.weight + 0.1 * (1 - existing.weight),
       );
       existing.reinforcements++;
       existing.lastAppliedAt = now;
@@ -244,7 +254,7 @@ export class PersonaStore {
       category,
       key,
       rule,
-      weight: initialWeight,
+      weight: Math.min(1.0, Math.max(0.1, initialWeight)),
       reinforcements: 1,
       rejections: 0,
       createdAt: now,

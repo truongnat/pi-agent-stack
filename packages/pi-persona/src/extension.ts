@@ -5,7 +5,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Box, Markdown, Text } from "@earendil-works/pi-tui";
 import { extractPreferencesFromPrompt } from "./extractor.ts";
-import { PersonaStore } from "./store.ts";
+import { loadPersonaConfig, PersonaStore } from "./store.ts";
 import { synthesizePersonaPrompt } from "./synthesizer.ts";
 import { createPersonaTools } from "./tools.ts";
 import type { PreferenceCategory } from "./types.ts";
@@ -29,7 +29,8 @@ function sendPersonaMessage(
 }
 
 export function createPersonaExtension(pi: ExtensionAPI) {
-  const store = new PersonaStore();
+  // install.sh ships persona-config.json; without loading it `enabled: false` did nothing.
+  const store = new PersonaStore({ config: loadPersonaConfig() });
 
   // Expose bridge for pi-jev-harness and other extensions
   (globalThis as any).piAgentStackPersona = {

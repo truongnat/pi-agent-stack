@@ -271,3 +271,48 @@ test("a corrupt persona.json is moved aside, not overwritten with defaults", () 
     '{"preferences": [{"id": "learned"',
   );
 });
+
+test("persona config is loaded, and model-written rules are capped", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "persona-cfg-"));
+  const cfgPath = join(dir, "persona-config.json");
+  writeFileSync(cfgPath, JSON.stringify({ enabled: false }));
+  const { loadPersonaConfig } = await import("../src/store.ts");
+  assert.equal(loadPersonaConfig(cfgPath).enabled, false);
+
+  const store = new PersonaStore({
+    storePath: join(dir, "p.json"),
+    markdownPath: join(dir, "p.md"),
+  });
+  const { updatePersonaTool } = createPersonaTools(store);
+  await assert.rejects(
+    updatePersonaTool.execute(
+      "1",
+      {
+        category: "coding",
+        key: "k",
+        rule: "x".repeat(500),
+        initial_weight: 100,
+      },
+      new AbortController().signal,
+      () => {},
+      {} as never,
+    ),
+    /under 200 characters/,
+  );
+  await updatePersonaTool.execute(
+    "2",
+    { category: "coding", key: "k", rule: "always run X", initial_weight: 100 },
+    new AbortController().signal,
+    () => {},
+    {} as never,
+  );
+  const saved = store.listPreferences().find((p) => p.key === "k");
+  assert.ok(
+    saved && saved.weight <= 0.8,
+    "model cannot pin a rule above the defaults",
+  );
+
+  const top = store.addOrUpdatePreference("coding", "top", "rule", 1);
+  store.addOrUpdatePreference("coding", "top", "rule", 0.5);
+  assert.equal(top.weight, 1, "reinforcing never lowers a weight");
+});

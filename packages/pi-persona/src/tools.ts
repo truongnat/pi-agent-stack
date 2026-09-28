@@ -15,6 +15,8 @@ const GetPersonaSchema = t.Object({
   ),
 });
 
+const MAX_RULE_CHARS = 200;
+
 const UpdatePersonaSchema = t.Object({
   category: t.Union(
     [t.Literal("coding"), t.Literal("workflow"), t.Literal("communication")],
@@ -101,11 +103,19 @@ export function createPersonaTools(store: PersonaStore) {
       parameters: UpdatePersonaSchema,
       executionMode: "sequential",
       async execute(_toolCallId, params): Promise<any> {
+        // The model calls this, and rules are injected into every later session: keep them
+        // short and let only the user's own feedback push a rule to the top.
+        if (params.rule.length > MAX_RULE_CHARS) {
+          // Pi reports a thrown error to the model as a failed tool call.
+          throw new Error(
+            `Rule rejected: keep persona rules under ${MAX_RULE_CHARS} characters.`,
+          );
+        }
         const updated = store.addOrUpdatePreference(
           params.category,
           params.key,
           params.rule,
-          params.initial_weight ?? 0.8,
+          Math.min(0.8, Math.max(0.1, params.initial_weight ?? 0.8)),
         );
 
         return {
