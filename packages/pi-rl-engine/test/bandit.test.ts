@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -33,6 +33,29 @@ test('ContextualBandit initializes, updates Q-values and persists state', () => 
 		assert.equal(chosen.thinkingLevel, 'high')
 	} finally {
 		rmSync(testDb, { force: true })
+	}
+})
+
+test('update() applies each reward to the latest on-disk state (several `pi` processes)', () => {
+	const dir = mkdtempSync(join(tmpdir(), 'bandit-merge-'))
+	const file = join(dir, 'q.json')
+	try {
+		// Two instances sharing one file, the way a main session and an orchestrator subagent
+		// (separate `pi` processes) would.
+		const banditA = new ContextualBandit(file)
+		const banditB = new ContextualBandit(file)
+
+		banditA.update('fix', 'model-a', 'high', 1.0)
+		// banditB's in-memory qTable was loaded before banditA saved, so without a reload before
+		// its own save, this would clobber model-a's entry with only model-b's.
+		banditB.update('refactor', 'model-b', 'low', 1.0)
+
+		const onDisk = new ContextualBandit(file).getAllEntries()
+		const keys = onDisk.map((e) => `${e.taskType}::${e.model}::${e.thinkingLevel}`).sort()
+		assert.deepEqual(keys, ['fix::model-a::high', 'refactor::model-b::low'])
+		assert.throws(() => statSync(`${file}.lock`), 'lock released')
+	} finally {
+		rmSync(dir, { recursive: true, force: true })
 	}
 })
 

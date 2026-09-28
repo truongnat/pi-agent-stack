@@ -4,11 +4,14 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	statSync,
 	writeFileSync
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { rankDocuments, trigramSimilarity } from 'pi-native-bridge'
+
+import { withFileLock } from './file-lock.ts'
 
 export interface LessonEntry {
 	id: string
@@ -27,6 +30,9 @@ export interface LessonEntry {
 }
 
 const LESSONS_DIR = join(homedir(), '.pi', 'agent', 'lessons')
+
+/** Keeps findRelevantLessons() an O(n) scan over a bounded n instead of growing forever. */
+const MAX_LESSONS_PER_REPO = 500
 
 // A name with a source extension is a tool, not a model: llama.cpp, whisper.cpp-style ports.
 const MODEL_ID = String.raw`(?:gpt-?\d|o\d\b|claude|sonnet|opus|haiku|gemini|grok|deepseek|llama|qwen|mistral|kimi|glm)(?![\w-]*\.(?:cpp|c|js|ts|py|rs|go)\b)[\w.-]*`
@@ -56,6 +62,13 @@ export function volatileLesson(
 
 export class LessonStore {
 	private baseDir: string
+	/** Parsed-lessons cache per repo, keyed by the file's mtime: a turn that re-reads the same
+	 * repo's lessons (e.g. findRelevantLessons on every before_agent_start) doesn't re-read and
+	 * re-parse the JSONL file when nothing changed. Checked against mtime rather than held for
+	 * the process lifetime because another `pi` process (e.g. an orchestrator subagent) can
+	 * write to the same file concurrently — a plain in-memory cache would go stale until this
+	 * instance's own next write, which may never happen in a read-only session. */
+	private cache = new Map<string, { mtimeMs: number; lessons: LessonEntry[] }>()
 
 	constructor(baseDir = LESSONS_DIR) {
 		this.baseDir = baseDir
@@ -79,13 +92,22 @@ export class LessonStore {
 		return join(this.baseDir, `${repo}-summary.md`)
 	}
 
-	/** Returns false when the lesson is refused as volatile or cannot be written. */
+	/**
+	 * Returns false when the lesson is refused as volatile or cannot be written. The append and
+	 * cap-enforcement happen under one file lock: another `pi` process (e.g. an orchestrator
+	 * subagent) sharing this repo's file could otherwise append between this call's read and
+	 * write and have its lesson silently dropped when the cap rewrite lands.
+	 */
 	public saveLesson(lesson: LessonEntry): boolean {
 		if (volatileLesson(lesson)) return false
 		try {
 			mkdirSync(this.baseDir, { recursive: true })
 			const file = this.getRepoFilePath(lesson.repo)
-			appendFileSync(file, `${JSON.stringify(lesson)}\n`, 'utf8')
+			withFileLock(file, () => {
+				appendFileSync(file, `${JSON.stringify(lesson)}\n`, 'utf8')
+				this.cache.delete(lesson.repo)
+				this.enforceCapLocked(lesson.repo)
+			})
 			this.updateSummaryMarkdown(lesson.repo)
 			return true
 		} catch (err) {
@@ -94,9 +116,37 @@ export class LessonStore {
 		}
 	}
 
+	/** Keeps the repo's lesson file at MAX_LESSONS_PER_REPO, dropping the oldest first. Caller
+	 * must already hold this repo file's lock (see saveLesson). */
+	private enforceCapLocked(repo: string): void {
+		const lessons = this.getLessons(repo)
+		if (lessons.length <= MAX_LESSONS_PER_REPO) return
+		const trimmed = lessons.slice(-MAX_LESSONS_PER_REPO)
+		try {
+			writeFileSync(
+				this.getRepoFilePath(repo),
+				`${trimmed.map((l) => JSON.stringify(l)).join('\n')}\n`,
+				'utf8'
+			)
+			this.cache.delete(repo)
+		} catch {
+			// ignore
+		}
+	}
+
 	public getLessons(repo: string): LessonEntry[] {
 		const file = this.getRepoFilePath(repo)
-		if (!existsSync(file)) return []
+		let mtimeMs: number
+		try {
+			mtimeMs = statSync(file).mtimeMs
+		} catch {
+			this.cache.delete(repo)
+			return []
+		}
+
+		const cached = this.cache.get(repo)
+		if (cached && cached.mtimeMs === mtimeMs) return cached.lessons
+
 		let text: string
 		try {
 			text = readFileSync(file, 'utf8')
@@ -104,7 +154,7 @@ export class LessonStore {
 			return []
 		}
 		// One torn line (crash mid-append) must not hide every other lesson, or let deleteLesson wipe them.
-		return text.split('\n').flatMap((line) => {
+		const parsed = text.split('\n').flatMap((line) => {
 			if (!line.trim()) return []
 			try {
 				return [JSON.parse(line) as LessonEntry]
@@ -112,21 +162,27 @@ export class LessonStore {
 				return []
 			}
 		})
+		this.cache.set(repo, { mtimeMs, lessons: parsed })
+		return parsed
 	}
 
 	public deleteLesson(repo: string, lessonId: string): boolean {
 		const file = this.getRepoFilePath(repo)
 		if (!existsSync(file)) return false
 		try {
-			const existing = this.getLessons(repo)
-			const filtered = existing.filter((l) => l.id !== lessonId)
-			if (filtered.length === existing.length) return false
+			const deleted = withFileLock(file, () => {
+				const existing = this.getLessons(repo)
+				const filtered = existing.filter((l) => l.id !== lessonId)
+				if (filtered.length === existing.length) return false
 
-			const content =
-				filtered.map((l) => JSON.stringify(l)).join('\n') + (filtered.length > 0 ? '\n' : '')
-			writeFileSync(file, content, 'utf8')
-			this.updateSummaryMarkdown(repo)
-			return true
+				const content =
+					filtered.map((l) => JSON.stringify(l)).join('\n') + (filtered.length > 0 ? '\n' : '')
+				writeFileSync(file, content, 'utf8')
+				this.cache.delete(repo)
+				return true
+			})
+			if (deleted) this.updateSummaryMarkdown(repo)
+			return deleted
 		} catch {
 			return false
 		}
@@ -136,7 +192,10 @@ export class LessonStore {
 		const file = this.getRepoFilePath(repo)
 		const summaryFile = this.getRepoSummaryPath(repo)
 		try {
-			if (existsSync(file)) writeFileSync(file, '', 'utf8')
+			withFileLock(file, () => {
+				if (existsSync(file)) writeFileSync(file, '', 'utf8')
+				this.cache.delete(repo)
+			})
 			if (existsSync(summaryFile)) writeFileSync(summaryFile, '', 'utf8')
 			return true
 		} catch {

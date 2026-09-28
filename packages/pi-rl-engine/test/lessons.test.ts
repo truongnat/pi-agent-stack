@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { appendFileSync, mkdtempSync, rmSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, rmSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -158,6 +158,98 @@ test('a torn line hides only itself, and deleting a lesson keeps the rest', () =
 			store.getLessons(repo).map((l) => l.id),
 			[b.id]
 		)
+	} finally {
+		rmSync(tempDir, { recursive: true, force: true })
+	}
+})
+
+test('saveLesson caps a repo at MAX_LESSONS_PER_REPO, keeping the most recent', () => {
+	const tempDir = mkdtempSync(join(tmpdir(), 'pi-lessons-cap-'))
+	try {
+		const store = new LessonStore(tempDir)
+		const repo = 'capped_repo'
+		const lesson = (n: number) => ({
+			id: `lesson-${n}`,
+			createdAt: '2026-09-25T00:00:00Z',
+			repo,
+			taskType: 'fix',
+			taskSummary: `task ${n}`,
+			successfulStrategy: '-',
+			ruleLearned: `rule ${n}`,
+			tags: []
+		})
+
+		for (let i = 0; i < 510; i++) {
+			assert.equal(store.saveLesson(lesson(i)), true)
+		}
+
+		const lessons = store.getLessons(repo)
+		assert.equal(lessons.length, 500)
+		// Oldest 10 (0..9) dropped; newest (509) kept.
+		assert.equal(lessons[0].id, 'lesson-10')
+		assert.equal(lessons[lessons.length - 1].id, 'lesson-509')
+	} finally {
+		rmSync(tempDir, { recursive: true, force: true })
+	}
+})
+
+test('getLessons caches parsed lessons until a write invalidates it', () => {
+	const tempDir = mkdtempSync(join(tmpdir(), 'pi-lessons-cache-'))
+	try {
+		const store = new LessonStore(tempDir)
+		const repo = 'cached_repo'
+		const lesson = {
+			id: 'l1',
+			createdAt: '2026-09-25T00:00:00Z',
+			repo,
+			taskType: 'fix',
+			taskSummary: 's',
+			successfulStrategy: '-',
+			ruleLearned: 'r',
+			tags: []
+		}
+		store.saveLesson(lesson)
+		const first = store.getLessons(repo)
+		const second = store.getLessons(repo)
+		assert.equal(first, second, 'same array instance: served from cache, not re-read/re-parsed')
+
+		store.saveLesson({ ...lesson, id: 'l2', ruleLearned: 'r2' })
+		const third = store.getLessons(repo)
+		assert.notEqual(third, second, 'cache invalidated after a write')
+		assert.equal(third.length, 2)
+	} finally {
+		rmSync(tempDir, { recursive: true, force: true })
+	}
+})
+
+test('getLessons picks up a write from another process (mtime changed, no cache staleness)', () => {
+	const tempDir = mkdtempSync(join(tmpdir(), 'pi-lessons-crossproc-'))
+	try {
+		const store = new LessonStore(tempDir)
+		const repo = 'shared_repo'
+		const lesson = {
+			id: 'l1',
+			createdAt: '2026-09-25T00:00:00Z',
+			repo,
+			taskType: 'fix',
+			taskSummary: 's',
+			successfulStrategy: '-',
+			ruleLearned: 'r',
+			tags: []
+		}
+		store.saveLesson(lesson)
+		assert.equal(store.getLessons(repo).length, 1)
+
+		// Simulate a concurrent `pi` subagent process appending to the same file directly —
+		// this store instance never called saveLesson for it, so only mtime reveals the change.
+		const file = store.getRepoFilePath(repo)
+		appendFileSync(file, `${JSON.stringify({ ...lesson, id: 'l2' })}\n`, 'utf8')
+		const bumped = new Date(Date.now() + 5000)
+		utimesSync(file, bumped, bumped)
+
+		const afterExternalWrite = store.getLessons(repo)
+		assert.equal(afterExternalWrite.length, 2)
+		assert.ok(afterExternalWrite.some((l) => l.id === 'l2'))
 	} finally {
 		rmSync(tempDir, { recursive: true, force: true })
 	}

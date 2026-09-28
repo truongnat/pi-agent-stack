@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
+import { withFileLock } from './file-lock.ts'
 import type { QEntry } from './types.ts'
 
 export class ContextualBandit {
@@ -35,6 +36,10 @@ export class ContextualBandit {
 	}
 
 	save(): void {
+		withFileLock(this.persistPath, () => this.saveLocked())
+	}
+
+	private saveLocked(): void {
 		try {
 			mkdirSync(dirname(this.persistPath), { recursive: true })
 			const entries = Array.from(this.qTable.values())
@@ -63,6 +68,12 @@ export class ContextualBandit {
 		return entry
 	}
 
+	/**
+	 * Reloads the latest on-disk state before applying this reward, under the same lock as the
+	 * write: another `pi` process (e.g. an orchestrator subagent) can update other keys of this
+	 * shared Q-table concurrently, and a blind save() of this process's in-memory copy would
+	 * silently discard that process's learning.
+	 */
 	update(
 		taskType: string,
 		model: string,
@@ -70,11 +81,14 @@ export class ContextualBandit {
 		reward: number,
 		learningRate: number = 0.2
 	): void {
-		const entry = this.getEntry(taskType, model, thinkingLevel)
-		entry.trials++
-		if (reward > 0) entry.successes++
-		entry.qValue = entry.qValue + learningRate * (reward - entry.qValue)
-		this.save()
+		withFileLock(this.persistPath, () => {
+			this.load()
+			const entry = this.getEntry(taskType, model, thinkingLevel)
+			entry.trials++
+			if (reward > 0) entry.successes++
+			entry.qValue = entry.qValue + learningRate * (reward - entry.qValue)
+			this.saveLocked()
+		})
 	}
 
 	selectBestArm(
