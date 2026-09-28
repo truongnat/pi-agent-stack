@@ -47,7 +47,8 @@ export function classifyModelTier(modelId: string): {
 
 	// 2. Flash / Fast & Economical Tier
 	if (
-		/flash|haiku|mini|spark|speed|light|small|nano|deepseek-chat/i.test(lower) &&
+		// `(^|[^a-z])mini`: gpt-5-mini and o4-mini are small, but every "gemini" contains "mini".
+		/flash|haiku|(^|[^a-z])mini|spark|speed|light|small|nano|deepseek-chat/i.test(lower) &&
 		!/pro-high/i.test(lower)
 	) {
 		return { tier: 'flash', costScore: 1, reasoning: isReasoning }
@@ -221,12 +222,15 @@ export function selectOptimalModelForTask(
 	// 1. Explicit Model Override
 	if (task.modelOverride && task.modelOverride.trim()) {
 		const requested = task.modelOverride.trim().toLowerCase()
-		const exact = pool.find(
-			(m) =>
-				m.fullModelName.toLowerCase() === requested ||
-				m.id.toLowerCase() === requested ||
-				m.id.toLowerCase().includes(requested)
-		)
+		// Exact name, then a whole word of the id ("sonnet", "pro"; not "mini" inside "gemini"),
+		// then a tier name.
+		const words = (id: string) => id.toLowerCase().split(/[-_.:/\s]+/)
+		const exact =
+			pool.find(
+				(m) => m.fullModelName.toLowerCase() === requested || m.id.toLowerCase() === requested
+			) ??
+			pool.find((m) => words(m.id).includes(requested)) ??
+			pool.find((m) => m.tier === requested)
 		if (exact) {
 			return {
 				fullModelName: exact.fullModelName,

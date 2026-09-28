@@ -53,3 +53,12 @@ test('createOrchestratorExtension registers tools and /agents command', async ()
 	await mock.commands.agents.handler('roster', mockCtx)
 	assert.match(notifiedText, /Available Subagent Roster/)
 })
+
+test('session_shutdown kills running workers', async () => {
+	const mock = createMockPi()
+	const { manager } = createOrchestratorExtension(mock.pi)
+	let killed = 0
+	if (manager) manager.killAll = () => ++killed
+	for (const h of mock.listeners.session_shutdown ?? []) await h({ type: 'session_shutdown' }, {})
+	assert.equal(killed, 1)
+})

@@ -1,94 +1,12 @@
-import { existsSync, readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import type { OrchestratorConfig } from './config.ts'
+import { getAvailableModelPool } from './pool.ts'
 
 /**
- * Inspect active environment variables, auth tokens, and subscription status
- * to discover all ready and available LLM providers.
+ * Providers the worker pool can actually dispatch to. Counting env keys, a Jev key or a Claude
+ * CLI credential file let the diversity guard pass with no usable second provider.
  */
 export function getAvailableProviders(): string[] {
-	const providers = new Set<string>()
-
-	// 1. Check process.env API keys
-	if (process.env.ANTHROPIC_API_KEY) providers.add('anthropic')
-	if (process.env.OPENAI_API_KEY) providers.add('openai')
-	if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) providers.add('gemini')
-	if (process.env.DEEPSEEK_API_KEY) providers.add('deepseek')
-	if (process.env.GROK_API_KEY || process.env.XAI_API_KEY) providers.add('grok')
-	if (process.env.OPENROUTER_API_KEY) providers.add('openrouter')
-	if (process.env.MISTRAL_API_KEY) providers.add('mistral')
-	if (process.env.COHERE_API_KEY) providers.add('cohere')
-	if (process.env.JEV_API_KEY) providers.add('typesafe')
-
-	// 2. Check ~/.pi/agent/auth.json
-	try {
-		const authFile = join(homedir(), '.pi', 'agent', 'auth.json')
-		if (existsSync(authFile)) {
-			const auth = JSON.parse(readFileSync(authFile, 'utf8'))
-			for (const key of Object.keys(auth)) {
-				if (auth[key] && typeof auth[key] === 'object') {
-					providers.add(key.toLowerCase())
-				}
-			}
-		}
-	} catch {
-		// Ignore parse errors
-	}
-
-	// 3. Check ~/.pi/agent/subscription-providers-status.json
-	try {
-		const subStatusFile = join(homedir(), '.pi', 'agent', 'subscription-providers-status.json')
-		if (existsSync(subStatusFile)) {
-			const sub = JSON.parse(readFileSync(subStatusFile, 'utf8'))
-			// Handle array format
-			if (Array.isArray(sub.providers)) {
-				for (const p of sub.providers) {
-					if (p.ready && p.provider) {
-						providers.add(p.provider.toLowerCase())
-					}
-				}
-			}
-			// Handle dictionary / object format: { [key]: { provider, ready, ... } }
-			for (const [key, val] of Object.entries(sub)) {
-				if (val && typeof val === 'object' && (val as any).ready) {
-					const pName = (val as any).provider || key
-					providers.add(String(pName).toLowerCase())
-				}
-			}
-		}
-	} catch {
-		// Ignore parse errors
-	}
-
-	// 4. Check ~/.pi/agent/models-store.json for active providers
-	try {
-		const modelsStoreFile = join(homedir(), '.pi', 'agent', 'models-store.json')
-		if (existsSync(modelsStoreFile)) {
-			const store = JSON.parse(readFileSync(modelsStoreFile, 'utf8'))
-			if (store && typeof store === 'object') {
-				for (const key of Object.keys(store)) {
-					if (key.includes('/')) {
-						providers.add(key.split('/')[0].toLowerCase())
-					}
-				}
-			}
-		}
-	} catch {
-		// Ignore
-	}
-
-	// 5. Check Claude CLI OAuth credentials
-	try {
-		const claudeCreds = join(homedir(), '.claude', '.credentials.json')
-		if (existsSync(claudeCreds)) {
-			providers.add('claude-code')
-		}
-	} catch {
-		// Ignore
-	}
-
-	return Array.from(providers).sort()
+	return [...new Set(getAvailableModelPool().map((m) => m.provider.toLowerCase()))].sort()
 }
 
 export interface GuardCheckResult {

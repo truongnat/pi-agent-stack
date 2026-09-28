@@ -24,6 +24,11 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 		manager.config = loadOrchestratorConfig()
 	})
 
+	// Workers run detached in their own process groups; without this they outlive Pi.
+	pi.on('session_shutdown', () => {
+		manager.killAll()
+	})
+
 	function updateStatus(ctx: ExtensionContext) {
 		if (!ctx.hasUI) return
 		const running = manager.listSubagents().filter((s) => s.status === 'running')

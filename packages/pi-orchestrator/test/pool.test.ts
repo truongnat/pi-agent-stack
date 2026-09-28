@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+	classifyModelTier,
 	getAvailableModelPool,
 	selectOptimalModelForTask,
 	type AvailableModel
@@ -154,4 +155,25 @@ test('selectOptimalModelForTask load balances across providers in multi-agent ba
 
 	// It should route to gemini to prevent overloading antigravity quota
 	assert.equal(selection.provider, 'gemini')
+})
+
+test('"gemini" is not a mini model, and overrides match whole words or tiers', () => {
+	assert.notEqual(classifyModelTier('gemini-2.5-pro').tier, 'flash')
+	assert.equal(classifyModelTier('gpt-5-mini').tier, 'flash')
+	assert.equal(classifyModelTier('o4-mini').tier, 'flash')
+
+	const model = (provider: string, id: string): AvailableModel => ({
+		provider,
+		id,
+		fullModelName: `${provider}/${id}`,
+		...classifyModelTier(id),
+		ready: true
+	})
+	const pool = [model('gemini', 'gemini-2.5-pro'), model('openai', 'gpt-5-mini')]
+	const pick = (override: string) =>
+		selectOptimalModelForTask({ role: 'coder', prompt: 'x', modelOverride: override }, pool)
+			.fullModelName
+	assert.equal(pick('mini'), 'openai/gpt-5-mini')
+	assert.equal(pick('pro'), 'gemini/gemini-2.5-pro')
+	assert.equal(pick('flash'), 'openai/gpt-5-mini')
 })
