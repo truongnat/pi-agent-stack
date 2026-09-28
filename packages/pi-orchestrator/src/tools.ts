@@ -78,6 +78,15 @@ const SubagentTaskSchema = t.Object({
 		t.Array(t.String(), {
 			description: 'Optional list of allowed tools (defaults to the role definition).'
 		})
+	),
+	isolate_workspace: t.Optional(
+		t.Boolean({
+			description:
+				'Run this (write-capable) task in its own git worktree and return a patch instead of editing the checkout. Use for parallel coders.'
+		})
+	),
+	timeout_ms: t.Optional(
+		t.Number({ description: 'Hard time limit for this task (default 15 min).' })
 	)
 })
 
@@ -174,7 +183,9 @@ export function createOrchestratorTools(manager: SubagentManager) {
 				prompt: s.prompt,
 				name: s.name,
 				modelOverride: s.model_override,
-				tools: s.tools
+				tools: s.tools,
+				...(s.isolate_workspace !== undefined ? { isolateWorkspace: s.isolate_workspace } : {}),
+				...(s.timeout_ms ? { timeoutMs: s.timeout_ms } : {})
 			}))
 
 			const cwd = ctx.cwd || process.cwd()

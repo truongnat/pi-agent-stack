@@ -10,6 +10,8 @@ export interface OrchestratorConfig {
 	maxConcurrentSubagents?: number
 	maxScratchpadsToKeep?: number
 	scratchpadRoot?: string
+	/** Default for tasks that do not set isolate_workspace: run writers in a git worktree. */
+	isolateWorkspace?: boolean
 }
 
 export const CONFIG_PATH = join(homedir(), '.pi', 'agent', 'orchestrator.json')
@@ -37,7 +39,8 @@ export function loadOrchestratorConfig(path = CONFIG_PATH): OrchestratorConfig {
 				raw.maxConcurrentSubagents ?? DEFAULT_ORCHESTRATOR_CONFIG.maxConcurrentSubagents,
 			maxScratchpadsToKeep:
 				raw.maxScratchpadsToKeep ?? DEFAULT_ORCHESTRATOR_CONFIG.maxScratchpadsToKeep,
-			scratchpadRoot: raw.scratchpadRoot ?? DEFAULT_ORCHESTRATOR_CONFIG.scratchpadRoot
+			scratchpadRoot: raw.scratchpadRoot ?? DEFAULT_ORCHESTRATOR_CONFIG.scratchpadRoot,
+			isolateWorkspace: raw.isolateWorkspace ?? false
 		}
 	} catch {
 		return { ...DEFAULT_ORCHESTRATOR_CONFIG }

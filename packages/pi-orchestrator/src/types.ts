@@ -48,6 +48,8 @@ export interface SubagentInstance {
 	tokensUsed: number
 	scratchpadDir: string
 	logs: SubagentLogEntry[]
+	/** Set when the task ran in an isolated worktree. */
+	patch?: { patchPath: string; files: string[] }
 }
 
 export interface SubagentExecutionResult {

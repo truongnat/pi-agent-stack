@@ -9,6 +9,7 @@ import { evaluateConsensus, type ConsensusOptions, type ConsensusResult } from '
 import { getAvailableProviders } from './guard.ts'
 import { getAvailableModelPool, selectOptimalModelForTask } from './pool.ts'
 import { type DagNode, promptWithDependencies } from './dag.ts'
+import { createWorktree } from './worktree.ts'
 import { consumeJsonl, summarizeJsonEvent } from './json-stream.ts'
 import { generateAgentCodename, getRoleDefinition, withModelSuffix } from './roster.ts'
 import type {
@@ -336,14 +337,32 @@ export class SubagentManager {
 				throw new Error('Aborted before subagent execution started.')
 			}
 
-			// Execution via isolated subagent runner
-			const executionOutput = await this.runSubagentTask(
-				instance,
-				roleDef.systemPrompt,
-				tools,
-				cwd,
-				options
-			)
+			// Write-capable tasks can run in their own git worktree and return a patch.
+			const canWrite = tools.some((t) => t === 'edit' || t === 'write' || t === 'bash')
+			const worktree =
+				(task.isolateWorkspace ?? this.config.isolateWorkspace) && canWrite
+					? await createWorktree(cwd, scratchpadDir)
+					: undefined
+			let executionOutput: { output: string; tokensUsed: number }
+			try {
+				executionOutput = await this.runSubagentTask(
+					instance,
+					roleDef.systemPrompt,
+					tools,
+					worktree?.cwd ?? cwd,
+					{ ...options, hardTimeoutMs: task.timeoutMs }
+				)
+			} finally {
+				const changes = await worktree?.finish()
+				if (changes) instance.patch = changes
+			}
+			if (instance.patch) {
+				const { patchPath, files } = instance.patch
+				executionOutput.output +=
+					files.length > 0
+						? `\n\n**Isolated workspace**: ${files.length} file(s) changed (${files.join(', ')}). Your checkout is untouched; review and apply with \`git apply ${patchPath}\`.`
+						: '\n\n**Isolated workspace**: no files changed.'
+			}
 			// A kill that raced the last output must not turn into "completed".
 			if (instance.status === 'killed') throw new Error('Subagent was killed by supervisor.')
 
@@ -562,7 +581,12 @@ export class SubagentManager {
 		systemPrompt: string,
 		allowedTools: string[],
 		cwd: string,
-		options: { signal?: AbortSignal; onProgress?: (p: SubagentProgressEvent) => void }
+		options: {
+			signal?: AbortSignal
+			onProgress?: (p: SubagentProgressEvent) => void
+			/** Hard cap for the pi worker (default 15 min). */
+			hardTimeoutMs?: number | undefined
+		}
 	): Promise<{ output: string; tokensUsed: number }> {
 		this.logToScratchpad(instance, {
 			timestamp: Date.now(),
@@ -696,7 +720,7 @@ export class SubagentManager {
 				cwd,
 				signal: options.signal,
 				onChunk: handlePiJsonChunk,
-				maxTimeoutMs: 900_000,
+				maxTimeoutMs: options.hardTimeoutMs ?? 900_000,
 				env: workerEnv(),
 				instance
 			})
@@ -760,7 +784,7 @@ export class SubagentManager {
 						cwd,
 						signal: options.signal,
 						onChunk: handlePiJsonChunk,
-						maxTimeoutMs: 900_000,
+						maxTimeoutMs: options.hardTimeoutMs ?? 900_000,
 						env: workerEnv(),
 						instance
 					})
