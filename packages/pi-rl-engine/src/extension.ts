@@ -239,16 +239,19 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 		}
 		const currentModel = ctx.model
 		const thinking = pi.getThinkingLevel()
+		// Tests take up to 30 s; by then the next prompt may have replaced these.
+		const taskType = currentTaskType
+		const prompt = currentPrompt
 
 		void computeRewardAsync(ctx.cwd, verificationOptions)
 			.then((result) => {
-				recordVerification(result, stats, bandit, currentTaskType, currentModel, thinking)
+				recordVerification(result, stats, bandit, taskType, currentModel, thinking)
 
 				// Semantic RL: Synthesize and record lesson on passed verification with changes
 				if (result.passed && changedFiles.length > 0) {
 					const lesson = synthesizeLessonFromTrajectory({
-						taskType: currentTaskType,
-						prompt: currentPrompt,
+						taskType,
+						prompt,
 						repo: repoName,
 						modifiedFiles: changedFiles,
 						verificationPassed: true,

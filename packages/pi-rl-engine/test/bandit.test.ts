@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -33,4 +34,13 @@ test('ContextualBandit initializes, updates Q-values and persists state', () => 
 	} finally {
 		rmSync(testDb, { force: true })
 	}
+})
+
+test('a corrupt Q-table is moved aside, not erased by the next save', () => {
+	const dir = mkdtempSync(join(tmpdir(), 'bandit-'))
+	const file = join(dir, 'q.json')
+	writeFileSync(file, '[{"taskType": "fix"')
+	const bandit = new ContextualBandit(file)
+	bandit.save()
+	assert.ok(readdirSync(dir).some((f) => f.startsWith('q.json.corrupt-')))
 })

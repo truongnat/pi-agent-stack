@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -49,4 +49,11 @@ test('a test file name with shell syntax is passed as a literal path, never exec
 	assert.equal(existsSync(join(dir, 'pwned2')), false)
 	const echoed = runCommand(`printf %s ${shellQuote("it's")}`, dir)
 	assert.equal(echoed.output, "it's")
+})
+
+test('a Rust repo with a tests/ dir runs cargo test, not pytest', () => {
+	const dir = mkdtempSync(join(tmpdir(), 'verifier-rust-'))
+	writeFileSync(join(dir, 'Cargo.toml'), '[package]\nname = "x"\n')
+	mkdirSync(join(dir, 'tests'))
+	assert.equal(detectTestCommand(dir, []), 'cargo test')
 })

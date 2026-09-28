@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -25,7 +25,12 @@ export class ContextualBandit {
 				this.qTable.set(this.key(entry.taskType, entry.model, entry.thinkingLevel), entry)
 			}
 		} catch {
-			// ignore load error
+			// Unreadable: move it aside so the next save does not erase the learned history.
+			try {
+				renameSync(this.persistPath, `${this.persistPath}.corrupt-${Date.now()}`)
+			} catch {
+				// Nothing more to preserve.
+			}
 		}
 	}
 
@@ -33,7 +38,9 @@ export class ContextualBandit {
 		try {
 			mkdirSync(dirname(this.persistPath), { recursive: true })
 			const entries = Array.from(this.qTable.values())
-			writeFileSync(this.persistPath, JSON.stringify(entries, null, 2), 'utf8')
+			const tmp = `${this.persistPath}.${process.pid}.tmp`
+			writeFileSync(tmp, JSON.stringify(entries, null, 2), 'utf8')
+			renameSync(tmp, this.persistPath)
 		} catch {
 			// ignore save error
 		}

@@ -167,6 +167,10 @@ export function detectTestCommand(cwd: string, changedFiles: string[] = []): str
 		return manager === 'npm' ? 'npm test' : `${manager} ${manager === 'bun' ? 'run ' : ''}test`
 	}
 
+	// Language manifests before a bare tests/ dir: Rust and Go repos have tests/ too, and pytest
+	// there exits 5/127, so every run on them used to score -1.
+	if (existsSync(join(cwd, 'Cargo.toml'))) return 'cargo test'
+	if (existsSync(join(cwd, 'go.mod'))) return 'go test ./...'
 	if (
 		existsSync(join(cwd, 'pytest.ini')) ||
 		existsSync(join(cwd, 'pyproject.toml')) ||
@@ -174,8 +178,6 @@ export function detectTestCommand(cwd: string, changedFiles: string[] = []): str
 	) {
 		return 'pytest'
 	}
-	if (existsSync(join(cwd, 'Cargo.toml'))) return 'cargo test'
-	if (existsSync(join(cwd, 'go.mod'))) return 'go test ./...'
 	if (isMakeTestTarget(cwd)) return 'make test'
 	return null
 }
