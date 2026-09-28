@@ -5,6 +5,7 @@ import {
   gdriveDownloadTool,
   gdriveInfoTool,
   gdriveSearchTool,
+  safeFileName,
 } from "../src/tools.ts";
 
 test("GDriveClient instantiates correctly", () => {
@@ -43,4 +44,15 @@ test("gdrive_search queries live Google Drive files", async () => {
   const first = result.content[0];
   assert.ok(first && "text" in first);
   assert.match(first.text, /Google Drive Search Results/);
+});
+
+test("downloaded file names cannot leave the target directory", () => {
+  assert.equal(safeFileName("../../.bashrc", "id1"), "bashrc");
+  assert.equal(safeFileName("/etc/passwd", "id1"), "passwd");
+  assert.equal(safeFileName("..\\..\\evil.xlsx", "id1"), "evil.xlsx");
+  assert.equal(safeFileName("..", "id1"), "gdrive-id1");
+  assert.equal(
+    safeFileName("FAC10001 画面設計書.xlsx", "id1"),
+    "FAC10001 画面設計書.xlsx",
+  );
 });

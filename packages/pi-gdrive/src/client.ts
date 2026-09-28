@@ -1,5 +1,6 @@
 import { setDefaultResultOrder } from "node:dns";
 import {
+  chmodSync,
   createWriteStream,
   existsSync,
   mkdirSync,
@@ -93,7 +94,12 @@ export class GDriveClient {
 
   private saveCredentials(creds: OAuthCredentials): void {
     mkdirSync(dirname(this.credentialsPath), { recursive: true });
-    writeFileSync(this.credentialsPath, JSON.stringify(creds, null, 2), "utf8");
+    // Holds the refresh token: owner-only.
+    writeFileSync(this.credentialsPath, JSON.stringify(creds, null, 2), {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    chmodSync(this.credentialsPath, 0o600);
   }
 
   public async getAccessToken(): Promise<string> {
@@ -173,6 +179,8 @@ export class GDriveClient {
         queryParts.push(
           "(mimeType = 'application/vnd.google-apps.spreadsheet' or mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')",
         );
+      } else if (params.mimeType === "pdf") {
+        queryParts.push("mimeType = 'application/pdf'");
       } else if (params.mimeType === "document" || params.mimeType === "word") {
         queryParts.push(
           "(mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')",
@@ -183,12 +191,12 @@ export class GDriveClient {
     }
     if (params.query) {
       const escapedQuery = params.query.replaceAll("'", "\\'");
-      if (
-        params.query.includes("=") ||
-        params.query.includes("contains") ||
-        params.query.includes("and") ||
-        params.query.includes("or")
-      ) {
+      // Raw Drive syntax has a quoted literal and an operator ("name contains 'x'"); plain
+      // words like "Order report" or "brand" are searched by name and full text.
+      const rawSyntax =
+        /'[^']*'/.test(params.query) &&
+        /(=|<|>|\bcontains\b|\bin\b)/.test(params.query);
+      if (rawSyntax) {
         queryParts.push(`(${params.query})`);
       } else {
         queryParts.push(

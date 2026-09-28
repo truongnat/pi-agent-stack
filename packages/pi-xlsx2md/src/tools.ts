@@ -7,6 +7,13 @@ import { Xlsx2MdRunner } from "./cli.ts";
 
 const runner = new Xlsx2MdRunner();
 
+/** Sidecar for an output file; "out.txt" must not become its own meta path and be overwritten. */
+export function metaPathFor(outputPath: string): string {
+  return outputPath.endsWith(".md")
+    ? outputPath.replace(/\.md$/, ".meta.json")
+    : `${outputPath}.meta.json`;
+}
+
 const MAX_INLINE_CHARS = 40_000;
 
 // 1. Tool: xlsx2md_convert
@@ -57,7 +64,7 @@ export const convertTool: ToolDefinition<typeof ConvertSchema, any> =
       try {
         const metaPath = params.with_meta
           ? params.output_path
-            ? params.output_path.replace(/\.md$/, ".meta.json")
+            ? metaPathFor(params.output_path)
             : `${params.file_path}.meta.json`
           : undefined;
 
@@ -168,7 +175,7 @@ export const diffTool: ToolDefinition<typeof DiffSchema, any> = defineTool({
     try {
       const metaPath = params.with_meta
         ? params.output_path
-          ? params.output_path.replace(/\.md$/, ".meta.json")
+          ? metaPathFor(params.output_path)
           : `${params.other_file}.diff.meta.json`
         : undefined;
 

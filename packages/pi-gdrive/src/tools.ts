@@ -4,8 +4,14 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { GDriveClient } from "./client.ts";
+
+/** A bare, non-hidden file name: no directories, no leading dots, never empty. */
+export function safeFileName(name: string, fallback: string): string {
+  const bare = basename(name.replace(/\\/g, "/")).replace(/^\.+/, "").trim();
+  return bare || `gdrive-${fallback}`;
+}
 
 const client = new GDriveClient();
 
@@ -137,7 +143,9 @@ export const gdriveDownloadTool: ToolDefinition<
 
       let targetPath = params.destination_path;
       if (!targetPath) {
-        let safeName = meta.name;
+        // The file name is chosen by whoever shared the file: "../../.bashrc" must not
+        // escape the download directory.
+        let safeName = safeFileName(meta.name, params.file_id);
         if (
           meta.mimeType === "application/vnd.google-apps.spreadsheet" &&
           !safeName.endsWith(".xlsx")

@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Xlsx2MdRunner } from "../src/cli.ts";
-import { convertTool, diffTool } from "../src/tools.ts";
+import { convertTool, diffTool, metaPathFor } from "../src/tools.ts";
 
 test("Xlsx2MdRunner instantiates correctly", () => {
   const runner = new Xlsx2MdRunner();
@@ -43,4 +43,9 @@ test("xlsx2md_convert converts existing excel workbook if available", async () =
       ? result.content[0].text
       : "";
   assert.match(firstText, /画面設計書_FBD08001_外注発注書印刷/);
+});
+
+test("meta sidecar never overwrites the output file", () => {
+  assert.equal(metaPathFor("out/spec.md"), "out/spec.meta.json");
+  assert.equal(metaPathFor("out/spec.txt"), "out/spec.txt.meta.json");
 });

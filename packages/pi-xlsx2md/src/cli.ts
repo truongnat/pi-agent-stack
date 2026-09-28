@@ -4,6 +4,9 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+/** A hung conversion must not hang the tool call forever. */
+const CLI_TIMEOUT_MS = 300_000;
+
 export interface ConvertOptions {
   inputPath: string;
   outputPath?: string | undefined;
@@ -80,11 +83,13 @@ export class Xlsx2MdRunner {
       args.push("-q");
     }
 
-    args.push(options.inputPath);
+    // `--`: a path starting with "-" is a path, not an option.
+    args.push("--", options.inputPath);
 
     try {
       const { stdout, stderr } = await execFileAsync(this.binary, args, {
         maxBuffer: 20 * 1024 * 1024, // 20MB
+        timeout: CLI_TIMEOUT_MS,
       });
 
       let markdown = stdout;
@@ -147,11 +152,12 @@ export class Xlsx2MdRunner {
       args.push("-q");
     }
 
-    args.push(options.basePath, options.otherPath);
+    args.push("--", options.basePath, options.otherPath);
 
     try {
       const { stdout, stderr } = await execFileAsync(this.binary, args, {
         maxBuffer: 20 * 1024 * 1024,
+        timeout: CLI_TIMEOUT_MS,
       });
 
       let markdown = stdout;
