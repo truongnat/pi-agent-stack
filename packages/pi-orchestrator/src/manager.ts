@@ -9,6 +9,7 @@ import { evaluateConsensus, type ConsensusOptions, type ConsensusResult } from '
 import { getAvailableProviders } from './guard.ts'
 import {
 	getAvailableModelPool,
+	markModelUnavailable,
 	NATIVE_TOOL_NAMES,
 	requiresNativeTools,
 	selectOptimalModelForTask
@@ -42,6 +43,13 @@ const QUOTA_RE =
  */
 export function isTimeoutOrCapStderr(stderr: string): boolean {
 	return /timed out after|reached maximum execution limit/i.test(stderr)
+}
+
+/** ChatGPT Codex (and similar) rejecting the selected model id — retry another model, do not keep calling it. */
+export function isUnsupportedModelStderr(text: string): boolean {
+	return /model is not supported|not supported when using Codex with a ChatGPT account|unknown model/i.test(
+		text
+	)
 }
 
 export function describeIdleTimeout(opts: {
@@ -858,12 +866,19 @@ export class SubagentManager {
 				})
 			}
 
-			const timedOut = isTimeoutOrCapStderr(piResult.stderr || '')
-			const quotaHit = QUOTA_RE.test(piResult.stderr || '')
+			const failText = `${piResult.stderr || ''}\n${piResult.stdout || ''}`
+			const timedOut = isTimeoutOrCapStderr(failText)
+			const quotaHit = QUOTA_RE.test(failText)
+			const unsupportedModel = isUnsupportedModelStderr(failText)
+			if (unsupportedModel && instance.model) markModelUnavailable(instance.model)
 			const primaryFailureReason = (piResult.stderr || 'unknown error').trim().slice(0, 200)
 			const degradedNote = (source: string): string =>
 				`> ⏱️ **Lưu ý:** lần chạy gốc (model \`${instance.model}\`) không hoàn tất bình thường (${primaryFailureReason}). Câu trả lời dưới đây đến từ ${source} — kiểm tra lại trước khi coi là kết luận cuối.\n\n`
-			if ((timedOut || quotaHit) && instance.model && instance.model !== 'default') {
+			if (
+				(timedOut || quotaHit || unsupportedModel) &&
+				instance.model &&
+				instance.model !== 'default'
+			) {
 				const fallback = selectOptimalModelForTask(
 					{ role: instance.role, prompt: instance.prompt },
 					getAvailableModelPool().filter((m) => m.fullModelName !== instance.model),

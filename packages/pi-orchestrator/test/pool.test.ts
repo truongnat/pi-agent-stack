@@ -2,11 +2,82 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
 	classifyModelTier,
+	clearUnavailableModels,
 	getAvailableModelPool,
+	isChatGptIncompatibleCodexModel,
+	markModelUnavailable,
 	selectOptimalModelForTask,
 	supportsNativeTools,
 	type AvailableModel
 } from '../src/pool.ts'
+
+test('ChatGPT Codex cannot use spark; tester falls back off that flash model', () => {
+	clearUnavailableModels()
+	assert.equal(isChatGptIncompatibleCodexModel('gpt-5.3-codex-spark'), true)
+	assert.equal(isChatGptIncompatibleCodexModel('openai-codex/gpt-5.3-codex-spark'), true)
+	assert.equal(isChatGptIncompatibleCodexModel('gpt-6-luna'), false)
+
+	const mockPool: AvailableModel[] = [
+		{
+			provider: 'openai-codex',
+			id: 'gpt-5.3-codex-spark',
+			fullModelName: 'openai-codex/gpt-5.3-codex-spark',
+			tier: 'flash',
+			costScore: 1,
+			reasoning: true,
+			ready: true,
+			supportsTools: true
+		},
+		{
+			provider: 'openai-codex',
+			id: 'gpt-6-luna',
+			fullModelName: 'openai-codex/gpt-6-luna',
+			tier: 'standard',
+			costScore: 2,
+			reasoning: false,
+			ready: true,
+			supportsTools: true
+		}
+	]
+	const tester = selectOptimalModelForTask({ role: 'tester', prompt: 'Run tests' }, mockPool)
+	assert.equal(tester.fullModelName, 'openai-codex/gpt-6-luna')
+
+	const override = selectOptimalModelForTask(
+		{ role: 'tester', prompt: 'x', modelOverride: 'gpt-5.3-codex-spark' },
+		mockPool
+	)
+	assert.equal(override.fullModelName, 'openai-codex/gpt-6-luna')
+})
+
+test('markModelUnavailable drops a model from later selection', () => {
+	clearUnavailableModels()
+	const mockPool: AvailableModel[] = [
+		{
+			provider: 'openai-codex',
+			id: 'gpt-5.5',
+			fullModelName: 'openai-codex/gpt-5.5',
+			tier: 'flash',
+			costScore: 1,
+			reasoning: true,
+			ready: true,
+			supportsTools: true
+		},
+		{
+			provider: 'openai-codex',
+			id: 'gpt-6-luna',
+			fullModelName: 'openai-codex/gpt-6-luna',
+			tier: 'standard',
+			costScore: 2,
+			reasoning: false,
+			ready: true,
+			supportsTools: true
+		}
+	]
+	markModelUnavailable('openai-codex/gpt-5.5')
+	const picked = selectOptimalModelForTask({ role: 'tester', prompt: 'x' }, mockPool)
+	assert.equal(picked.fullModelName, 'openai-codex/gpt-6-luna')
+	clearUnavailableModels()
+})
 
 test('getAvailableModelPool returns available models or safe empty pool', () => {
 	const pool = getAvailableModelPool()

@@ -5,6 +5,7 @@ import {
 	describeIdleTimeout,
 	formatActivityText,
 	isTimeoutOrCapStderr,
+	isUnsupportedModelStderr,
 	shellJoin,
 	SubagentManager
 } from '../src/manager.ts'
@@ -212,6 +213,42 @@ test('workers always run regex-only Jev (no UI to confirm)', async () => {
 	await manager.spawnSubagent({ role: 'coder', prompt: 'x' }, process.cwd())
 	assert.equal(calls[0]?.env?.PI_SUBAGENT_WORKER, '1')
 	assert.equal(calls[0]?.env?.PI_JEV_REGEX_ONLY, '1')
+})
+
+test('isUnsupportedModelStderr matches ChatGPT Codex model rejection', () => {
+	assert.equal(
+		isUnsupportedModelStderr(
+			"Codex error: The 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account."
+		),
+		true
+	)
+	assert.equal(isUnsupportedModelStderr('HTTP 429 quota reached'), false)
+})
+
+test('unsupported model on the first pi worker retries a different model', async () => {
+	let n = 0
+	const { manager, calls } = fakeManager({}, async (request) => {
+		n++
+		if (n === 1) {
+			return {
+				stdout: '',
+				stderr:
+					"Codex error: The 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account.",
+				code: 1
+			}
+		}
+		return piReply('recovered')(request)
+	})
+	const result = await manager.spawnSubagent({ role: 'tester', prompt: 'x' }, process.cwd())
+	assert.equal(result.status, 'completed')
+	assert.ok(calls.length >= 2)
+	assert.equal(calls[0]?.command, 'pi')
+	assert.equal(calls[1]?.command, 'pi')
+	const firstModel = calls[0]?.args[calls[0].args.indexOf('--model') + 1]
+	const secondModel = calls[1]?.args[calls[1].args.indexOf('--model') + 1]
+	if (firstModel && secondModel && firstModel !== 'default') {
+		assert.notEqual(secondModel, firstModel)
+	}
 })
 
 test('fallback CLIs get the full timeout before their first byte', async () => {

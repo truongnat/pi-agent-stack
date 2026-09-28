@@ -3,6 +3,37 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { SubagentTask } from './types.ts'
 
+/**
+ * Codex Spark is listed in models-store but ChatGPT-account Codex rejects it
+ * (`The 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account`).
+ */
+export function isChatGptIncompatibleCodexModel(id: string): boolean {
+	return /codex-spark|(^|[/_-])spark$/i.test(id.trim())
+}
+
+const runtimeUnavailable = new Set<string>()
+
+export function markModelUnavailable(fullModelName: string): void {
+	const key = fullModelName.trim().toLowerCase()
+	if (key) runtimeUnavailable.add(key)
+}
+
+export function clearUnavailableModels(): void {
+	runtimeUnavailable.clear()
+}
+
+export function isModelUnavailable(fullModelName: string): boolean {
+	const key = fullModelName.trim().toLowerCase()
+	if (!key) return false
+	if (runtimeUnavailable.has(key)) return true
+	const id = key.includes('/') ? key.slice(key.lastIndexOf('/') + 1) : key
+	return runtimeUnavailable.has(id) || isChatGptIncompatibleCodexModel(key)
+}
+
+export function filterUsableModels(pool: AvailableModel[]): AvailableModel[] {
+	return pool.filter((m) => !isModelUnavailable(m.fullModelName) && !isModelUnavailable(m.id))
+}
+
 export type ModelCostTier = 'flash' | 'standard' | 'pro'
 
 /** Built-in tool names a subagent task can request (see runSubagentTask's builtInAllowed). */
@@ -229,7 +260,7 @@ export function getAvailableModelPool(): AvailableModel[] {
 		addModel('mistral', 'mistral-large-2411', 'Mistral Large', 128000)
 	}
 
-	return pool
+	return filterUsableModels(pool)
 }
 
 /**
@@ -243,7 +274,8 @@ export function selectOptimalModelForTask(
 	dispatchedCounts: Record<string, number> = {},
 	requiresTools = false
 ): ModelSelectionResult {
-	if (pool.length === 0) {
+	const usable = filterUsableModels(pool)
+	if (usable.length === 0) {
 		return {
 			fullModelName: 'default',
 			provider: 'system',
@@ -263,11 +295,11 @@ export function selectOptimalModelForTask(
 		// then a tier name.
 		const words = (id: string) => id.toLowerCase().split(/[-_.:/\s]+/)
 		const exact =
-			pool.find(
+			usable.find(
 				(m) => m.fullModelName.toLowerCase() === requested || m.id.toLowerCase() === requested
 			) ??
-			pool.find((m) => words(m.id).includes(requested)) ??
-			pool.find((m) => m.tier === requested)
+			usable.find((m) => words(m.id).includes(requested)) ??
+			usable.find((m) => m.tier === requested)
 		if (exact) {
 			const warning =
 				requiresTools && !exact.supportsTools
@@ -308,18 +340,18 @@ export function selectOptimalModelForTask(
 	}
 
 	// 3. Filter candidate models by target tier
-	let candidates = pool.filter((m) => m.tier === targetTier)
+	let candidates = usable.filter((m) => m.tier === targetTier)
 
 	// If no candidate matches target tier, fallback to adjacent tier
 	if (candidates.length === 0) {
 		if (targetTier === 'pro') {
-			candidates = pool.filter((m) => m.tier === 'standard')
+			candidates = usable.filter((m) => m.tier === 'standard')
 		} else if (targetTier === 'flash') {
-			candidates = pool.filter((m) => m.tier === 'standard')
+			candidates = usable.filter((m) => m.tier === 'standard')
 		}
 	}
 	if (candidates.length === 0) {
-		candidates = pool
+		candidates = usable
 	}
 
 	// 4. Tool-capable filter: a task that needs real filesystem/shell tools cannot run on a
@@ -332,7 +364,7 @@ export function selectOptimalModelForTask(
 		if (toolCapable.length > 0) {
 			candidates = toolCapable
 		} else {
-			const anyToolCapable = pool.filter((m) => m.supportsTools)
+			const anyToolCapable = usable.filter((m) => m.supportsTools)
 			if (anyToolCapable.length > 0) {
 				candidates = anyToolCapable
 				toolFallback = true
