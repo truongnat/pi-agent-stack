@@ -4,7 +4,6 @@
  * Implements high-density markdown transformation:
  * - Anti-slop: strips repetitive AI preamble and pleasantries
  * - Callout styling: converts GitHub-style alert callouts ([!NOTE], [!WARNING], etc.) to clean glyph banners
- * - Hazard warnings: detects dangerous shell patterns in code blocks
  */
 
 const SLOP_PREAMBLE_PATTERNS = [
@@ -64,50 +63,6 @@ export function transformCallouts(markdown: string): string {
       return `> **${glyph}**${suffix}`;
     },
   );
-}
-
-/**
- * Identify dangerous shell commands for safe visual presentation.
- */
-export function checkHazardousBash(command: string): {
-  isHazard: boolean;
-  reason?: string;
-} {
-  const normalized = command.trim();
-
-  if (
-    /rm\s+(-rf?|-f)\s+(\/|\/\*|~|\$HOME|\/System|\/Library|\/etc|\/usr)(\s|$|;|\*)/i.test(
-      normalized,
-    )
-  ) {
-    return {
-      isHazard: true,
-      reason: "Critical root or home directory deletion",
-    };
-  }
-
-  if (
-    /(mkfs|dd\s+if=.*of=\/dev\/|chmod\s+-R\s+777\s+\/|chown\s+-R\s+root\s+\/)/i.test(
-      normalized,
-    )
-  ) {
-    return {
-      isHazard: true,
-      reason: "Low-level disk format or root permission change",
-    };
-  }
-
-  if (
-    /git\s+push.*(--force|-f|\+refs\/heads\/)/i.test(normalized) ||
-    /git\s+push.*(main|master|prod|production).*(--force|-f)/i.test(normalized)
-  ) {
-    return {
-      isHazard: true,
-      reason: "Destructive force push to protected production branch",
-    };
-  }
-
-  return { isHazard: false };
 }
 
 export interface MarkdownTransformOptions {

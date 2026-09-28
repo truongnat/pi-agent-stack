@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "TYPESAFE_HARNESS=agy ~/.agents/typesafe-harness/pre-tool.sh",
-            "timeout": 8
+            "command": "TYPESAFE_HARNESS=antigravity ~/.agents/typesafe-harness/pre-tool.sh",
+            "timeout": 15
           }
         ]
       }
@@ -15,15 +15,15 @@
     "Stop": [
       {
         "type": "command",
-        "command": "TYPESAFE_HARNESS=agy ~/.agents/typesafe-harness/stop.sh",
-        "timeout": 8
+        "command": "TYPESAFE_HARNESS=antigravity ~/.agents/typesafe-harness/stop.sh",
+        "timeout": 15
       }
     ],
     "PreInvocation": [
       {
         "type": "command",
-        "command": "TYPESAFE_HARNESS=agy ~/.agents/typesafe-harness/prompt.sh",
-        "timeout": 12
+        "command": "TYPESAFE_HARNESS=antigravity ~/.agents/typesafe-harness/prompt.sh",
+        "timeout": 15
       }
     ]
   }

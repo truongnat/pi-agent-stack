@@ -14,6 +14,8 @@ import {
 import { Box, Markdown, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
+import { tokenSheet } from "./tokens.ts";
+import { transformMarkdown } from "./transformer.ts";
 import {
   findDesignSkills,
   PROMPT_HINT,
@@ -118,6 +120,17 @@ export function registerStitchExtension(
   pi: ExtensionAPI,
   deps: StitchDeps = {},
 ): void {
+  // Display only: the transcript shows styled callouts and, for finished assistant replies,
+  // no stock preamble/sign-off; the message the model sees is unchanged.
+  if (typeof pi.registerMarkdownTransformer === "function") {
+    pi.registerMarkdownTransformer((markdown, context) =>
+      transformMarkdown(markdown, {
+        callouts: true,
+        antiSlop: context.messageType === "assistant" && !context.isStreaming,
+      }),
+    );
+  }
+
   const list = deps.list ?? (() => listTools());
   const saveCache =
     deps.saveCache ?? ((tools: McpTool[]) => writeToolsCache(tools));
@@ -300,26 +313,8 @@ export function registerStitchExtension(
         return;
       }
       if (cmd === "tokens") {
-        const tokenSheet = [
-          "┌─[ 🎨 Google Stitch Design System: Ember Copper ]──────────────────┐",
-          "│                                                                     │",
-          "│  Surface Tokens:                                                    │",
-          "│  • Base Canvas:       #24273a (Slate Violet)                        │",
-          "│  • Recessed Panel:    #1e2030 (Dark Code Stream)                    │",
-          "│  • Elevated Modal:    #181926 (Popup & Dialog Surface)              │",
-          "│  • Active Glow Border: #f5a97f (Radiant Ember Copper)               │",
-          "│                                                                     │",
-          "│  Accent & Telemetry Tokens:                                         │",
-          "│  • Ember Copper: #f5a97f  • Mauve Thought: #c6a0f6                  │",
-          "│  • Emerald Pass: #a6da95  • Amber Warn:    #eed49f                  │",
-          "│  • Red Error:    #ed8796  • Sapphire Diff: #7dc4e4                  │",
-          "│                                                                     │",
-          "│  Typography & Glyph Rules:                                          │",
-          "│  • Monospace JetBrains/SF Mono with 1px Unicode borders             │",
-          "│  • Standard Pill Badges: [ ● active ] [ ○ idle ] [ ✂ Trimmed ]      │",
-          "└─────────────────────────────────────────────────────────────────────┘",
-        ].join("\n");
-        sendStitchMessage(ctx, tokenSheet, { action: "tokens" });
+        const sheet = tokenSheet();
+        sendStitchMessage(ctx, sheet, { action: "tokens" });
         return;
       }
       if (cmd === "guide") {
@@ -362,26 +357,8 @@ export function registerStitchExtension(
 
       if (!picked) return;
       if (picked.startsWith("🎨 Inspect")) {
-        const tokenSheet = [
-          "┌─[ 🎨 Google Stitch Design System: Ember Copper ]──────────────────┐",
-          "│                                                                     │",
-          "│  Surface Tokens:                                                    │",
-          "│  • Base Canvas:       #24273a (Slate Violet)                        │",
-          "│  • Recessed Panel:    #1e2030 (Dark Code Stream)                    │",
-          "│  • Elevated Modal:    #181926 (Popup & Dialog Surface)              │",
-          "│  • Active Glow Border: #f5a97f (Radiant Ember Copper)               │",
-          "│                                                                     │",
-          "│  Accent & Telemetry Tokens:                                         │",
-          "│  • Ember Copper: #f5a97f  • Mauve Thought: #c6a0f6                  │",
-          "│  • Emerald Pass: #a6da95  • Amber Warn:    #eed49f                  │",
-          "│  • Red Error:    #ed8796  • Sapphire Diff: #7dc4e4                  │",
-          "│                                                                     │",
-          "│  Typography & Glyph Rules:                                          │",
-          "│  • Monospace JetBrains/SF Mono with 1px Unicode borders             │",
-          "│  • Standard Pill Badges: [ ● active ] [ ○ idle ] [ ✂ Trimmed ]      │",
-          "└─────────────────────────────────────────────────────────────────────┘",
-        ].join("\n");
-        sendStitchMessage(ctx, tokenSheet, { action: "tokens" });
+        const sheet = tokenSheet();
+        sendStitchMessage(ctx, sheet, { action: "tokens" });
       } else if (picked.startsWith("📖 View")) {
         sendStitchMessage(ctx, stitchGuide(findDesignSkills()), {
           action: "guide",

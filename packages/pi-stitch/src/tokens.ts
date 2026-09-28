@@ -117,3 +117,35 @@ export function renderProgressBar(ratio: number, width: number = 16): string {
   const percent = Math.round(clamped * 100);
   return `[${"█".repeat(filled)}${"░".repeat(empty)}] ${percent}%`;
 }
+
+const TOKEN_LABELS: Record<string, string> = {
+  canvas: "Base Canvas",
+  recessed: "Recessed Panel",
+  elevated: "Elevated Modal",
+  borderGlow: "Active Glow Border",
+  ember: "Ember Copper",
+  mauve: "Mauve Thought",
+  emerald: "Emerald Pass",
+  amber: "Amber Warn",
+  hazard: "Red Error",
+  sapphire: "Sapphire Diff",
+};
+
+/** /stitch tokens: the sheet is generated from EMBER_THEME, so it cannot drift from the palette. */
+export function tokenSheet(theme: typeof EMBER_THEME = EMBER_THEME): string {
+  const rows = (group: Record<string, string>) =>
+    Object.entries(group).map(
+      ([key, hex]) => `| ${TOKEN_LABELS[key] ?? key} | \`${hex}\` |`,
+    );
+  return [
+    "### 🎨 Ember Copper design tokens",
+    "",
+    "| Surface | Color |",
+    "|---|---|",
+    ...rows(theme.surfaces),
+    "",
+    "| Accent | Color |",
+    "|---|---|",
+    ...rows(theme.accents),
+  ].join("\n");
+}

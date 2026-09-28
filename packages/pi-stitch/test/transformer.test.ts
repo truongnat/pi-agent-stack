@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  checkHazardousBash,
   stripAiSlop,
   transformCallouts,
   transformMarkdown,
@@ -29,17 +28,6 @@ test("transformCallouts transforms GitHub alert callouts to clean badges", () =>
   assert.ok(output.includes("> **ℹ NOTE** Additional context here"));
 });
 
-test("checkHazardousBash flags destructive commands", () => {
-  const dangerous1 = checkHazardousBash("rm -rf /");
-  assert.equal(dangerous1.isHazard, true);
-
-  const dangerous2 = checkHazardousBash("git push origin main --force");
-  assert.equal(dangerous2.isHazard, true);
-
-  const safe = checkHazardousBash("bun run test");
-  assert.equal(safe.isHazard, false);
-});
-
 test("transformMarkdown runs complete pipeline", () => {
   const input = `Certainly!
 > [!TIP]
@@ -47,4 +35,37 @@ test("transformMarkdown runs complete pipeline", () => {
 `;
   const result = transformMarkdown(input);
   assert.ok(result.startsWith("> **💡 TIP**"));
+});
+
+test("stitch registers a display-only markdown transformer and a generated token sheet", async () => {
+  const { registerStitchExtension } = await import("../src/extension.ts");
+  const { tokenSheet, EMBER_THEME } = await import("../src/tokens.ts");
+  let transformer: ((md: string, ctx: any) => string) | undefined;
+  const pi = new Proxy(
+    {
+      registerMarkdownTransformer: (t: typeof transformer) => (transformer = t),
+    },
+    { get: (target: any, key) => target[key] ?? (() => undefined) },
+  );
+  registerStitchExtension(
+    pi as never,
+    { list: async () => [], saveCache: () => {} } as never,
+  );
+  assert.ok(transformer, "transformer registered");
+  const reply = "Sure! Here is the fix:\n> [!NOTE]\nDone.";
+  const done = transformer(reply, {
+    messageType: "assistant",
+    isStreaming: false,
+  });
+  assert.ok(!done.startsWith("Sure!"));
+  assert.ok(done.includes("ℹ NOTE"));
+  const streaming = transformer(reply, {
+    messageType: "assistant",
+    isStreaming: true,
+  });
+  assert.ok(
+    streaming.startsWith("Sure!"),
+    "no preamble stripping while streaming",
+  );
+  assert.ok(tokenSheet().includes(EMBER_THEME.accents.mauve));
 });

@@ -198,6 +198,26 @@ rsync -a \
 	"$ROOT_DIR/typesafe-harness/" "$TYPESAFE_DIR/"
 chmod +x "$TYPESAFE_DIR"/*.sh "$TYPESAFE_DIR"/*.py 2>/dev/null || true
 
+# Antigravity (agy) reads hooks from ~/.gemini/config/hooks.json. Add the TypeSafe gate block
+# only when missing; the file also holds other tools' hooks (ai-memory), which stay as they are.
+if command -v agy >/dev/null 2>&1; then
+	AGY_HOOKS="$HOME/.gemini/config/hooks.json"
+	mkdir -p "$(dirname "$AGY_HOOKS")"
+	node -e '
+		const fs = require("fs")
+		const [file, repoFile] = process.argv.slice(1)
+		let hooks = {}
+		try { hooks = JSON.parse(fs.readFileSync(file, "utf8")) } catch (e) {
+			if (fs.existsSync(file)) { console.error(`warning: ${file} is not valid JSON; agy hooks not added`); process.exit(0) }
+		}
+		if (hooks["typesafe-gate"]) process.exit(0)
+		const home = require("os").homedir()
+		const block = JSON.parse(fs.readFileSync(repoFile, "utf8").replaceAll("~/", home + "/"))
+		fs.writeFileSync(file, JSON.stringify({ ...hooks, ...block }, null, 2) + "\n")
+		console.log(`Added the TypeSafe gate to ${file}`)
+	' "$AGY_HOOKS" "$ROOT_DIR/config/agy-hooks.json"
+fi
+
 # xlsx2md CLI for pi-xlsx2md, vendored in tools/xlsx2md. Installed into an isolated tool env
 # (uv, then pipx, then pip --user) only when no `xlsx2md` is on PATH.
 if ! command -v xlsx2md >/dev/null 2>&1; then
