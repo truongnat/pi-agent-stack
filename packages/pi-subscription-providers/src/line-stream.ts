@@ -16,6 +16,7 @@ export async function runStreamingLines(request: {
 	onLine: LineHandler
 }): Promise<{ code: number | null; timedOut: boolean; aborted: boolean; stderr: string }> {
 	const env = allowlistEnv()
+	if (request.signal?.aborted) return { code: null, timedOut: false, aborted: true, stderr: '' }
 	return await new Promise((resolve) => {
 		const child = spawn(request.command, request.args, {
 			cwd: request.cwd,
@@ -23,6 +24,8 @@ export async function runStreamingLines(request: {
 			stdio: [request.stdin !== undefined ? 'pipe' : 'ignore', 'pipe', 'pipe']
 		})
 		if (request.stdin !== undefined && child.stdin) {
+			// EPIPE when the CLI exits before reading stdin; the exit code already reports the failure.
+			child.stdin.on('error', () => undefined)
 			child.stdin.end(request.stdin)
 		}
 		let stderr = ''
@@ -36,6 +39,7 @@ export async function runStreamingLines(request: {
 			if (settled) return
 			settled = true
 			clearTimeout(timer)
+			request.signal?.removeEventListener('abort', onAbort)
 			if (buffer.trim()) request.onLine(buffer)
 			resolve({
 				code,
@@ -45,20 +49,25 @@ export async function runStreamingLines(request: {
 			})
 		}
 
-		const timer = setTimeout(() => {
-			timedOut = true
+		const stop = () => {
 			child.kill('SIGTERM')
 			setTimeout(() => child.kill('SIGKILL'), 2_000).unref()
+		}
+		const timer = setTimeout(() => {
+			timedOut = true
+			stop()
 		}, request.timeoutMs)
 
 		const onAbort = () => {
 			aborted = true
-			child.kill('SIGTERM')
+			stop()
 		}
 		request.signal?.addEventListener('abort', onAbort, { once: true })
 
-		child.stdout?.on('data', (chunk: Buffer) => {
-			const text = chunk.toString('utf8')
+		// String decoding keeps multi-byte characters split across chunks intact.
+		child.stdout?.setEncoding('utf8')
+		child.stderr?.setEncoding('utf8')
+		child.stdout?.on('data', (text: string) => {
 			stdoutChars += text.length
 			if (stdoutChars > request.maxOutputChars) {
 				child.kill('SIGTERM')
@@ -71,8 +80,8 @@ export async function runStreamingLines(request: {
 				if (line.trim()) request.onLine(line)
 			}
 		})
-		child.stderr?.on('data', (chunk: Buffer) => {
-			if (stderr.length < 20_000) stderr += chunk.toString('utf8')
+		child.stderr?.on('data', (text: string) => {
+			if (stderr.length < 20_000) stderr += text
 		})
 		child.on('error', (err) => {
 			stderr = diagnostic(err.message)

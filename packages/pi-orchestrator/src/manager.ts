@@ -415,8 +415,10 @@ export class SubagentManager {
 
 				resetIdleTimer()
 
-				child.stdout?.on('data', (chunk) => {
-					const str = chunk.toString()
+				// String decoding keeps multi-byte characters split across chunks intact.
+				child.stdout?.setEncoding('utf8')
+				child.stderr?.setEncoding('utf8')
+				child.stdout?.on('data', (str: string) => {
 					stdout += str
 					if (!sawStream) {
 						sawStream = true
@@ -425,8 +427,8 @@ export class SubagentManager {
 					resetIdleTimer()
 					if (onChunk) onChunk(str)
 				})
-				child.stderr?.on('data', (chunk) => {
-					stderr += chunk.toString()
+				child.stderr?.on('data', (str: string) => {
+					stderr += str
 					if (!sawStream) {
 						sawStream = true
 						idleTimeoutMs = 480_000

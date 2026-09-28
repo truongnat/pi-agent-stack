@@ -12,6 +12,9 @@ function truncate(text: string, max: number): string {
 export const defaultRunner: Runner = async (request) => {
 	const started = performance.now()
 	const env = allowlistEnv({ ...process.env, ...(request.env ?? {}) })
+	if (request.signal?.aborted) {
+		return { code: null, stdout: '', stderr: '', timedOut: false, aborted: true, durationMs: 0 }
+	}
 	return await new Promise<RunResult>((resolve) => {
 		const child = spawn(request.command, request.args, {
 			cwd: request.cwd,
@@ -28,6 +31,7 @@ export const defaultRunner: Runner = async (request) => {
 			if (settled) return
 			settled = true
 			clearTimeout(timer)
+			request.signal?.removeEventListener('abort', onAbort)
 			resolve({
 				code,
 				stdout: redact(truncate(stdout, request.maxOutputChars)),
@@ -38,23 +42,28 @@ export const defaultRunner: Runner = async (request) => {
 			})
 		}
 
-		const timer = setTimeout(() => {
-			timedOut = true
+		const stop = () => {
 			child.kill('SIGTERM')
 			setTimeout(() => child.kill('SIGKILL'), 2_000).unref()
+		}
+		const timer = setTimeout(() => {
+			timedOut = true
+			stop()
 		}, request.timeoutMs)
 
 		const onAbort = () => {
 			aborted = true
-			child.kill('SIGTERM')
+			stop()
 		}
 		request.signal?.addEventListener('abort', onAbort, { once: true })
 
-		child.stdout?.on('data', (chunk: Buffer) => {
-			if (stdout.length < request.maxOutputChars + 1) stdout += chunk.toString('utf8')
+		child.stdout?.setEncoding('utf8')
+		child.stderr?.setEncoding('utf8')
+		child.stdout?.on('data', (text: string) => {
+			if (stdout.length < request.maxOutputChars + 1) stdout += text
 		})
-		child.stderr?.on('data', (chunk: Buffer) => {
-			if (stderr.length < request.maxOutputChars + 1) stderr += chunk.toString('utf8')
+		child.stderr?.on('data', (text: string) => {
+			if (stderr.length < request.maxOutputChars + 1) stderr += text
 		})
 		child.on('error', (err) => {
 			stderr = diagnostic(err.message)
@@ -63,6 +72,8 @@ export const defaultRunner: Runner = async (request) => {
 		child.on('close', (code) => finish(code))
 
 		if (request.stdin !== undefined && child.stdin) {
+			// EPIPE when the CLI exits before reading stdin; the exit code already reports the failure.
+			child.stdin.on('error', () => undefined)
 			child.stdin.end(request.stdin)
 		}
 	})

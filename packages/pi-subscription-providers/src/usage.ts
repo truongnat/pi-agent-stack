@@ -387,6 +387,7 @@ const defaultCodexStatus = (): Promise<CodexStatus> =>
 		}
 		const timer = setTimeout(() => finish(new Error('codex app-server timed out')), CLI_TIMEOUT_MS)
 		child.on('error', (error) => finish(error))
+		child.stdin.on('error', (error) => finish(error))
 		createInterface({ input: child.stdout }).on('line', (line) => {
 			try {
 				const msg = JSON.parse(line) as { id?: number; result?: unknown; error?: unknown }
