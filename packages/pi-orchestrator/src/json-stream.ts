@@ -31,6 +31,8 @@ export function summarizeJsonEvent(evt: Record<string, unknown>): {
 	activity?: string
 	assistantDelta?: string
 	assistantFinal?: string
+	/** input + output of one finished assistant message */
+	tokens?: number
 } {
 	const type = evt.type
 	if (type === 'message_update') {
@@ -70,7 +72,12 @@ export function summarizeJsonEvent(evt: Record<string, unknown>): {
 		const msg = evt.message as Record<string, unknown> | undefined
 		if (msg?.role === 'assistant') {
 			const text = textFromMessageContent(msg.content)
-			if (text.trim()) return { assistantFinal: text }
+			const usage = msg.usage as { input?: number; output?: number } | undefined
+			const tokens = (usage?.input ?? 0) + (usage?.output ?? 0)
+			return {
+				...(text.trim() ? { assistantFinal: text } : {}),
+				...(tokens > 0 ? { tokens } : {})
+			}
 		}
 	}
 	if (type === 'turn_start') {

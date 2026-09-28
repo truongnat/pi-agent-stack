@@ -15,6 +15,8 @@ export interface ConsensusVote {
 	role: string
 	model: string
 	passed: boolean
+	/** No VERDICT line: the vote is shown but not counted. */
+	abstained?: boolean
 	confidence: number
 	reason: string
 }
@@ -45,6 +47,15 @@ const DEFAULT_OPTIONS: Required<ConsensusOptions> = {
 	requireTestPassing: true
 }
 
+export const VERIFIER_ROLES = new Set(['reviewer', 'tester'])
+
+/** Last `VERDICT: PASS|FAIL` line in the output (markdown bold allowed). */
+export function parseVerdict(output: string): 'PASS' | 'FAIL' | undefined {
+	const matches = [...output.matchAll(/^[\s>*_`]*VERDICT[\s*_`]*:[\s*_`]*(PASS|FAIL)\b/gim)]
+	const last = matches.at(-1)?.[1]
+	return last ? (last.toUpperCase() as 'PASS' | 'FAIL') : undefined
+}
+
 /**
  * Extracts a structured vote from a subagent execution result.
  */
@@ -63,59 +74,23 @@ export function extractVoteFromResult(result: SubagentExecutionResult): Consensu
 		}
 	}
 
-	const lower = output.toLowerCase()
-
-	// Tester evaluation
-	if (result.role === 'tester') {
-		const hasExplicitFailCount = /\b[1-9]\d*\s*(?:fail|failed|errors?)\b/i.test(lower)
-		const hasAssertionError =
-			lower.includes('assertionerror') ||
-			lower.includes('unhandled rejection') ||
-			lower.includes('error:')
-		const hasGenericFailure =
-			(lower.includes('test failed') ||
-				lower.includes('tests failed') ||
-				lower.includes('failing')) &&
-			!lower.includes('0 fail')
-
-		const testFailed = hasExplicitFailCount || hasAssertionError || hasGenericFailure
-		const testPassed =
-			(lower.includes('pass') ||
-				lower.includes('0 fail') ||
-				lower.includes('all tests passed') ||
-				lower.includes('ok')) &&
-			!testFailed
-
+	// Reviewers and testers end with `VERDICT: PASS|FAIL` (their system prompts ask for it).
+	// Keyword scans misread "token", "password" or "unclean", so without that line they abstain.
+	if (VERIFIER_ROLES.has(result.role)) {
+		const verdict = parseVerdict(output)
 		return {
 			subagentId: result.id,
 			role: result.role,
 			model: result.name,
-			passed: testPassed,
-			confidence: 0.95,
-			reason: testPassed ? 'All test assertions verified' : 'Test failures detected'
-		}
-	}
-
-	// Reviewer evaluation
-	if (result.role === 'reviewer') {
-		const approved =
-			(lower.includes('approve') ||
-				lower.includes('lgtm') ||
-				lower.includes('clean') ||
-				lower.includes('pass')) &&
-			!lower.includes('reject') &&
-			!lower.includes('security risk') &&
-			!lower.includes('critical issue')
-
-		return {
-			subagentId: result.id,
-			role: result.role,
-			model: result.name,
-			passed: approved,
-			confidence: 0.85,
-			reason: approved
-				? 'Code review approved with clean score'
-				: 'Reviewer identified issues or requested changes'
+			passed: verdict === 'PASS',
+			...(verdict ? {} : { abstained: true }),
+			confidence: verdict ? 0.95 : 0,
+			reason:
+				verdict === 'PASS'
+					? `${result.role} verdict: PASS`
+					: verdict === 'FAIL'
+						? `${result.role} verdict: FAIL`
+						: 'No VERDICT line; not counted'
 		}
 	}
 
@@ -154,21 +129,35 @@ export function evaluateConsensus(
 	}
 
 	const votes = results.map(extractVoteFromResult)
-	const passedVotes = votes.filter((v) => v.passed)
-	const passedCount = passedVotes.length
-	const totalCount = votes.length
+	// When verifiers took part, the primary's own "I finished" is not a vote on its work; a
+	// failed or killed run still counts against.
+	const hasVerifiers = results.some((r) => VERIFIER_ROLES.has(r.role))
+	const counted = votes.filter(
+		(v, i) =>
+			!v.abstained &&
+			(!hasVerifiers ||
+				VERIFIER_ROLES.has(v.role) ||
+				results[i]?.status === 'failed' ||
+				results[i]?.status === 'killed')
+	)
+	const passedCount = counted.filter((v) => v.passed).length
+	const totalCount = counted.length
 
 	const agreementScore = totalCount > 0 ? passedCount / totalCount : 0
 	const providerDiversityMet = availableProviders.length >= options.minDiverseProviders
 
 	// Check if tester role failed
-	const testerVote = votes.find((v) => v.role === 'tester')
+	const testerVote = counted.find((v) => v.role === 'tester')
 	const testBlocked = options.requireTestPassing && testerVote && !testerVote.passed
 
 	let verdict: ConsensusVerdict = 'disputed'
 	let arbitrationAdvice: string | undefined
 
-	if (testBlocked) {
+	if (totalCount === 0) {
+		verdict = 'disputed'
+		arbitrationAdvice =
+			'No verifier gave a VERDICT line. Read their reports below and decide, or ask the user.'
+	} else if (testBlocked) {
 		verdict = 'rejected'
 		arbitrationAdvice =
 			'Tester agent reported failures; changes must not be merged until tests pass 100%.'
@@ -187,7 +176,7 @@ export function evaluateConsensus(
 	const voteSummary = votes
 		.map(
 			(v) =>
-				`  • [${v.role.toUpperCase()}] ${v.model}: ${v.passed ? '✓ APPROVE' : '✗ REJECT'} (${v.reason})`
+				`  • [${v.role.toUpperCase()}] ${v.model}: ${v.abstained ? '– ABSTAIN' : v.passed ? '✓ APPROVE' : '✗ REJECT'} (${v.reason})`
 		)
 		.join('\n')
 

@@ -3,6 +3,10 @@ import type { AgentRoleDefinition, AgentRoleName } from './types.ts'
 const LANGUAGE_DIRECTIVE =
 	'CRITICAL: Always respond and synthesize reports in the exact same language as the task prompt (default to Vietnamese or English as used in the prompt). Never produce output in unrelated foreign languages (e.g. Mongolian, Russian, etc.).'
 
+/** Consensus counts only this line (see consensus.ts parseVerdict). */
+const VERDICT_DIRECTIVE =
+	'End your reply with exactly one line, in English: `VERDICT: PASS` if the work is correct and complete, otherwise `VERDICT: FAIL`.'
+
 export const DEFAULT_ROSTER: Record<AgentRoleName, AgentRoleDefinition> = {
 	researcher: {
 		name: 'researcher',
@@ -35,7 +39,7 @@ ${LANGUAGE_DIRECTIVE}`
 			'Executes test suites, linters, and typechecks, analyzing error traces and verifying regressions.',
 		defaultModelTier: 'mini',
 		allowedTools: ['read', 'bash', 'grep', 'find', 'ls'],
-		systemPrompt: `You are a specialized Test & Verification Subagent. Your mission is to run test commands (e.g. npm test, pytest, cargo test), linters, and builds. Analyze failure outputs, extract stack traces, and summarize verification status clearly (e.g. 100% pass vs failing test locations). ${LANGUAGE_DIRECTIVE}`
+		systemPrompt: `You are a specialized Test & Verification Subagent. Your mission is to run test commands (e.g. npm test, pytest, cargo test), linters, and builds. Analyze failure outputs, extract stack traces, and summarize verification status clearly (e.g. 100% pass vs failing test locations). ${VERDICT_DIRECTIVE} ${LANGUAGE_DIRECTIVE}`
 	},
 	debugger: {
 		name: 'debugger',
@@ -53,7 +57,7 @@ ${LANGUAGE_DIRECTIVE}`
 			'Reviews git diffs, checks code quality standards, security implications, and design coherence.',
 		defaultModelTier: 'pro',
 		allowedTools: ['read', 'grep', 'find', 'ls'],
-		systemPrompt: `You are a specialized Code Reviewer and Security Auditor Subagent. Inspect git diffs and modified files. Verify edge cases, error handling, performance implications, and cleanliness. Provide constructive, categorized review feedback (Must Fix, Suggestions, Praise). ${LANGUAGE_DIRECTIVE}`
+		systemPrompt: `You are a specialized Code Reviewer and Security Auditor Subagent. Inspect git diffs and modified files. Verify edge cases, error handling, performance implications, and cleanliness. Provide constructive, categorized review feedback (Must Fix, Suggestions, Praise). ${VERDICT_DIRECTIVE} ${LANGUAGE_DIRECTIVE}`
 	}
 }
 

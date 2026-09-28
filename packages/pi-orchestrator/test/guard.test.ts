@@ -3,6 +3,7 @@ import test from 'node:test'
 import { checkOrchestratorGuard } from '../src/guard.ts'
 import { SubagentManager } from '../src/manager.ts'
 import { createOrchestratorTools } from '../src/tools.ts'
+import { fakeManager } from './fake-runner.ts'
 
 test('checkOrchestratorGuard blocks when available providers < minProvidersRequired', () => {
 	const config = { enabled: true, guard: true, alwaysOrchestrate: true, minProvidersRequired: 2 }
@@ -40,12 +41,12 @@ test('checkOrchestratorGuard bypasses threshold when guard is disabled', () => {
 })
 
 test('invoke_subagent tool enforces guard check and blocks execution if < 2 providers', async () => {
-	const manager = new SubagentManager({
+	const manager = fakeManager({
 		enabled: true,
 		guard: true,
 		alwaysOrchestrate: true,
 		minProvidersRequired: 2
-	})
+	}).manager
 	// Mock process.env to ensure 0 providers
 	const oldAnthropic = process.env.ANTHROPIC_API_KEY
 	const oldOpenAI = process.env.OPENAI_API_KEY
@@ -77,12 +78,12 @@ test('invoke_subagent tool enforces guard check and blocks execution if < 2 prov
 })
 
 test('invoke_subagent tool executes successfully when guard is disabled or passed', async () => {
-	const manager = new SubagentManager({
+	const manager = fakeManager({
 		enabled: true,
 		guard: false,
 		alwaysOrchestrate: true,
 		minProvidersRequired: 2
-	})
+	}).manager
 	const { invokeSubagentTool } = createOrchestratorTools(manager)
 
 	const result = await invokeSubagentTool.execute(

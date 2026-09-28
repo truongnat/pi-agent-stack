@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { DEFAULT_ROSTER, generateAgentCodename, getRoleDefinition, withModelSuffix } from '../src/roster.ts'
+import {
+	DEFAULT_ROSTER,
+	generateAgentCodename,
+	getRoleDefinition,
+	withModelSuffix
+} from '../src/roster.ts'
 
 test('DEFAULT_ROSTER defines standard 4 agent roles with proper tool scoping', () => {
 	assert.ok(DEFAULT_ROSTER.researcher)

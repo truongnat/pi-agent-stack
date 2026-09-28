@@ -69,7 +69,10 @@ test('message_end assistant content becomes final text', () => {
 	})
 	assert.equal(s.assistantFinal, 'Done with keyboard nav.')
 	assert.equal(
-		textFromMessageContent([{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }]),
+		textFromMessageContent([
+			{ type: 'text', text: 'a' },
+			{ type: 'text', text: 'b' }
+		]),
 		'ab'
 	)
 })

@@ -219,13 +219,18 @@ export function createOrchestratorTools(manager: SubagentManager) {
 
 				const primarySection = `## 🧑‍💻 Primary Task: \`${consensusExecution.primaryResult.name}\` (${consensusExecution.primaryResult.role})\n${consensusExecution.primaryResult.output}`
 				const consensusSection = consensusExecution.consensus.summary
+				// The model needs the reviewers' actual findings, not only the tally.
+				const verifierSections = consensusExecution.verificationResults.map(
+					(r) => `## 🔍 ${r.role}: \`${r.name}\`\n${r.output || r.error || '(no output)'}`
+				)
 
 				const text = [
 					`# 🏛 Orchestrator: Multi-Agent Consensus Verification Tree`,
 					'',
 					consensusSection,
 					'',
-					primarySection
+					primarySection,
+					...verifierSections
 				].join('\n\n')
 
 				return {
@@ -316,8 +321,7 @@ export function createOrchestratorTools(manager: SubagentManager) {
 							const lines = preview.split('\n')
 							if (lines.length > 10) {
 								preview =
-									lines.slice(0, 10).join('\n') +
-									`\n\n*… ${lines.length - 10} more lines (expand)*`
+									lines.slice(0, 10).join('\n') + `\n\n*… ${lines.length - 10} more lines (expand)*`
 							}
 						}
 						box.addChild(new Markdown(preview, 4, 0, mdTheme))
@@ -374,7 +378,9 @@ export function createOrchestratorTools(manager: SubagentManager) {
 				const isApproved = c.verdict === 'approved' || c.status === 'approved'
 				const badge = isApproved
 					? theme.fg('success', theme.bold('[ 🏛 CONSENSUS APPROVED ]'))
-					: theme.fg('warning', theme.bold('[ ⚠️ CONSENSUS DISPUTED ]'))
+					: c.verdict === 'rejected'
+						? theme.fg('error', theme.bold('[ ✖ CONSENSUS REJECTED ]'))
+						: theme.fg('warning', theme.bold('[ ⚠️ CONSENSUS DISPUTED ]'))
 				const scoreStr =
 					typeof c.agreementScore === 'number'
 						? `${Math.round(c.agreementScore * 100)}%`

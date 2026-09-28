@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
-import { killProcessGroup, spawnSupervised } from 'pi-native-bridge'
+import { killProcessGroup } from 'pi-native-bridge'
 import { loadOrchestratorConfig, type OrchestratorConfig } from './config.ts'
 import { evaluateConsensus, type ConsensusOptions, type ConsensusResult } from './consensus.ts'
 import { getAvailableProviders } from './guard.ts'
@@ -73,13 +73,59 @@ export function formatActivityMarkdown(elapsedSec: number, trail: string[]): str
 	return `*${elapsedSec}s*\n\n${items}`
 }
 
+export type WorkerRequest = {
+	command: string
+	args: string[]
+	cwd: string
+	signal?: AbortSignal | undefined
+	onChunk?: ((chunk: string) => void) | undefined
+	maxTimeoutMs: number
+	env?: Record<string, string>
+	instance?: SubagentInstance
+}
+
+export type WorkerResult = { stdout: string; stderr: string; code: number | null }
+
+/** Runs one worker process. Tests inject a fake; production spawns it. */
+export type WorkerRunner = (request: WorkerRequest) => Promise<WorkerResult>
+
+/** Read-only roles never get a CLI fallback that can write (`agy --dangerously-skip-permissions`). */
+export function fallbackWorkers(
+	allowedTools: string[],
+	prompt: string
+): Array<{ command: string; args: string[] }> {
+	const canWrite = allowedTools.some((t) => t === 'edit' || t === 'write')
+	if (!canWrite) {
+		return [{ command: 'claude', args: ['-p', prompt, '--permission-mode', 'plan'] }]
+	}
+	return [
+		{ command: 'agy', args: ['--dangerously-skip-permissions', '--prompt', prompt] },
+		{ command: 'cursor-agent', args: ['-p', prompt] },
+		{ command: 'claude', args: ['-p', prompt] }
+	]
+}
+
 export class SubagentManager {
 	private instances = new Map<string, SubagentInstance>()
 	private dispatchedProviderCounts: Record<string, number> = {}
+	private runner: WorkerRunner
 	public config: OrchestratorConfig
 	public scratchpadRoot: string
 
-	constructor(config?: Partial<OrchestratorConfig>) {
+	constructor(config?: Partial<OrchestratorConfig>, options: { runner?: WorkerRunner } = {}) {
+		this.runner =
+			options.runner ??
+			((r) =>
+				this.execSubprocessWorker(
+					r.command,
+					r.args,
+					r.cwd,
+					r.signal,
+					r.onChunk,
+					r.maxTimeoutMs,
+					r.env,
+					r.instance
+				))
 		this.config = { ...loadOrchestratorConfig(), ...config }
 		this.scratchpadRoot =
 			this.config.scratchpadRoot ?? join(homedir(), '.pi-orchestrator', 'scratchpads')
@@ -98,8 +144,11 @@ export class SubagentManager {
 		return Array.from(this.instances.values())
 	}
 
+	/** Drops finished subagents; running ones stay so they can still be listed and killed. */
 	public clearHistory(): void {
-		this.instances.clear()
+		for (const [id, instance] of this.instances) {
+			if (instance.status !== 'running') this.instances.delete(id)
+		}
 		this.dispatchedProviderCounts = {}
 	}
 
@@ -196,6 +245,10 @@ export class SubagentManager {
 		this.pruneOldScratchpads()
 		const id = `subagent_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
 		const roleDef = getRoleDefinition(task.role)
+		// The tools a task asks for, capped by what its role may use.
+		const tools = task.tools
+			? roleDef.allowedTools.filter((t) => task.tools?.includes(t))
+			: roleDef.allowedTools
 		const modelSelection = selectOptimalModelForTask(
 			task,
 			getAvailableModelPool(),
@@ -236,7 +289,7 @@ export class SubagentManager {
 						name,
 						model,
 						prompt: task.prompt,
-						allowedTools: task.tools || roleDef.allowedTools,
+						allowedTools: tools,
 						cwd,
 						startedAt: instance.startedAt
 					},
@@ -274,9 +327,12 @@ export class SubagentManager {
 			const executionOutput = await this.runSubagentTask(
 				instance,
 				roleDef.systemPrompt,
+				tools,
 				cwd,
 				options
 			)
+			// A kill that raced the last output must not turn into "completed".
+			if (instance.status === 'killed') throw new Error('Subagent was killed by supervisor.')
 
 			instance.status = 'completed'
 			instance.completedAt = Date.now()
@@ -490,6 +546,7 @@ export class SubagentManager {
 	private async runSubagentTask(
 		instance: SubagentInstance,
 		systemPrompt: string,
+		allowedTools: string[],
 		cwd: string,
 		options: { signal?: AbortSignal; onProgress?: (p: SubagentProgressEvent) => void }
 	): Promise<{ output: string; tokensUsed: number }> {
@@ -503,19 +560,7 @@ export class SubagentManager {
 			throw new Error('Task aborted by user.')
 		}
 
-		// Unit test mock mode
-		if (process.env.NODE_ENV === 'test' || process.env.BUN_TEST) {
-			const mockHeader = `### 📋 [${instance.role.toUpperCase()}] ${instance.name}\n- **Model**: \`${instance.model}\`\n- **Workspace**: \`${cwd}\`\n- **Scratchpad**: \`${instance.scratchpadDir}\`\n\n`
-			const mockBody = `**Task Prompt**:\n${instance.prompt}\n\n**Status**: Completed successfully.`
-			return {
-				output: `${mockHeader}${mockBody}`,
-				tokensUsed: Math.max(150, instance.prompt.length)
-			}
-		}
-
 		const fullPrompt = `${systemPrompt}\n\nTask:\n${instance.prompt}`
-		const roleDef = getRoleDefinition(instance.role)
-		const allowedTools = roleDef.allowedTools || ['read', 'grep', 'find', 'ls']
 		const builtInAllowed = allowedTools.filter((t) =>
 			['read', 'edit', 'write', 'bash', 'grep', 'find', 'ls'].includes(t)
 		)
@@ -540,6 +585,7 @@ export class SubagentManager {
 
 		let jsonBuf = ''
 		let assembledAssistant = ''
+		let streamTokens = 0
 		const activityTrail: string[] = []
 
 		const emitActivity = (line: string) => {
@@ -608,7 +654,15 @@ export class SubagentManager {
 				}
 				if (summary.assistantDelta) assembledAssistant += summary.assistantDelta
 				if (summary.assistantFinal) assembledAssistant = summary.assistantFinal
+				if (summary.tokens) streamTokens += summary.tokens
 			})
+		}
+		/** Real usage from the worker stream; the length estimate only when a worker reports none. */
+		const tokensFor = (output: string) =>
+			streamTokens || Math.max(150, Math.round(output.length / 4))
+		const stopped = () => {
+			if (instance.status === 'killed') throw new Error('Subagent was killed by supervisor.')
+			if (options.signal?.aborted) throw new Error('Task aborted by user.')
 		}
 
 		const handlePlainChunk = (chunkStr: string) => {
@@ -622,16 +676,16 @@ export class SubagentManager {
 		}
 
 		try {
-			let piResult = await this.execSubprocessWorker(
-				'pi',
-				piArgs,
+			let piResult = await this.runner({
+				command: 'pi',
+				args: piArgs,
 				cwd,
-				options.signal,
-				handlePiJsonChunk,
-				900_000,
-				{ PI_SUBAGENT_WORKER: '1' },
+				signal: options.signal,
+				onChunk: handlePiJsonChunk,
+				maxTimeoutMs: 900_000,
+				env: { PI_SUBAGENT_WORKER: '1' },
 				instance
-			)
+			})
 			if (!assembledAssistant && piResult.stdout) {
 				consumeJsonl(`${piResult.stdout}\n`, (obj) => {
 					if (!obj || typeof obj !== 'object') return
@@ -641,11 +695,10 @@ export class SubagentManager {
 			}
 			if (piResult.code === 0) {
 				const output = assembledAssistant.trim() || '(worker finished with no assistant text)'
-				return {
-					output,
-					tokensUsed: Math.max(150, Math.round(output.length / 4))
-				}
+				return { output, tokensUsed: tokensFor(output) }
 			}
+			// Esc or /agents kill: stop here instead of retrying or falling back to other CLIs.
+			stopped()
 
 			if (piResult.stderr) {
 				this.logToScratchpad(instance, {
@@ -686,16 +739,17 @@ export class SubagentManager {
 					else retryArgs.unshift('--model', instance.model)
 					jsonBuf = ''
 					assembledAssistant = ''
-					piResult = await this.execSubprocessWorker(
-						'pi',
-						retryArgs,
+					streamTokens = 0
+					piResult = await this.runner({
+						command: 'pi',
+						args: retryArgs,
 						cwd,
-						options.signal,
-						handlePiJsonChunk,
-						900_000,
-						{ PI_SUBAGENT_WORKER: '1' },
+						signal: options.signal,
+						onChunk: handlePiJsonChunk,
+						maxTimeoutMs: 900_000,
+						env: { PI_SUBAGENT_WORKER: '1' },
 						instance
-					)
+					})
 					if (piResult.code === 0) {
 						if (!assembledAssistant && piResult.stdout) {
 							consumeJsonl(`${piResult.stdout}\n`, (obj) => {
@@ -704,48 +758,45 @@ export class SubagentManager {
 								if (summary.assistantFinal) assembledAssistant = summary.assistantFinal
 							})
 						}
-						const output =
-							assembledAssistant.trim() || '(worker finished with no assistant text)'
-						return {
-							output,
-							tokensUsed: Math.max(150, Math.round(output.length / 4))
-						}
+						const output = assembledAssistant.trim() || '(worker finished with no assistant text)'
+						return { output, tokensUsed: tokensFor(output) }
 					}
+					stopped()
 				}
 			}
 
-			// 2. Try Secondary CLI Workers if pi runner failed
-			const candidateWorkers = ['agy', 'cursor-agent', 'claude']
-			for (const worker of candidateWorkers) {
-				const args =
-					worker === 'agy'
-						? ['--dangerously-skip-permissions', '--prompt', fullPrompt]
-						: ['-p', fullPrompt]
-
+			// 2. Try secondary CLI workers if the pi runner failed. Async and abortable, so Esc and
+			// /agents kill reach them and the TUI keeps running.
+			for (const worker of fallbackWorkers(allowedTools, fullPrompt)) {
+				stopped()
 				options.onProgress?.({
 					id: instance.id,
 					role: instance.role,
 					name: instance.name,
 					status: 'running',
-					currentActivity: `Trying fallback worker: ${worker}...`
+					currentActivity: `Trying fallback worker: ${worker.command}...`
 				})
-
-				const supervised = spawnSupervised(shellJoin(worker, args), cwd, 600_000)
-				if (supervised.stdout.trim()) handlePlainChunk(supervised.stdout)
+				const fallback = await this.runner({
+					command: worker.command,
+					args: worker.args,
+					cwd,
+					signal: options.signal,
+					onChunk: handlePlainChunk,
+					maxTimeoutMs: 600_000,
+					instance
+				})
 				const ok =
-					!supervised.timed_out &&
-					supervised.exit_code === 0 &&
-					supervised.stdout &&
-					!/failed to authenticate|oauth session expired|login required/i.test(
-						supervised.stdout
-					)
+					fallback.code === 0 &&
+					fallback.stdout &&
+					!/failed to authenticate|oauth session expired|login required/i.test(fallback.stdout)
 				if (ok) {
 					return {
-						output: supervised.stdout,
-						tokensUsed: Math.max(150, Math.round(supervised.stdout.length / 4))
+						output: fallback.stdout,
+						tokensUsed: Math.max(150, Math.round(fallback.stdout.length / 4))
 					}
 				}
 			}
+			stopped()
 
 			// If all execution backends failed, DO NOT fake success. Report actual failure!
 			const failureReason =

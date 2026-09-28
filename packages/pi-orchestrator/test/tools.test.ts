@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { SubagentManager } from '../src/manager.ts'
 import { createOrchestratorTools } from '../src/tools.ts'
+import { fakeManager } from './fake-runner.ts'
 
 function flattenComponent(c: any): string {
 	if (!c) return ''
@@ -22,7 +23,7 @@ function flattenComponent(c: any): string {
 }
 
 test('invoke_subagent tool executes tasks and returns structured markdown artifact', async () => {
-	const manager = new SubagentManager({ guard: false })
+	const manager = fakeManager({ guard: false }).manager
 	const { invokeSubagentTool } = createOrchestratorTools(manager)
 
 	const result = await invokeSubagentTool.execute(
@@ -42,7 +43,7 @@ test('invoke_subagent tool executes tasks and returns structured markdown artifa
 })
 
 test('manage_subagents tool handles list, status, kill, and clear actions', async () => {
-	const manager = new SubagentManager()
+	const manager = fakeManager().manager
 	const { manageSubagentsTool } = createOrchestratorTools(manager)
 
 	// List empty
@@ -101,7 +102,7 @@ test('manage_subagents tool handles list, status, kill, and clear actions', asyn
 })
 
 test('send_subagent_message delivers guidance to existing subagent', async () => {
-	const manager = new SubagentManager()
+	const manager = fakeManager().manager
 	const { sendSubagentMessageTool } = createOrchestratorTools(manager)
 
 	const spawned = await manager.spawnSubagent(
@@ -124,7 +125,7 @@ test('send_subagent_message delivers guidance to existing subagent', async () =>
 })
 
 test('invoke_subagent tool executes with require_consensus and returns consensus report', async () => {
-	const manager = new SubagentManager({ guard: false })
+	const manager = fakeManager({ guard: false }).manager
 	const { invokeSubagentTool } = createOrchestratorTools(manager)
 
 	const result = await invokeSubagentTool.execute(
@@ -146,7 +147,7 @@ test('invoke_subagent tool executes with require_consensus and returns consensus
 })
 
 test('invoke_subagent renderCall and renderResult render clean TUI components with markdown support', async () => {
-	const manager = new SubagentManager({ guard: false })
+	const manager = fakeManager({ guard: false }).manager
 	const { invokeSubagentTool, manageSubagentsTool } = createOrchestratorTools(manager)
 
 	const mockTheme = {

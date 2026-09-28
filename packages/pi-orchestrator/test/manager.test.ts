@@ -8,9 +8,10 @@ import {
 	SubagentManager
 } from '../src/manager.ts'
 import type { SubagentTask } from '../src/types.ts'
+import { fakeManager, piReply } from './fake-runner.ts'
 
 test('SubagentManager spawns, executes, and tracks subagents in scratchpads', async () => {
-	const manager = new SubagentManager()
+	const manager = fakeManager().manager
 	const task: SubagentTask = {
 		role: 'researcher',
 		prompt: 'Survey repository architecture',
@@ -33,7 +34,7 @@ test('SubagentManager spawns, executes, and tracks subagents in scratchpads', as
 })
 
 test('SubagentManager invokeBatch supports parallel and sequential modes', async () => {
-	const manager = new SubagentManager()
+	const manager = fakeManager().manager
 	const tasks: SubagentTask[] = [
 		{ role: 'researcher', prompt: 'Check module 1' },
 		{ role: 'tester', prompt: 'Run tests' }
@@ -51,7 +52,7 @@ test('SubagentManager invokeBatch supports parallel and sequential modes', async
 })
 
 test('SubagentManager kill and killAll operations', async () => {
-	const manager = new SubagentManager()
+	const manager = fakeManager().manager
 
 	// Spawn a task
 	const result = await manager.spawnSubagent({ role: 'coder', prompt: 'Long edit' }, process.cwd())
@@ -122,4 +123,67 @@ test('formatActivityMarkdown is list markdown with elapsed time', () => {
 	assert.match(md, /\*12s\*/)
 	assert.match(md, /- 💭 plan/)
 	assert.match(md, /- ▶ read/)
+})
+
+test('Esc stops the subagent: no model retry and no fallback CLIs after an abort', async () => {
+	const controller = new AbortController()
+	const { manager, calls } = fakeManager({}, async () => {
+		controller.abort()
+		return { stdout: '', stderr: 'Aborted by signal', code: -1 }
+	})
+	const result = await manager.spawnSubagent({ role: 'coder', prompt: 'x' }, process.cwd(), {
+		signal: controller.signal
+	})
+	assert.equal(calls.length, 1)
+	assert.equal(result.status, 'failed')
+	assert.match(result.error ?? '', /aborted/i)
+})
+
+test('/agents kill stays killed: no fallback and no "completed" overwrite', async () => {
+	let id = ''
+	const { manager, calls } = fakeManager({}, async (request) => {
+		id = request.instance?.id ?? ''
+		manager.killSubagent(id)
+		return { stdout: '', stderr: '', code: null }
+	})
+	const result = await manager.spawnSubagent({ role: 'coder', prompt: 'x' }, process.cwd())
+	assert.equal(calls.length, 1)
+	assert.equal(result.status, 'killed')
+	assert.equal(manager.getSubagent(id)?.status, 'killed')
+})
+
+test('read-only roles fall back only to a read-only CLI', async () => {
+	const { manager, calls } = fakeManager({}, async () => ({ stdout: '', stderr: 'boom', code: 1 }))
+	await manager.spawnSubagent({ role: 'reviewer', prompt: 'x' }, process.cwd())
+	assert.deepEqual(
+		calls.map((c) => c.command),
+		['pi', 'claude']
+	)
+	assert.ok(!calls.some((c) => c.args.includes('--dangerously-skip-permissions')))
+	assert.ok(calls[1]?.args.includes('plan'))
+})
+
+test('token usage comes from the worker stream', async () => {
+	const { manager } = fakeManager({}, piReply('done', { input: 1000, output: 200 }))
+	const result = await manager.spawnSubagent({ role: 'researcher', prompt: 'x' }, process.cwd())
+	assert.equal(result.tokensUsed, 1200)
+})
+
+test('clearHistory keeps running subagents so they can still be killed', async () => {
+	let release: () => void = () => undefined
+	const { manager } = fakeManager(
+		{},
+		(request) =>
+			new Promise((resolve) => {
+				release = () => piReply('ok')(request).then(resolve)
+			})
+	)
+	const pending = manager.spawnSubagent({ role: 'coder', prompt: 'x' }, process.cwd())
+	await new Promise((r) => setTimeout(r, 10))
+	manager.clearHistory()
+	assert.equal(manager.listSubagents().length, 1)
+	release()
+	await pending
+	manager.clearHistory()
+	assert.equal(manager.listSubagents().length, 0)
 })
