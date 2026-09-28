@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
+import { constants as osConstants } from 'node:os'
 
 export interface FileEntry {
 	path: string
@@ -86,6 +87,7 @@ function fallbackScanDirectory(): FileEntry[] {
 	return []
 }
 
+/** No TS search engine: callers check isNativeAvailable() and use `rg` themselves. */
 function fallbackSearchWorkspace(): SearchMatch[] {
 	return []
 }
@@ -128,7 +130,7 @@ function fallbackSpawnSupervised(
 	cmd: string,
 	cwd = '',
 	timeoutMs = 60000,
-	_maxOutputBytes = 10485760
+	maxOutputBytes = 10485760
 ): ProcessExecutionResult {
 	const startTime = Date.now()
 	try {
@@ -137,11 +139,14 @@ function fallbackSpawnSupervised(
 			cwd: cwd || undefined,
 			timeout: timeoutMs,
 			encoding: 'utf8',
-			maxBuffer: 10 * 1024 * 1024
+			maxBuffer: maxOutputBytes
 		})
-		const timed_out = res.error?.message?.includes('ETIMEDOUT') || res.status === null
+		// Only a real timeout counts as one; a signal death (OOM kill, SIGSEGV) is a failure
+		// with exit code 128 + signal, like a shell reports it.
+		const timed_out = (res.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT'
+		const signalCode = res.signal ? (osConstants.signals[res.signal] ?? 0) : 0
 		return {
-			exit_code: res.status ?? (timed_out ? -9 : -1),
+			exit_code: res.status ?? (timed_out ? -9 : signalCode ? 128 + signalCode : -1),
 			stdout: res.stdout || '',
 			stderr: res.stderr || (res.error ? res.error.message : ''),
 			timed_out,
@@ -257,6 +262,7 @@ function findNativeLibrary(): string | null {
 		),
 		join(currentDir, '..', '..', '..', 'crates', 'pi-core', 'target', 'debug', 'libpi_core.dylib'),
 		join(currentDir, '..', '..', '..', 'crates', 'pi-core', 'target', 'release', 'libpi_core.so'),
+		join(currentDir, '..', '..', '..', 'crates', 'pi-core', 'target', 'debug', 'libpi_core.so'),
 		join(currentDir, '..', '..', '..', 'crates', 'pi-core', 'target', 'release', 'pi_core.dll'),
 		// Installed runtime path
 		join(
@@ -523,6 +529,8 @@ export function vectorCosineSimilarity(
 	}
 
 	try {
+		// Rust reads `len` floats from both pointers: mismatched lengths would read past `b`.
+		if (!a.length || a.length !== b.length) return 0
 		const bufA = a instanceof Float32Array ? a : new Float32Array(a)
 		const bufB = b instanceof Float32Array ? b : new Float32Array(b)
 		const { ptr } = (globalThis as any).Bun.FFI

@@ -131,7 +131,8 @@ pub fn execute_supervised(
     });
 
     let (exit_code, timed_out) = match wait_rx.recv_timeout(timeout) {
-        Ok(Ok(status)) => (status.code().unwrap_or(0), false),
+        // A signal death has no exit code; report 128 + signal like a shell, never success.
+        Ok(Ok(status)) => (exit_code_of(status), false),
         Ok(Err(_)) => (-1, false),
         Err(mpsc::RecvTimeoutError::Timeout) => {
             // Hard cascade kill process group
@@ -191,6 +192,19 @@ pub fn is_process_alive(pid: i32) -> bool {
     }
 }
 
+#[cfg(unix)]
+fn exit_code_of(status: std::process::ExitStatus) -> i32 {
+    use std::os::unix::process::ExitStatusExt;
+    status
+        .code()
+        .unwrap_or_else(|| 128 + status.signal().unwrap_or(0))
+}
+
+#[cfg(not(unix))]
+fn exit_code_of(status: std::process::ExitStatus) -> i32 {
+    status.code().unwrap_or(-1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,5 +230,12 @@ mod tests {
         // Spawns a child and background grandchild
         let res = execute_supervised("sh -c 'sleep 5 & sleep 0.1'", "", 5000, 1024);
         assert_eq!(res.exit_code, 0);
+    }
+
+    #[test]
+    fn test_signal_death_is_not_success() {
+        let res = execute_supervised("kill -KILL $$", "", 5000, 1024);
+        assert_eq!(res.exit_code, 128 + 9);
+        assert!(!res.timed_out);
     }
 }

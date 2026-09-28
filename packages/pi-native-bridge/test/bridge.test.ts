@@ -95,6 +95,8 @@ test('searchWorkspace finds matching lines in parallel', () => {
 	const matches = searchWorkspace(currentDir, 'pi-agent-stack', 10)
 
 	assert.ok(Array.isArray(matches))
+	// Without the native library search returns [] by contract (callers fall back to rg).
+	if (!isNativeAvailable()) return
 	assert.ok(matches.length > 0, 'Should find pi-agent-stack in repository')
 	assert.ok(matches[0].path.length > 0)
 	assert.ok(matches[0].line_number > 0)
@@ -168,4 +170,19 @@ test('trigramSimilarity and rankDocuments rank relevant memory lessons', () => {
 	assert.equal(ranked.length, 2)
 	assert.equal(ranked[0].id, '1')
 	assert.ok(ranked[0].score > ranked[1].score)
+})
+
+test('spawnSupervised fallback reports signal deaths, output caps and real timeouts', () => {
+	const killed = spawnSupervised('kill -KILL $$', '', 5000)
+	assert.equal(killed.timed_out, false)
+	assert.equal(killed.exit_code, 128 + 9)
+	const slow = spawnSupervised('sleep 5', '', 200)
+	assert.equal(slow.timed_out, true)
+	const big = spawnSupervised('head -c 100000 /dev/zero', '', 5000, 1000)
+	assert.notEqual(big.exit_code, 0)
+})
+
+test('vectorCosineSimilarity returns 0 for mismatched lengths instead of reading past b', () => {
+	assert.equal(vectorCosineSimilarity([1, 2, 3], [1, 2]), 0)
+	assert.ok(vectorCosineSimilarity([1, 0], [1, 0]) > 0.99)
 })
