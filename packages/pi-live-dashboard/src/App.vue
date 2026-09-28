@@ -8,28 +8,31 @@ import {
   watch,
   type Component,
 } from "vue";
-import { AnimatePresence, MotionConfig, motion } from "motion-v";
+import { MotionConfig } from "motion-v";
 import DOMPurify from "dompurify";
-import hljs from "highlight.js/lib/common";
-import "highlight.js/styles/github-dark.css";
 import {
-  Activity,
   Bot,
-  CircleCheck,
-  CircleX,
+  Bug,
+  Code2,
   FilePenLine,
   FilePlus2,
   FileSearch,
+  FlaskConical,
   Folder,
   FolderSearch,
-  ChevronRight,
+  CircleCheck,
+  CircleX,
   LaptopMinimal,
   MessageSquareText,
+  PanelLeft,
+  PanelLeftClose,
+  Scale,
   Search,
   Sparkles,
   Terminal,
   Workflow,
   Wrench,
+  X,
 } from "lucide-vue-next";
 import { marked } from "marked";
 import { Background } from "@vue-flow/background";
@@ -62,6 +65,7 @@ type Session = {
   agents: Agent[];
   edges: { from: string; to: string }[];
   preview?: string;
+  currentActivity?: string;
 };
 
 const toolIcons: Record<string, Component> = {
@@ -76,36 +80,77 @@ const toolIcons: Record<string, Component> = {
 
 const sessions = ref<Session[]>([]);
 const selectedId = ref("");
+const selectedNodeId = ref("");
+const sidebarOpen = ref(true);
+const nodePositions = ref<Record<string, { x: number; y: number }>>({});
 const viewportWidth = ref(1280);
 const graphColumns = computed(() =>
   viewportWidth.value <= 760 ? 1 : viewportWidth.value >= 1360 ? 3 : 2,
 );
-const feed = ref<HTMLElement | null>(null);
-const nearBottom = ref(true);
 const connection = ref<"connecting" | "live" | "offline">("connecting");
 const selected = computed(() =>
   sessions.value.find(({ id }) => id === selectedId.value),
 );
+const selectedAgent = computed(() =>
+  selected.value?.agents.find(({ id }) => id === selectedNodeId.value),
+);
+const selectedIsSupervisor = computed(
+  () => selectedNodeId.value === "supervisor",
+);
+const detailOpen = computed(
+  () => selectedIsSupervisor.value || !!selectedAgent.value,
+);
+const feed = ref<HTMLElement | null>(null);
+const nearBottom = ref(true);
+const feedEvents = computed(() => {
+  const items = [...(selected.value?.events ?? [])];
+  const agent = selectedAgent.value;
+  if (agent?.currentActivity)
+    items.push({
+      type: "tool",
+      name: agent.role,
+      text: agent.currentActivity,
+      at: Date.now(),
+    });
+  if (agent?.previewMarkdown)
+    items.push({
+      type: "assistant",
+      text: agent.previewMarkdown,
+      at: Date.now(),
+    });
+  else if (selected.value?.preview)
+    items.push({
+      type: "assistant",
+      text: selected.value.preview,
+      at: Date.now(),
+    });
+  return items;
+});
+function nodePosition(id: string, fallback: { x: number; y: number }) {
+  return nodePositions.value[id] ?? fallback;
+}
 const graphNodes = computed(() => {
   const session = selected.value;
   if (!session) return [];
-  const cardWidth = graphColumns.value === 3 ? 196 : 248;
-  const gap = graphColumns.value === 3 ? 20 : 34;
+  const cardWidth = 208;
+  const gap = 32;
   const step = cardWidth + gap;
   const columns = graphColumns.value;
   const graphWidth = columns * cardWidth + (columns - 1) * gap;
-  const supervisorWidth =
-    graphColumns.value === 1 ? 280 : graphColumns.value === 3 ? 300 : 348;
+  const supervisorWidth = 224;
   return [
     {
       id: "supervisor",
       type: "supervisor",
-      position: { x: (graphWidth - supervisorWidth) / 2, y: 48 },
+      position: nodePosition("supervisor", {
+        x: (graphWidth - supervisorWidth) / 2,
+        y: 36,
+      }),
       style: { width: `${supervisorWidth}px` },
       data: { title: session.title, status: session.status },
       sourcePosition: Position.Bottom,
       draggable: false,
-      selectable: false,
+      selectable: true,
     },
     ...session.agents.map((agent, index) => {
       const row = Math.floor(index / columns);
@@ -118,15 +163,15 @@ const graphNodes = computed(() => {
       return {
         id: agent.id,
         type: "agent",
-        position: {
+        position: nodePosition(agent.id, {
           x: (graphWidth - rowWidth) / 2 + column * step,
-          y: 236 + row * 198,
-        },
+          y: 156 + row * 116,
+        }),
         style: { width: `${cardWidth}px` },
         data: { agent },
         targetPosition: Position.Top,
-        draggable: false,
-        selectable: false,
+        draggable: agentIsActive(agent),
+        selectable: true,
       };
     }),
   ];
@@ -144,21 +189,6 @@ const graphEdges = computed(() =>
     },
   })),
 );
-const events = computed(() => {
-  const items = [...(selected.value?.events ?? [])];
-  if (selected.value?.preview)
-    items.push({
-      type: "assistant",
-      text: selected.value.preview,
-      at: Date.now(),
-    });
-  return items;
-});
-const latestActivity = computed(() => {
-  const session = selected.value;
-  const last = session?.events.at(-1);
-  return [session?.id, last?.at, last?.text, last?.value, session?.preview];
-});
 let source: EventSource | undefined;
 function updateViewportWidth() {
   viewportWidth.value = window.innerWidth;
@@ -170,10 +200,77 @@ function renderMarkdown(value: string) {
   });
 }
 
-function highlightCode() {
-  feed.value
-    ?.querySelectorAll("pre code:not([data-highlighted])")
-    .forEach((block) => hljs.highlightElement(block as HTMLElement));
+function receive(event: MessageEvent<string>) {
+  const snapshot = JSON.parse(event.data) as { sessions: Session[] };
+  sessions.value = snapshot.sessions;
+  if (!sessions.value.some(({ id }) => id === selectedId.value)) {
+    selectedId.value = sessions.value[0]?.id ?? "";
+    selectedNodeId.value = "";
+    nodePositions.value = {};
+  }
+}
+
+function selectSession(id: string) {
+  if (selectedId.value === id) return;
+  selectedId.value = id;
+  selectedNodeId.value = "";
+  nodePositions.value = {};
+}
+
+function onNodeClick(payload: { node: { id: string } }) {
+  selectedNodeId.value =
+    selectedNodeId.value === payload.node.id ? "" : payload.node.id;
+}
+
+function onNodeDragStop(payload: {
+  node: { id: string; position: { x: number; y: number } };
+}) {
+  nodePositions.value = {
+    ...nodePositions.value,
+    [payload.node.id]: payload.node.position,
+  };
+}
+
+function roleIcon(role?: string): Component {
+  switch ((role || "").toLowerCase()) {
+    case "researcher":
+      return Search;
+    case "coder":
+      return Code2;
+    case "tester":
+      return FlaskConical;
+    case "debugger":
+      return Bug;
+    case "reviewer":
+      return Scale;
+    default:
+      return Bot;
+  }
+}
+
+function clip(value: string, n: number) {
+  const text = value.replace(/\s+/g, " ").trim();
+  if (text.length <= n) return text;
+  return `${text.slice(0, n - 1)}…`;
+}
+
+function sessionTitle(session?: Session) {
+  const user = session?.events?.find((event) => event.type === "user")?.text;
+  const fromEvents = user?.split("\n").find((line) => line.trim());
+  const raw = (fromEvents || session?.title || "").trim();
+  const cleaned = raw.replace(/^Pi(\s*[·.•]\s*|\s*)\d*$/i, "").trim();
+  if (cleaned) return clip(cleaned, 56);
+  const folder = session?.cwd?.split("/").filter(Boolean).at(-1);
+  return folder || "Session";
+}
+
+function activityIcon(event: Activity) {
+  if (event.type === "user") return MessageSquareText;
+  if (event.type === "assistant") return Sparkles;
+  if (event.type === "tool_done") return CircleCheck;
+  if (event.type === "error") return CircleX;
+  if (event.type === "tool") return toolIcons[event.name ?? ""] ?? Wrench;
+  return Sparkles;
 }
 
 function onFeedScroll() {
@@ -189,22 +286,12 @@ function scrollToLatest() {
   nearBottom.value = true;
 }
 
-watch(
-  [selectedId, latestActivity],
-  async ([id], [previousId]) => {
-    const follow = id !== previousId || nearBottom.value;
-    await nextTick();
-    if (follow) scrollToLatest();
-    highlightCode();
-  },
-  { flush: "post", immediate: true },
-);
-
-function receive(event: MessageEvent<string>) {
-  const snapshot = JSON.parse(event.data) as { sessions: Session[] };
-  sessions.value = snapshot.sessions;
-  if (!sessions.value.some(({ id }) => id === selectedId.value))
-    selectedId.value = sessions.value[0]?.id ?? "";
+function formatTime(value: number) {
+  return new Date(value).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function agentIsActive(agent: Agent) {
@@ -223,7 +310,29 @@ function agentStateClass(agent: Agent) {
 }
 
 function agentLabel(agent: Agent) {
-  return agent.name || agent.role || "Agent";
+  return agentGivenName(agent);
+}
+
+function agentGivenName(agent: Agent) {
+  const raw = (agent.name || "").trim();
+  if (!raw) return agent.role || "Agent";
+  const short = raw.split(" - ")[0]?.trim();
+  return short || raw;
+}
+
+function roleClass(role?: string) {
+  return `role-${(role || "agent").toLowerCase().replace(/[^a-z0-9]+/g, "")}`;
+}
+
+function statusLabel(status: string) {
+  const value = status.toLowerCase();
+  if (["running", "streaming", "working", "starting"].includes(value))
+    return "running";
+  if (["completed", "complete", "success", "succeeded", "done"].includes(value))
+    return "done";
+  if (["failed", "error", "killed", "cancelled", "canceled"].includes(value))
+    return "failed";
+  return value || "idle";
 }
 
 function agentActivity(agent: Agent) {
@@ -241,38 +350,17 @@ function shortPath(path: string) {
   return path.replace(/^\/home\/[^/]+/, "~");
 }
 
-function formatTime(value: number) {
-  return new Date(value).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-function activityIcon(event: Activity) {
-  if (event.type === "user") return MessageSquareText;
-  if (event.type === "assistant") return Sparkles;
-  if (event.type === "tool_done") return CircleCheck;
-  if (event.type === "error") return CircleX;
-  if (event.type === "tool") return toolIcons[event.name ?? ""] ?? Wrench;
-  return Activity;
-}
-
 function agentIcon(agent: Agent) {
-  const action = agentActivity(agent).match(
-    /^(Read|Write|Edit|Run|Search|Find|List)\b/,
-  )?.[1];
-  const tool = {
-    Read: "read",
-    Write: "write",
-    Edit: "edit",
-    Run: "bash",
-    Search: "grep",
-    Find: "find",
-    List: "ls",
-  }[action ?? ""];
-  return (tool && toolIcons[tool]) || Bot;
+  return roleIcon(agent.role);
 }
+
+watch(
+  [selectedNodeId, () => feedEvents.value.length, () => selected.value?.preview],
+  async () => {
+    await nextTick();
+    if (nearBottom.value) scrollToLatest();
+  },
+);
 
 onMounted(() => {
   updateViewportWidth();
@@ -293,76 +381,69 @@ onUnmounted(() => {
 
 <template>
   <MotionConfig reducedMotion="user">
-    <div class="app-shell">
-      <aside class="sidebar" aria-label="Pi sessions">
-        <a
-          class="brand"
-          href="#"
-          aria-label="Pi Live Sessions home"
-          @click.prevent="selectedId = sessions[0]?.id ?? ''"
-        >
-          <span class="brand-mark" aria-hidden="true"
-            ><svg viewBox="0 0 24 24">
-              <path d="M5 18V6h7a5 5 0 0 1 0 10H9" />
-              <path d="M17 6v12" /></svg
-          ></span>
-          <span
-            ><strong>Pi<span class="brand-accent">.</span></strong
-            ><small>LIVE SESSIONS</small></span
+    <div class="app-shell" :class="{ 'sidebar-collapsed': !sidebarOpen }">
+      <aside class="sidebar" aria-label="Sessions">
+        <div class="sidebar-top">
+          <button
+            class="sidebar-toggle"
+            type="button"
+            :aria-expanded="sidebarOpen"
+            :aria-label="sidebarOpen ? 'Collapse sessions' : 'Expand sessions'"
+            @click="sidebarOpen = !sidebarOpen"
           >
-        </a>
-
-        <div class="sidebar-heading">
-          <span>WORKSPACES</span
-          ><span class="count">{{ sessions.length }}</span>
+            <PanelLeftClose v-if="sidebarOpen" :size="16" :stroke-width="2" />
+            <PanelLeft v-else :size="16" :stroke-width="2" />
+          </button>
+          <div v-if="sidebarOpen" class="sidebar-title">
+            <strong>{{ sessionTitle(selected) }}</strong>
+            <small>{{ sessions.length }} sessions</small>
+          </div>
         </div>
-        <nav class="session-list" aria-label="Active workspaces">
+        <nav class="session-list" aria-label="Active sessions">
           <button
             v-for="session in sessions"
             :key="session.id"
             class="session-button"
             :class="{ selected: session.id === selectedId }"
             :aria-pressed="session.id === selectedId"
-            :title="session.cwd"
-            @click="selectedId = session.id"
+            :title="sessionTitle(session)"
+            @click="selectSession(session.id)"
           >
             <span class="session-icon" aria-hidden="true"
-              ><Folder :size="18" :stroke-width="2"
+              ><Folder :size="16" :stroke-width="2"
             /></span>
-            <span class="session-copy"
-              ><strong>{{ session.title }}</strong
+            <span v-if="sidebarOpen" class="session-copy"
+              ><strong>{{ sessionTitle(session) }}</strong
               ><small>{{ shortPath(session.cwd) }}</small></span
             >
             <span
+              v-if="sidebarOpen"
               class="status-dot"
               :class="session.status === 'working' ? 'busy' : 'ready'"
               :aria-label="session.status"
             />
           </button>
-          <div v-if="!sessions.length" class="sidebar-empty">
-            No Pi sessions connected
+          <div v-if="!sessions.length && sidebarOpen" class="sidebar-empty">
+            No sessions connected
           </div>
         </nav>
-
         <div class="sidebar-bottom">
           <span class="connection-indicator" :class="connection"
-            ><i />{{
+            ><i /><template v-if="sidebarOpen">{{
               connection === "live"
-                ? "LIVE CONNECTION"
+                ? "Live"
                 : connection === "offline"
-                  ? "RECONNECTING"
-                  : "CONNECTING"
-            }}</span
+                  ? "Reconnecting"
+                  : "Connecting"
+            }}</template></span
           >
-          <small>Local agent activity</small>
         </div>
       </aside>
 
       <main class="main-area">
         <header class="topbar">
           <div class="breadcrumb">
-            <span>Sessions</span><ChevronRight :size="14" aria-hidden="true" />
-            <strong>{{ selected?.title ?? "Waiting for Pi" }}</strong>
+            <strong>{{ sessionTitle(selected) }}</strong>
           </div>
           <div class="topbar-right">
             <span class="live-label"
@@ -385,89 +466,9 @@ onUnmounted(() => {
 
         <div class="workspace" :key="selectedId">
           <section
-            class="activity-panel panel"
-            aria-labelledby="activity-heading"
+            class="canvas-panel panel"
+            aria-label="Live agent canvas"
           >
-            <div class="panel-heading">
-              <div>
-                <span class="eyebrow">SESSION STREAM</span>
-                <h1 id="activity-heading">Activity</h1>
-              </div>
-              <span class="event-count">{{ events.length }} EVENTS</span>
-            </div>
-            <div
-              class="activity-feed"
-              ref="feed"
-              @scroll="onFeedScroll"
-              aria-live="polite"
-              aria-relevant="additions text"
-            >
-              <article
-                v-for="(event, index) in events"
-                :key="`${event.type}-${event.at}-${index}`"
-                class="activity-item"
-                :class="`event-${event.type}`"
-              >
-                <span class="event-marker" aria-hidden="true">
-                  <component
-                    :is="activityIcon(event)"
-                    :size="15"
-                    :stroke-width="2"
-                  />
-                </span>
-                <div class="event-content">
-                  <div class="event-meta">
-                    <strong>{{
-                      event.type === "user"
-                        ? "You"
-                        : event.name ||
-                          (event.type === "assistant"
-                            ? "Pi assistant"
-                            : event.type.replace("_", " "))
-                    }}</strong
-                    ><time>{{ formatTime(event.at) }}</time>
-                  </div>
-                  <div
-                    class="markdown-body"
-                    v-html="
-                      renderMarkdown(
-                        event.text || event.value || event.name || event.type,
-                      )
-                    "
-                  />
-                </div>
-              </article>
-              <div v-if="!events.length" class="feed-empty">
-                <span class="empty-glyph"
-                  ><MessageSquareText :size="21" :stroke-width="1.8" /></span
-                ><strong>No conversation yet</strong
-                ><span>New prompts and tool activity will appear here.</span>
-              </div>
-            </div>
-            <div class="feed-footer">
-              <span class="pulse" />Following session activity
-              <button
-                v-if="!nearBottom"
-                class="latest-button"
-                type="button"
-                @click="scrollToLatest"
-              >
-                ↓ Latest
-              </button>
-            </div>
-          </section>
-
-          <section class="canvas-panel panel" aria-labelledby="canvas-heading">
-            <div class="panel-heading canvas-heading">
-              <div>
-                <span class="eyebrow">AGENT TOPOLOGY</span>
-                <h2 id="canvas-heading">Live canvas</h2>
-              </div>
-              <div class="canvas-legend">
-                <span><i class="legend-active" />Running</span
-                ><span><i class="legend-done" />Completed</span>
-              </div>
-            </div>
             <div
               class="canvas"
               :class="{ 'has-agents': selected?.agents.length }"
@@ -476,87 +477,79 @@ onUnmounted(() => {
             >
               <template v-if="selected">
                 <VueFlow
-                  :key="
-                    selected.id +
-                    ':' +
-                    selected.agents.length +
-                    ':' +
-                    graphColumns
-                  "
+                  :key="selected.id + ':' + graphColumns"
                   :nodes="graphNodes"
                   :edges="graphEdges"
                   :fit-view-on-init="true"
-                  :fit-view-options="{ padding: 0.2, maxZoom: 1 }"
+                  :fit-view-options="{ padding: 0.18, maxZoom: 1 }"
                   :min-zoom="0.35"
                   :max-zoom="1.15"
-                  :nodes-draggable="false"
+                  :nodes-draggable="true"
+                  :pan-on-drag="false"
                   :nodes-connectable="false"
-                  :elements-selectable="false"
+                  :elements-selectable="true"
                   :zoom-on-double-click="false"
                   class="agent-flow"
+                  @node-click="onNodeClick"
+                  @node-drag-stop="onNodeDragStop"
                 >
                   <Background pattern-color="#30394a" :gap="24" :size="1" />
                   <template #node-supervisor="{ data }">
-                    <div class="graph-card graph-supervisor">
+                    <div
+                      class="agent-node supervisor"
+                      :class="{
+                        selected: selectedIsSupervisor,
+                        running: data.status === 'working',
+                      }"
+                    >
                       <Handle
                         type="source"
                         :position="Position.Bottom"
                         :connectable="false"
                       />
-                      <span class="graph-icon"
-                        ><Workflow :size="20" :stroke-width="1.8"
+                      <span class="agent-node-mark" aria-hidden="true"
+                        ><Workflow :size="18" :stroke-width="1.75"
                       /></span>
-                      <span class="graph-copy"
-                        ><small>PI SUPERVISOR</small
-                        ><strong>{{ data.title }}</strong></span
-                      >
+                      <span class="agent-node-meta">
+                        <strong>{{ sessionTitle(selected) }}</strong>
+                        <small>Supervisor</small>
+                      </span>
                       <span
-                        class="graph-state"
-                        :class="{ busy: data.status === 'working' }"
-                        >{{ data.status }}</span
+                        class="agent-node-status"
+                        :class="data.status === 'working' ? 'running' : 'idle'"
+                        ><i />{{ statusLabel(data.status) }}</span
                       >
                     </div>
                   </template>
                   <template #node-agent="{ data }">
                     <div
-                      class="graph-card graph-agent"
-                      :class="agentStateClass(data.agent)"
+                      class="agent-node"
+                      :class="[
+                        roleClass(data.agent.role),
+                        agentStateClass(data.agent),
+                        { selected: selectedNodeId === data.agent.id },
+                      ]"
                     >
                       <Handle
                         type="target"
                         :position="Position.Top"
                         :connectable="false"
                       />
-                      <div class="graph-agent-head">
-                        <span class="graph-icon"
-                          ><component
-                            :is="agentIcon(data.agent)"
-                            :size="18"
-                            :stroke-width="1.8"
-                        /></span>
-                        <span class="graph-state"
-                          ><i />{{ data.agent.status }}</span
-                        >
-                      </div>
-                      <strong class="graph-agent-name">{{
-                        agentLabel(data.agent)
-                      }}</strong>
-                      <span class="graph-agent-role"
-                        >{{ data.agent.role || "Subagent"
-                        }}<template v-if="data.agent.model">
-                          · {{ data.agent.model }}</template
-                        ></span
+                      <span class="agent-node-mark" aria-hidden="true"
+                        ><component
+                          :is="agentIcon(data.agent)"
+                          :size="16"
+                          :stroke-width="1.75"
+                      /></span>
+                      <span class="agent-node-meta">
+                        <strong>{{ agentGivenName(data.agent) }}</strong>
+                        <small>{{ data.agent.role || "subagent" }}</small>
+                      </span>
+                      <span
+                        class="agent-node-status"
+                        :class="agentStateClass(data.agent)"
+                        ><i />{{ statusLabel(data.agent.status) }}</span
                       >
-                      <div
-                        class="graph-agent-activity"
-                        v-html="renderMarkdown(agentActivity(data.agent))"
-                      />
-                      <div
-                        v-if="agentIsActive(data.agent)"
-                        class="graph-progress"
-                      >
-                        <i />
-                      </div>
                     </div>
                   </template>
                 </VueFlow>
@@ -585,9 +578,106 @@ onUnmounted(() => {
                 ><span class="footer-key">{{
                   selected?.agents.length ?? 0
                 }}</span>
-                AGENTS</span
-              ><span class="graph-signal"><i /> GRAPH SYNCED</span>
+                agents</span
+              ><span class="graph-signal"><i /> synced</span>
             </div>
+            <aside
+              v-if="detailOpen"
+              class="detail-panel"
+              :aria-label="
+                selectedAgent ? agentLabel(selectedAgent) : 'Activity'
+              "
+            >
+              <header class="detail-head">
+                <span class="graph-icon"
+                  ><component
+                    :is="selectedAgent ? agentIcon(selectedAgent) : Workflow"
+                    :size="16"
+                    :stroke-width="1.8"
+                /></span>
+                <div class="detail-copy">
+                  <strong>{{
+                    selectedAgent
+                      ? agentLabel(selectedAgent)
+                      : sessionTitle(selected)
+                  }}</strong>
+                  <small>{{
+                    selectedAgent
+                      ? selectedAgent.role || "subagent"
+                      : "activity"
+                  }}</small>
+                </div>
+                <span
+                  class="graph-state"
+                  :class="
+                    selectedAgent
+                      ? agentStateClass(selectedAgent)
+                      : selected?.status === 'working'
+                        ? 'running'
+                        : 'idle'
+                  "
+                  ><i />{{
+                    selectedAgent?.status || selected?.status || "idle"
+                  }}</span
+                >
+                <button
+                  class="detail-close"
+                  type="button"
+                  aria-label="Close details"
+                  @click="selectedNodeId = ''"
+                >
+                  <X :size="14" :stroke-width="2" />
+                </button>
+              </header>
+              <div
+                class="activity-feed"
+                ref="feed"
+                @scroll="onFeedScroll"
+                aria-live="polite"
+              >
+                <article
+                  v-for="(event, index) in feedEvents"
+                  :key="`${event.type}-${event.at}-${index}`"
+                  class="activity-item"
+                  :class="`event-${event.type}`"
+                >
+                  <span class="event-marker" aria-hidden="true">
+                    <component
+                      :is="activityIcon(event)"
+                      :size="15"
+                      :stroke-width="2"
+                    />
+                  </span>
+                  <div class="event-content">
+                    <div class="event-meta">
+                      <strong>{{
+                        event.type === "user"
+                          ? "You"
+                          : event.name ||
+                            (event.type === "assistant"
+                              ? "Assistant"
+                              : event.type.replace("_", " "))
+                      }}</strong
+                      ><time>{{ formatTime(event.at) }}</time>
+                    </div>
+                    <div
+                      class="markdown-body"
+                      v-html="
+                        renderMarkdown(
+                          event.text ||
+                            event.value ||
+                            event.name ||
+                            event.type,
+                        )
+                      "
+                    />
+                  </div>
+                </article>
+                <div v-if="!feedEvents.length" class="feed-empty">
+                  <strong>No activity yet</strong>
+                </div>
+              </div>
+            </aside>
           </section>
         </div>
       </main>
@@ -598,14 +688,13 @@ onUnmounted(() => {
 <style>
 :root {
   font-family:
-    Lato,
-    Inter,
+    "Fira Sans",
     ui-sans-serif,
     system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
     sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 15px;
   color: #e7ecf4;
   background: #0b0d12;
   font-synthesis: none;
@@ -627,10 +716,12 @@ onUnmounted(() => {
 * {
   box-sizing: border-box;
 }
+html,
 body {
   min-width: 360px;
   min-height: 100vh;
   margin: 0;
+  font-size: 15px;
 }
 button,
 a {
@@ -638,18 +729,64 @@ a {
 }
 .app-shell {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: 228px minmax(0, 1fr);
   height: 100vh;
   min-height: 100vh;
   overflow: hidden;
+  transition: grid-template-columns 0.18s ease;
+}
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 52px minmax(0, 1fr);
 }
 .sidebar {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   min-height: 100vh;
-  padding: 25px 15px 18px;
+  padding: 14px 10px 14px;
   background: #0e1118;
   border-right: 1px solid var(--line);
+}
+.sidebar-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 16px;
+}
+.sidebar-toggle {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  place-items: center;
+  border: 1px solid #2a3140;
+  border-radius: 8px;
+  color: #9aa5b7;
+  background: #151a23;
+  cursor: pointer;
+}
+.sidebar-toggle:hover,
+.detail-close:hover {
+  color: var(--text);
+  border-color: #3a4454;
+}
+.sidebar-title {
+  min-width: 0;
+  flex: 1;
+}
+.sidebar-title strong {
+  display: block;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-title small {
+  display: block;
+  margin-top: 2px;
+  color: #768195;
+  font-size: 12px;
 }
 .brand {
   display: flex;
@@ -691,7 +828,7 @@ a {
 }
 .brand strong {
   display: block;
-  font-size: 17px;
+  font-size: 16px;
   letter-spacing: -0.04em;
 }
 .brand-accent {
@@ -929,15 +1066,52 @@ a {
 .workspace {
   display: grid;
   min-height: 0;
-  grid-template-columns: minmax(280px, 0.82fr) minmax(410px, 1.18fr);
-  gap: 16px;
-  padding: 20px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 16px;
+}
+.canvas-panel.panel {
+  position: relative;
+}
+.now-line {
+  margin: 4px 0 0;
+  max-width: 72ch;
+  overflow: hidden;
+  color: #9aa5b5;
+  font-size: 14px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.now-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 19px;
+  border-bottom: 1px solid var(--line);
+  background: #121820;
+  color: #dce3ed;
+  font-size: 13px;
+}
+.now-banner strong {
+  flex: none;
+  color: var(--mint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.now-banner > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .panel {
   display: grid;
   min-width: 0;
   min-height: 0;
-  grid-template-rows: 76px minmax(0, 1fr) 39px;
+  grid-template-rows: minmax(0, 1fr) 39px;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -958,9 +1132,9 @@ a {
 }
 .panel-heading h1,
 .panel-heading h2 {
-  margin: 5px 0 0;
+  margin: 4px 0 0;
   color: #e8edf4;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 620;
   letter-spacing: -0.025em;
 }
@@ -970,19 +1144,26 @@ a {
   font-weight: 650;
   letter-spacing: 0.1em;
 }
+.activity-panel.panel {
+  grid-template-rows: 76px auto minmax(0, 1fr) 39px;
+}
 .activity-feed {
   position: relative;
   display: flex;
+  min-width: 0;
   min-height: 0;
   flex-direction: column;
   gap: 0;
-  overflow: auto;
-  padding: 9px 18px 17px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 9px 14px 17px;
   overscroll-behavior: contain;
 }
 .activity-item {
   position: relative;
   display: grid;
+  min-width: 0;
+  max-width: 100%;
   grid-template-columns: 25px minmax(0, 1fr);
   gap: 10px;
   padding: 15px 0;
@@ -1040,6 +1221,9 @@ a {
 }
 .event-content {
   min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .event-meta {
   display: flex;
@@ -1050,7 +1234,7 @@ a {
 .event-meta strong {
   overflow: hidden;
   color: #d9e0ea;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 620;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1063,10 +1247,28 @@ a {
 }
 .markdown-body {
   margin-top: 6px;
+  max-width: 100%;
   color: #9aa5b5;
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 15px;
+  line-height: 1.55;
   overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.markdown-body p,
+.markdown-body li,
+.markdown-body code {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  margin: 0.5em 0 0.35em;
+  color: #dce3ed;
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.35;
 }
 .markdown-body :first-child {
   margin-top: 0;
@@ -1111,8 +1313,8 @@ a {
 .markdown-body pre code.hljs {
   padding: 10px 12px;
   background: transparent;
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: 13px;
+  line-height: 1.5;
 }
 .markdown-body table {
   display: block;
@@ -1184,6 +1386,93 @@ a {
 .feed-footer {
   justify-content: flex-start;
   gap: 8px;
+}
+.detail-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  bottom: 51px;
+  z-index: 6;
+  display: grid;
+  width: min(400px, 44%);
+  min-width: 0;
+  max-width: calc(100% - 24px);
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #10131bf2;
+  box-shadow: 0 16px 40px #0008;
+  backdrop-filter: blur(10px);
+}
+.detail-panel .activity-feed {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.detail-head {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+}
+.detail-head .graph-icon,
+.detail-head .graph-state,
+.detail-head .detail-close {
+  flex: none;
+}
+.detail-head .graph-state {
+  max-width: 7.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail-copy {
+  min-width: 0;
+  flex: 1 1 0;
+  overflow: hidden;
+}
+.detail-copy strong,
+.detail-copy small {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.detail-copy strong {
+  font-size: 14px;
+  line-height: 1.35;
+}
+.detail-copy small {
+  margin-top: 2px;
+  color: #8f9caf;
+  font-size: 12px;
+  -webkit-line-clamp: 1;
+  text-transform: capitalize;
+}
+.detail-close {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  place-items: center;
+  border: 1px solid #2a3140;
+  border-radius: 8px;
+  color: #9aa5b7;
+  background: transparent;
+  cursor: pointer;
+}
+.detail-empty {
+  color: var(--muted);
+  font-size: 14px;
 }
 .latest-button {
   margin-left: auto;
@@ -1317,133 +1606,201 @@ a {
   stroke-dasharray: 6 5;
   animation: flow-dash 1.2s linear infinite;
 }
+.vue-flow__node {
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
 .vue-flow__handle {
-  width: 8px;
-  height: 8px;
-  border: 2px solid #9ac5b5;
+  width: 7px;
+  height: 7px;
+  border: 2px solid #8f9aa8;
   border-radius: 50%;
-  background: #17241f;
+  background: #12151c;
 }
-.graph-card {
-  position: relative;
-  display: flex;
+.agent-node {
+  display: grid;
   width: 100%;
-  flex-direction: column;
-  border: 1px solid #303846;
-  border-radius: 14px;
-  background: linear-gradient(145deg, #1b222d, #11161e 90%);
-  box-shadow: 0 12px 30px #0007;
-  color: var(--text);
-  font-family: inherit;
-  transition:
-    border-color 180ms ease,
-    box-shadow 180ms ease,
-    opacity 180ms ease;
-}
-.graph-supervisor {
-  min-height: 80px;
-  flex-direction: row;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  border-color: #42675e;
-  background: linear-gradient(130deg, #192720, #141922 80%);
-  box-shadow:
-    0 12px 32px #0007,
-    0 0 34px #63dfc11a;
+  gap: 10px;
+  padding: 10px 10px 10px 10px;
+  border: 1px solid #2c3340;
+  border-radius: 10px;
+  background: #141821;
+  color: var(--text);
+  cursor: pointer;
+  transition-property: border-color, background-color, transform;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.agent-node:hover {
+  border-color: #3d4656;
+  background: #181d27;
+}
+.agent-node:focus-visible {
+  outline: 2px solid #d7dee8;
+  outline-offset: 2px;
+}
+.agent-node.selected {
+  border-color: #5d8f7e;
+  background: #161d1c;
+}
+.agent-node.running {
+  cursor: grab;
+  border-color: #8a7348;
+}
+.agent-node.running:active {
+  cursor: grabbing;
+}
+.agent-node.completed {
+  opacity: 0.72;
+}
+.agent-node.failed {
+  border-color: #8a4e54;
+  background: #1b1518;
+}
+.agent-node.supervisor {
+  border-color: #3a534c;
+  background: #131c1a;
+}
+.agent-node-mark {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  place-items: center;
+  border-radius: 9px;
+  background: #222833;
+  color: #c5ceda;
+}
+.agent-node.supervisor .agent-node-mark {
+  background: #1a2c27;
+  color: #7dcfb6;
+}
+.agent-node.role-researcher .agent-node-mark {
+  background: #1b2740;
+  color: #8fb4e8;
+}
+.agent-node.role-coder .agent-node-mark {
+  background: #2a2318;
+  color: #e0b56a;
+}
+.agent-node.role-tester .agent-node-mark {
+  background: #1a2a22;
+  color: #7dba96;
+}
+.agent-node.role-reviewer .agent-node-mark {
+  background: #261d33;
+  color: #c4a6e0;
+}
+.agent-node.role-debugger .agent-node-mark {
+  background: #2b1c1c;
+  color: #e08a8a;
+}
+.agent-node-meta {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+.agent-node-meta strong {
+  overflow: hidden;
+  color: #e8edf4;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  text-wrap: balance;
+  white-space: nowrap;
+}
+.agent-node-meta small {
+  overflow: hidden;
+  color: #8b95a6;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.agent-node-status {
+  display: inline-flex;
+  max-width: 5.6rem;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #1c222c;
+  color: #9aa3b2;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.agent-node-status i {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+}
+.agent-node-status.running {
+  background: #2a2418;
+  color: #e0b56a;
+}
+.agent-node-status.running i {
+  animation: dot-pulse 1.3s infinite;
+}
+.agent-node-status.completed,
+.agent-node-status.idle {
+  background: #17241f;
+  color: #7dba96;
+}
+.agent-node-status.failed {
+  background: #2a1c1e;
+  color: #e08a8a;
 }
 .graph-icon {
   display: grid;
-  width: 38px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
   flex: none;
   place-items: center;
-  border: 1px solid #3b675b;
-  border-radius: 11px;
-  background: #152620;
-  color: var(--mint);
-}
-.graph-copy {
-  display: grid;
-  min-width: 0;
-  flex: 1;
-  gap: 4px;
-}
-.graph-copy small {
-  color: #93a69e;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.13em;
-}
-.graph-copy strong {
-  overflow: hidden;
-  font-size: 14px;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  border-radius: 9px;
+  background: #1a2c27;
+  color: #7dcfb6;
 }
 .graph-state {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 5px;
+  flex: none;
+  overflow: hidden;
+  padding: 3px 7px;
+  border-radius: 999px;
   color: #9ca7b8;
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font-weight: 650;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
+  background: #1c222c;
 }
-.graph-state.busy {
-  padding: 6px 9px;
-  border: 1px solid #705a36;
-  border-radius: 999px;
+.graph-state.running {
   background: #2b251b;
   color: #edbd73;
 }
-.graph-agent {
-  min-height: 154px;
-  padding: 14px;
-}
-.graph-agent.running {
-  border-color: #77603b;
-  box-shadow:
-    0 0 0 3px #edbd7312,
-    0 12px 30px #0007;
-}
-.graph-agent.completed {
-  border-color: #33443f;
-  opacity: 0.78;
-}
-.graph-agent.failed {
-  border-color: #744b50;
-  box-shadow: 0 0 20px #e1767618;
-}
-.graph-agent-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.graph-agent .graph-icon {
-  width: 32px;
-  height: 32px;
-  border-color: #394252;
-  background: #202632;
-  color: #c0cad8;
-}
-.graph-agent.running .graph-icon {
-  border-color: #635439;
-  background: #282319;
-  color: var(--amber);
-}
-.graph-agent.running .graph-state {
-  color: var(--amber);
-}
-.graph-agent.failed .graph-icon,
-.graph-agent.failed .graph-state {
-  color: #ee9292;
-}
-.graph-agent.completed .graph-icon,
-.graph-agent.completed .graph-state {
+.graph-state.completed,
+.graph-state.idle {
+  background: #17241f;
   color: #81c8b2;
+}
+.graph-state.failed {
+  background: #2a1c1e;
+  color: #ee9292;
 }
 .graph-state i {
   width: 7px;
@@ -1451,14 +1808,11 @@ a {
   border-radius: 50%;
   background: currentColor;
 }
-.graph-agent.running .graph-state i {
-  animation: dot-pulse 1.3s infinite;
-}
 .graph-agent-name {
   overflow: hidden;
   margin-top: 12px;
   color: #edf1f7;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1477,8 +1831,8 @@ a {
   min-height: 36px;
   margin-top: 10px;
   color: #b1bac8;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.45;
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -1568,10 +1922,16 @@ a {
 }
 @media (max-width: 1050px) {
   .app-shell {
-    grid-template-columns: 220px minmax(0, 1fr);
+    grid-template-columns: 200px minmax(0, 1fr);
+  }
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: 52px minmax(0, 1fr);
+  }
+  .detail-panel {
+    width: min(340px, 48%);
   }
   .workspace {
-    grid-template-columns: minmax(250px, 0.75fr) minmax(360px, 1.25fr);
+    grid-template-columns: minmax(0, 1fr);
     gap: 12px;
     padding: 13px;
   }
@@ -1585,14 +1945,18 @@ a {
 @media (max-width: 900px) {
   .workspace {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(230px, 0.8fr) minmax(340px, 1.2fr);
     overflow: auto;
     padding: 12px;
   }
+  .detail-panel {
+    width: calc(100% - 24px);
+    min-width: 0;
+  }
 }
 @media (max-width: 760px) {
-  .app-shell {
-    grid-template-columns: 64px minmax(0, 1fr);
+  .app-shell,
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: 52px minmax(0, 1fr);
   }
   .sidebar {
     align-items: center;
@@ -1640,7 +2004,7 @@ a {
   }
   .workspace {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(230px, 0.8fr) minmax(340px, 1.2fr);
+    grid-template-rows: minmax(0, 1fr);
     overflow: auto;
     padding: 10px;
   }
@@ -1663,7 +2027,7 @@ a {
 }
 @media (max-width: 480px) {
   .workspace {
-    grid-template-rows: minmax(205px, 0.75fr) minmax(320px, 1.25fr);
+    grid-template-rows: minmax(0, 1fr);
     padding: 8px;
     gap: 9px;
   }
@@ -1671,7 +2035,7 @@ a {
     height: 66px;
   }
   .panel {
-    grid-template-rows: 66px minmax(0, 1fr) 35px;
+    grid-template-rows: minmax(0, 1fr) 35px;
   }
   .canvas-legend span {
     font-size: 12px;

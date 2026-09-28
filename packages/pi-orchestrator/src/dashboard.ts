@@ -30,6 +30,7 @@ type Session = {
 	agents: any[]
 	edges: any[]
 	preview?: string
+	currentActivity?: string
 }
 let host: HttpServer | undefined
 let ipcServer: NetServer | undefined
@@ -37,6 +38,24 @@ let clients = new Map<string, Socket>()
 let sessions = new Map<string, Session>()
 let viewers = new Set<ServerResponse>()
 let hostStarting: Promise<void> | undefined
+/** Live attach handle; agent patches must reuse this socket (a new connect fails if the sock file was unlinked). */
+let attachedPublisher:
+	| ((data: Partial<Pick<Session, 'agents' | 'edges'>>) => void)
+	| undefined
+
+function httpHostUp(): Promise<boolean> {
+	return new Promise((resolve) => {
+		const probe = connect({ host: '127.0.0.1', port: PORT })
+		probe.once('connect', () => {
+			probe.end()
+			resolve(true)
+		})
+		probe.once('error', () => {
+			probe.destroy()
+			resolve(false)
+		})
+	})
+}
 
 function publish() {
 	const data = JSON.stringify({ type: 'snapshot', sessions: [...sessions.values()] })
@@ -68,25 +87,35 @@ function startHost(): Promise<void> {
 				if (existsSync(socketPath)) {
 					clearInterval(wait)
 					resolve()
+					openDashboardInBrowser(dashboardPublicUrl())
 				} else if (Date.now() - startedAt > 3000) {
 					clearInterval(wait)
 					reject(new Error('Dashboard host failed to start'))
 				}
 			}, 40)
 		}
+		const probeOk = () => {
+			const probe = connect(socketPath)
+			probe.once('connect', () => {
+				probe.end()
+				resolve()
+			})
+			probe.once('error', () => {
+				probe.destroy()
+				void httpHostUp().then((up) => {
+					if (up) resolve()
+					else launch()
+				})
+			})
+		}
 		if (!existsSync(socketPath)) {
-			launch()
+			void httpHostUp().then((up) => {
+				if (up) resolve()
+				else launch()
+			})
 			return
 		}
-		const probe = connect(socketPath)
-		probe.once('connect', () => {
-			probe.end()
-			resolve()
-		})
-		probe.once('error', () => {
-			probe.destroy()
-			launch()
-		})
+		probeOk()
 		setTimeout(() => {
 			hostStarting = undefined
 		}, 3100)
@@ -219,6 +248,44 @@ function runHost() {
 
 if (process.env.PI_DASHBOARD_HOST === '1') runHost()
 
+export function dashboardPublicUrl() {
+	return `http://127.0.0.1:${PORT}`
+}
+
+export function shouldOpenDashboardBrowser(
+	env: NodeJS.ProcessEnv = process.env,
+	tty: boolean | undefined = process.stdout.isTTY
+) {
+	if (env.PI_DASHBOARD_OPEN === '0' || env.PI_DASHBOARD_OPEN === 'false') return false
+	if (env.PI_SUBAGENT_WORKER === '1') return false
+	if (env.PI_DASHBOARD_HOST === '1') return false
+	return tty === true
+}
+
+export function openDashboardInBrowser(
+	url: string,
+	opts?: {
+		env?: NodeJS.ProcessEnv
+		tty?: boolean
+		platform?: NodeJS.Platform
+		spawnFn?: typeof spawn
+	}
+) {
+	if (!shouldOpenDashboardBrowser(opts?.env ?? process.env, opts?.tty ?? process.stdout.isTTY))
+		return
+	const platform = opts?.platform ?? process.platform
+	const spawnFn = opts?.spawnFn ?? spawn
+	if (platform === 'darwin') {
+		spawnFn('open', [url], { detached: true, stdio: 'ignore' }).unref()
+		return
+	}
+	if (platform === 'win32') {
+		spawnFn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref()
+		return
+	}
+	spawnFn('xdg-open', [url], { detached: true, stdio: 'ignore' }).unref()
+}
+
 export function attachDashboard(
 	session: Pick<Session, 'id' | 'title' | 'cwd'> &
 		Partial<Pick<Session, 'events' | 'agents' | 'edges' | 'preview'>>,
@@ -256,6 +323,9 @@ export function attachDashboard(
 	}
 	connectToHost()
 	const heartbeat = setInterval(() => send({ type: 'heartbeat', id }), 10000)
+	const update = (data: Partial<Session>) =>
+		send({ type: 'event', id, event: { type: 'patch', data } })
+	attachedPublisher = (data) => update(data)
 	return {
 		id,
 		event: (type: string, data: unknown) =>
@@ -268,17 +338,22 @@ export function attachDashboard(
 					at: Date.now()
 				}
 			}),
-		update: (data: Partial<Session>) => send({ type: 'event', id, event: { type: 'patch', data } }),
+		update,
 		close: () => {
 			clearInterval(heartbeat)
+			if (attachedPublisher) attachedPublisher = undefined
 			send({ type: 'detach', id })
 			socket?.end()
 		},
-		url: `http://127.0.0.1:${PORT}`
+		url: dashboardPublicUrl()
 	}
 }
 
 export function publishDashboardAgentUpdate(sessionId: string, agents: any[], edges: any[]) {
+	if (attachedPublisher) {
+		attachedPublisher({ agents, edges })
+		return
+	}
 	if (!sessionId) return
 	const socket = connect(socketPath)
 	socket.once('connect', () => {

@@ -10,10 +10,10 @@ Multi-Agent Orchestrator & Subagent Supervisor for the Pi coding agent (`@earend
 
 - **Supervisor-Worker Pattern**: The Master agent decomposes tasks and delegates them to specialized workers with isolated scratchpads in `~/.pi-orchestrator/scratchpads/`.
 - **Predefined Subagent Roster**:
-  - `researcher`: Fast codebase navigation, documentation lookup, and file search (`flash`).
+  - `researcher`: Fast codebase navigation, documentation lookup, file search, and read-only git (`flash`).
   - `coder`: Code generation, targeted edits, and refactorings (`sonnet` / `cursor`).
   - `tester`: Test suite execution, verification, and failure trace analysis (`mini` / `local`).
-  - `reviewer`: Code review, diff inspection, and security analysis (`pro` / `opus`).
+  - `reviewer`: Code review, git diff inspection, and security analysis (`pro` / `opus`).
 - **Master Agent Tools**:
   - `invoke_subagent`: Spawns subagents in parallel or sequentially.
   - `manage_subagents`: Inspects live subagents, views logs, kills runaway workers, or clears history.
@@ -23,8 +23,8 @@ Multi-Agent Orchestrator & Subagent Supervisor for the Pi coding agent (`@earend
 - **Control Slash Command**:
   - `/agents`: Interactive dashboard for monitoring and managing active subagents.
   - `/agents status`, `/agents list`, `/agents roster`, `/agents kill <id>`, `/agents kill-all`, `/agents clear`.
-- **Live session dashboard**: The first Pi session starts a local dashboard at `http://127.0.0.1:4317`; other Pi sessions attach automatically. It shows live chat/tool activity and an agent dependency canvas. The detached local host exits after the final Pi session closes. Set `PI_DASHBOARD_PORT` to change the port.
-- Build `packages/pi-live-dashboard` from the workspace root with `bun install && bun run --filter pi-live-dashboard build`; it writes the bundle to `~/.agents/outputs/pi-agent-stack/artifacts/dashboard`. The orchestrator only serves that bundle and the live session stream.
+- **Live session dashboard**: The first interactive Pi session starts a local dashboard at `http://127.0.0.1:4317` and opens it in the browser. Other Pi sessions attach automatically. The activity panel shows a live **Currently at** line (latest tool or assistant step). The detached local host exits after the final Pi session closes. Set `PI_DASHBOARD_PORT` to change the port, or `PI_DASHBOARD_OPEN=0` to skip opening the browser.
+- `scripts/install.sh` (`bun run setup`) builds `packages/pi-live-dashboard` and writes the bundle to `~/.agents/outputs/pi-agent-stack/artifacts/dashboard`. The orchestrator only serves that bundle and the live session stream.
 
 ## Configuration
 

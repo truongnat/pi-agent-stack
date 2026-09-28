@@ -49,19 +49,27 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 				id: sessionId,
 				title: ctx.sessionManager.getSessionName() || `Pi · ${process.pid}`,
 				cwd: ctx.cwd,
-				events
+				events,
+				currentActivity: 'Waiting for a prompt'
 			},
 			(id) => {
 				dashboardSessionId = id
 			}
 		)
+		dashboardSessionId = dashboard.id
 	})
-	pi.on('session_info_changed', (event) =>
-		dashboard?.update({ title: event.name || `Pi · ${process.pid}` })
-	)
+	pi.on('session_info_changed', (event) => {
+		const name = (event.name || '').trim()
+		if (name && !/^Pi(\s*[·.]\s*|\s*)?\d*$/i.test(name)) dashboard?.update({ title: name })
+	})
 	pi.on('input', (event) => {
+		const summary = event.text.replace(/\s+/g, ' ').trim().slice(0, 80)
 		dashboard?.event('user', { text: event.text.slice(0, 4000) })
 		dashboard?.event('status', { value: 'working' })
+		dashboard?.update({
+			...(summary ? { title: summary } : {}),
+			currentActivity: 'Working on the latest prompt'
+		})
 	})
 	pi.on('message_update', (event) => {
 		if (event.message.role !== 'assistant') return
@@ -71,7 +79,11 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 					.map((part: any) => part.text)
 					.join('')
 			: ''
-		if (text) dashboard?.update({ preview: text.slice(-3000) } as any)
+		if (text)
+			dashboard?.update({
+				preview: text.slice(-3000),
+				currentActivity: text.trim().split('\n').filter(Boolean).at(-1)?.slice(0, 160)
+			})
 	})
 	pi.on('tool_execution_start', (event) => {
 		const summary = summarizeJsonEvent({
@@ -83,6 +95,7 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 			name: event.toolName,
 			text: summary.activity || String(event.toolName)
 		})
+		dashboard?.update({ currentActivity: summary.activity || String(event.toolName) })
 	})
 	pi.on('tool_execution_end', (event) =>
 		dashboard?.event(event.isError ? 'error' : 'tool_done', {
@@ -90,7 +103,10 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 			text: event.isError ? 'Tool failed' : 'Completed'
 		})
 	)
-	pi.on('agent_settled', () => dashboard?.event('status', { value: 'idle' }))
+	pi.on('agent_settled', () => {
+		dashboard?.event('status', { value: 'idle' })
+		dashboard?.update({ currentActivity: 'Idle' })
+	})
 
 	// Workers run detached in their own process groups; without this they outlive Pi.
 	pi.on('session_shutdown', () => {
@@ -200,7 +216,7 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 			'## Execution Directives:',
 			'1. **DEFAULT SUBAGENT DISPATCH**: For any user request involving coding, debugging, file refactoring, testing, or multi-file research, you MUST dispatch specialized subagents via `invoke_subagent` instead of doing all heavy edits/searches directly.',
 			'2. **ROLE ROSTER**:',
-			'   - 📚 `researcher`: Read-only file inspection, repository discovery, code excerpts, and architecture investigation.',
+			'   - 📚 `researcher`: File inspection, git status/diff/log, repository discovery, code excerpts. No edits.',
 			'   - 🔍 `debugger`: Isolates runtime crashes, error logs, trace lines, and root-cause analysis.',
 			'   - 🧑‍💻 `coder`: Implementations and edits. Has bash. MUST self-test (compile/unit tests) in the named worktree before returning.',
 			'   - 🧪 `tester`: Independent second-pass: re-run tests/linters. Does not replace the coder self-test.',
@@ -211,7 +227,9 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 			'   - NEVER end your turn saying "Chưa sửa mã nguồn..." when asked to fix or handle a task.',
 			'   - Do NOT run redundant serial read/find/grep calls on files that subagents have already analyzed in their scratchpads.',
 			'4. **CONCURRENCY & CONSENSUS**:',
-			'   - Use `parallel: true` when subagent tasks are independent (e.g. parallel research across multiple modules or parallel audit).',
+			'   - Hard cap is 20 live workers (`maxConcurrentSubagents`). Use it. Multi-file/component refactors MUST be one `invoke_subagent` with many independent tasks (`parallel: true`), not serial one-agent-at-a-time waves.',
+			'   - Split by file/module: one `coder` per disjoint path. Set `isolate_workspace: true` on write-capable tasks so they do not share a checkout.',
+			'   - Use `depends_on` only when a task truly needs another output. Do not chain the whole job into a sequence.',
 			'   - Set `require_consensus: true` when coder changes require independent reviewer & tester voting.',
 			'5. **SYNTHESIS & LANGUAGE**:',
 			'   - Always synthesize reports and answers in the prompt language (Vietnamese/English). Never output in unrelated foreign languages (Mongolian, etc.).'

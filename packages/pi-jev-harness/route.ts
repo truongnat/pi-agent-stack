@@ -347,6 +347,7 @@ export function applyToolRouting(
 	const hidden = names.filter((name) => !keep.includes(name))
 	const hiddenSchemaChars = toolSchemaChars(pi, hidden)
 	const hideTools =
+		process.env.PI_SUBAGENT_WORKER !== '1' &&
 		h.config.mode === 'on' &&
 		kind.choice !== 'answer' &&
 		hidden.length >= h.config.routeMinHiddenTools &&

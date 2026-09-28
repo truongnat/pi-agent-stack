@@ -15,7 +15,7 @@ import {
 } from './jev.ts'
 import { evaluateRisk, type RiskEvaluation } from './risk.ts'
 import { spill, spillHint } from './spill.ts'
-import { active, ensureJevApiKey, READ_TOOLS, short, type Block, type Harness } from './types.ts'
+import { active, ensureJevApiKey, SKIP_GUARD_TOOLS, short, type Block, type Harness } from './types.ts'
 
 const resultText = (event: ToolResultEvent): string =>
 	event.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n')
@@ -208,8 +208,8 @@ export async function onToolCall(
 ): Promise<Block | undefined> {
 	try {
 		if (h.config.mode === 'off') return undefined
-		const isRead = READ_TOOLS.includes(event.toolName)
-		const checkGuard = h.config.guard && !isRead
+		const skipGuard = SKIP_GUARD_TOOLS.includes(event.toolName)
+		const checkGuard = h.config.guard && !skipGuard
 
 		// Local rules first and without Jev: hard blocks, and `read` of credential stores.
 		if (h.config.guard && (checkGuard || event.toolName === 'read')) {
@@ -241,9 +241,7 @@ export async function onToolCall(
 		}
 		const result = await h.jev('tool_call', state, questions, ctx)
 		if (!result) {
-			return enforce && checkGuard
-				? await consentRegexOnly(h, ctx, 'The JEV request failed (timeout or network error).')
-				: undefined
+			return undefined
 		}
 		if (checkLoop) {
 			const blocked = loopVerdict(h, result.answers, event, repeats)

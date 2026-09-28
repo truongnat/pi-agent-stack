@@ -120,6 +120,14 @@ fi
 # Link workspaces and dependencies
 (cd "$AGENT_DIR/pi-agent-stack" && bun install)
 
+echo "Building live dashboard bundle..."
+(cd "$AGENT_DIR/pi-agent-stack" && bun run --cwd packages/pi-live-dashboard build)
+DASHBOARD_INDEX="$HOME/.agents/outputs/pi-agent-stack/artifacts/dashboard/index.html"
+if [[ ! -f "$DASHBOARD_INDEX" ]]; then
+	echo "live dashboard bundle missing at $DASHBOARD_INDEX" >&2
+	exit 1
+fi
+
 cd "$AGENT_DIR"
 node "$AGENT_DIR/pi-agent-stack/scripts/sync-settings.mjs"
 

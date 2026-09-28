@@ -12,7 +12,9 @@
   "read_only_tools": [
     "read", "read_file", "grep", "glob", "list_dir", "ls", "find", "web_search", "web_fetch",
     "open_page", "search_tool", "view_file", "view_file_outline", "grep_search",
-    "search", "webfetch", "websearch", "obs_recall", "manage_task", "send_message", "schedule", "ask_question", "read_resource", "list_resources"
+    "search", "webfetch", "websearch", "obs_recall", "manage_task", "send_message", "schedule", "ask_question", "read_resource", "list_resources",
+    "invoke_subagent", "manage_subagents", "send_subagent_message",
+    "get_goal", "update_goal", "get_persona", "update_persona", "feedback_persona"
   ],
   "shell_tools": [
     "bash", "shell", "run_command", "run_terminal_command", "exec"
@@ -52,8 +54,8 @@
   ],
   "disposition_instructions": "What should the coding-agent harness do with this tool call before it runs? Judge only the call in `tool`, not a general coding policy.",
   "disposition_criteria": {
-    "allow": "A routine reversible step of software work: reading, searching, formatting, or running a local test or build. Nothing is deleted, published, pushed, or sent outside the machine.",
-    "ask": "The user should confirm first. The call writes or deletes project files, changes git history, installs software, or its effect is unclear from the text.",
+    "allow": "A routine local step: reading, searching, editing workspace files, running tests or builds, git status/diff/log/add/commit, or spawning a local subagent. Nothing is published, force-pushed, or sent off this machine.",
+    "ask": "The user must confirm. The call is hard to undo: force-push, rewrite published history, delete data outside the workspace, install system packages, or send secrets off the machine. Do not pick ask for unclear local tools.",
     "deny": "The call would destroy data, publish secrets, or change a machine outside this project, and should not run."
   },
   "hard_to_undo_instructions": "Is this tool call hard to undo? Hard to undo means deleting files, rewriting git history, pushing, publishing, dropping data, or changing permissions. A local file edit or a test command is not hard to undo.",

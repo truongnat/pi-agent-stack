@@ -34,6 +34,7 @@ check_file "$HOME/.agents/typesafe-harness/pre-tool.sh"
 check_file "$AGENT_DIR/pi-agent-stack/packages/pi-rl-engine/package.json"
 check_file "$AGENT_DIR/pi-agent-stack/packages/pi-goal/package.json"
 check_file "$AGENT_DIR/pi-agent-stack/packages/pi-orchestrator/package.json"
+check_file "$HOME/.agents/outputs/pi-agent-stack/artifacts/dashboard/index.html"
 check_file "$AGENT_DIR/pi-agent-stack/packages/pi-persona/package.json"
 
 

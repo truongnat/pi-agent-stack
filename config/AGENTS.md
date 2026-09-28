@@ -34,8 +34,8 @@
 ## 6. Academic ACI (context as working memory)
 - Keep the **recency window** usable: prefer the last few turns and a small number of prefetched files at the **end** of context. Do not dump whole files or long logs into the middle of the prompt.
 - File views stay **~100–120 lines** (SWE-agent ACI). Use `grep`/`find` with caps; skeletonize bulky reads via DCP.
-- **Single writer**: one coding agent edits a file at a time. Parallel subagents are for research/test/review, not two coders on the same path.
-- Cap live subagents (default 3). If a worker is silent, rotate model; do not spawn more of the same.
+- **Single writer per file**: two coders must not edit the same path. Parallel component/file refactors use many `coder` tasks in **one** `invoke_subagent` call with `parallel: true` and `isolate_workspace: true` per writer.
+- Cap live subagents at **20**. Fan-out independent files/modules in one batch instead of serial phases. If a worker is silent, rotate model; do not spawn more of the same stuck task.
 - Compact / DCP **pages** old tool dumps out; do not re-read the same file dozens of times after a subagent already reported it.
 
 ## 7. End-to-End Action & Implementation Mandate (Never Stall at Analysis)

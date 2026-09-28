@@ -21,7 +21,7 @@ export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
 	guard: true,
 	alwaysOrchestrate: true,
 	minProvidersRequired: 2,
-	maxConcurrentSubagents: 4,
+	maxConcurrentSubagents: 20,
 	maxScratchpadsToKeep: 50,
 	scratchpadRoot: join(homedir(), '.pi-orchestrator', 'scratchpads')
 }

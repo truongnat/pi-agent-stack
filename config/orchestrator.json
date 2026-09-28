@@ -3,6 +3,6 @@
 	"guard": true,
 	"alwaysOrchestrate": true,
 	"minProvidersRequired": 2,
-	"maxConcurrentSubagents": 3,
+	"maxConcurrentSubagents": 20,
 	"maxScratchpadsToKeep": 50
 }

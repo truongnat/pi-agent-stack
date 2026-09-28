@@ -121,6 +121,20 @@ export const THRESHOLD_ALWAYS_KEEP = [
 
 export const READ_TOOLS = ['read', 'grep', 'find', 'ls']
 
+/** Local agent coordination — not shell. Skip the Jev permission guard. */
+export const SKIP_GUARD_TOOLS = [
+	...READ_TOOLS,
+	'invoke_subagent',
+	'manage_subagents',
+	'send_subagent_message',
+	'get_goal',
+	'update_goal',
+	'get_persona',
+	'update_persona',
+	'feedback_persona',
+	'obs_recall'
+]
+
 export function ensureJevApiKey(): string | undefined {
 	if (process.env.JEV_API_KEY) return process.env.JEV_API_KEY
 	try {

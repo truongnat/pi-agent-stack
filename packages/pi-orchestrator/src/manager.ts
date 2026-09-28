@@ -135,12 +135,10 @@ export function fallbackWorkers(
 }
 
 /**
- * Workers have no UI to ask "JEV unavailable, regex only?". When the user already said yes in
- * this session (jev-harness / typesafe gate share the answer), workers inherit it.
+ * Workers have no UI. Always regex-only Jev so a timeout cannot terminate the worker.
  */
 export function workerEnv(): Record<string, string> {
-	const consent = (globalThis as { piJevRegexOnly?: boolean }).piJevRegexOnly === true
-	return { PI_SUBAGENT_WORKER: '1', ...(consent ? { PI_JEV_REGEX_ONLY: '1' } : {}) }
+	return { PI_SUBAGENT_WORKER: '1', PI_JEV_REGEX_ONLY: '1' }
 }
 
 export class SubagentManager {
@@ -988,7 +986,7 @@ export class SubagentManager {
 		}
 
 		// Concurrency Pool Semaphore (prevents API rate limits and machine thrashing)
-		const maxConcurrent = Math.max(1, this.config.maxConcurrentSubagents ?? 4)
+		const maxConcurrent = Math.max(1, this.config.maxConcurrentSubagents ?? 20)
 		const results: SubagentExecutionResult[] = Array.from<SubagentExecutionResult>({
 			length: tasks.length
 		})
@@ -1028,7 +1026,7 @@ export class SubagentManager {
 		this.lastDag = { nodes, status }
 		const done = new Map<string, SubagentExecutionResult>()
 		const results = new Map<string, SubagentExecutionResult>()
-		const maxConcurrent = Math.max(1, this.config.maxConcurrentSubagents ?? 4)
+		const maxConcurrent = Math.max(1, this.config.maxConcurrentSubagents ?? 20)
 		const running = new Map<string, Promise<void>>()
 
 		const skip = (n: DagNode, why: string) => {

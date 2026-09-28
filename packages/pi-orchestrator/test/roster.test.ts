@@ -25,9 +25,11 @@ test('DEFAULT_ROSTER defines standard 4 agent roles with proper tool scoping', (
 		'grep',
 		'find',
 		'ls',
+		'bash',
 		'redmine_get_issue',
 		'redmine_search_issues'
 	])
+	assert.ok(DEFAULT_ROSTER.reviewer.allowedTools.includes('bash'))
 	assert.ok(DEFAULT_ROSTER.coder.allowedTools.includes('edit'))
 	assert.ok(DEFAULT_ROSTER.coder.allowedTools.includes('bash'))
 	assert.match(DEFAULT_ROSTER.coder.systemPrompt, /SELF-TEST/)
@@ -40,10 +42,10 @@ test('resolveRoleTools keeps the full allowlist, subsets, and rejects extras', (
 	assert.deepEqual(resolveRoleTools(coder), coder.allowedTools)
 	assert.deepEqual(resolveRoleTools(coder, ['read', 'bash']), ['read', 'bash'])
 	assert.throws(
-		() => resolveRoleTools(getRoleDefinition('researcher'), ['read', 'bash']),
+		() => resolveRoleTools(getRoleDefinition('researcher'), ['read', 'write']),
 		(err: unknown) => {
 			assert.ok(err instanceof ToolsNotAllowedError)
-			assert.deepEqual(err.extra, ['bash'])
+			assert.deepEqual(err.extra, ['write'])
 			return true
 		}
 	)

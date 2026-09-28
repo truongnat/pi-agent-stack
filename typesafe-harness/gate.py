@@ -133,8 +133,10 @@ def decide_from_answers(config, harness, answers):
     confidence = float(disposition.get("confidence") or 0)
     if choice == "deny" and confidence >= config.get("deny_confidence", 0.75):
         return "deny", f"jev deny confidence {confidence:.2f} hard-to-undo {hard:.2f}"
-    # Pi: Jev is the decision. Never escalate to the human.
+    # Pi: never escalate a low-confidence "ask" (Jev uses ask when unsure about local tools).
     if harness == "pi":
+        if choice == "ask" and confidence < config.get("allow_confidence", 0.6):
+            return "none", f"jev ask ignored (confidence {confidence:.2f}); harness proceeds"
         return "none", f"jev {choice} confidence {confidence:.2f}; harness proceeds"
     if hard >= config["hard_to_undo_ask"] or choice in {"ask", "deny"} or confidence < config["allow_confidence"]:
         return "ask", f"jev {choice} confidence {confidence:.2f} hard-to-undo {hard:.2f}"

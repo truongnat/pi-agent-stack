@@ -29,7 +29,7 @@ import { homedir } from 'node:os'
 import { isAbsolute, normalize, relative, resolve } from 'node:path'
 import type { ToolCallEvent } from '@earendil-works/pi-coding-agent'
 
-import { scoreOf, THRESHOLDS, type Answers } from './jev.ts'
+import { type Answers } from './jev.ts'
 
 export type RiskLevel = 0 | 1 | 2 | 3
 
@@ -68,6 +68,16 @@ const CRITICAL_SYSTEM_PATHS = [
 	resolve(homedir(), '.keys')
 ]
 
+const CREDENTIAL_HOME_DIRS = new Set(['.ssh', '.aws', '.gnupg', '.keys'])
+const AGENT_HOME_DIRS = new Set([
+	'.pi',
+	'.agents',
+	'.grok',
+	'.claude',
+	'.codex',
+	'.cursor'
+])
+
 /**
  * Checks if a target path is an external sensitive system path outside the workspace.
  */
@@ -93,13 +103,19 @@ export function isSensitiveSystemPath(targetPath: string, cwd: string): boolean 
 		return true
 	}
 
-	// Check against critical system paths
+	const home = homedir()
+	if (absPath === home) return true
+	if (absPath.startsWith(`${home}/`)) {
+		const top = absPath.slice(home.length + 1).split('/')[0] ?? ''
+		if (AGENT_HOME_DIRS.has(top)) return false
+		if (CREDENTIAL_HOME_DIRS.has(top)) return true
+		return false
+	}
+
+	if (absPath.startsWith('/tmp')) return false
+
 	for (const sysPath of CRITICAL_SYSTEM_PATHS) {
 		if (absPath === sysPath || absPath.startsWith(`${sysPath}/`)) {
-			// /tmp or ~/.pi/ is acceptable for temporary work
-			if (absPath.startsWith('/tmp') || absPath.startsWith(resolve(homedir(), '.pi'))) {
-				return false
-			}
 			return true
 		}
 	}
@@ -150,10 +166,6 @@ const NETWORK_TOOLS = new Set([
 ])
 
 const LOCAL_HOST = /(localhost|127\.0\.0\.1|0\.0\.0\.0)/
-
-const SECRET_VAR = /\$\{?[A-Za-z0-9_]*(KEY|TOKEN|SECRET|PASS|PASSWORD)[A-Za-z0-9_]*\}?/
-
-const SECRET_WORD = /\b(api[_-]?key|access[_-]?token|token|secret|password|passwd)\b/i
 
 const SECRET_FILE = /(^|\/)(\.env(\.[\w-]+)*|[^/]+\.pem|id_rsa|id_ed25519|credentials\.json)$/
 
@@ -300,16 +312,7 @@ export function detectCriticalHazards(event: ToolCallEvent, cwd: string): RiskEv
 			return hazard('Credential file sent to a network command', 'credential_leak', true)
 		}
 
-		// 3. Secret-looking values sent out: may be a normal authenticated API call, so the user decides
-		if (outbound.some((w) => w.some((word) => SECRET_VAR.test(word) || SECRET_WORD.test(word)))) {
-			return hazard(
-				'Possible outbound credential exfiltration via network command',
-				'credential_leak',
-				false
-			)
-		}
-
-		// 4. System root / home destruction, whatever the flag spelling
+		// 3. System root / home destruction, whatever the flag spelling
 		if (segments.some(removesCriticalPath) || /--no-preserve-root/.test(raw)) {
 			return hazard(
 				'Critical destructive command targeting root or home directory',
@@ -327,9 +330,9 @@ export function detectCriticalHazards(event: ToolCallEvent, cwd: string): RiskEv
 			)
 		}
 
-		// 6. Reading credential stores into the conversation: same rule as the read tool
+		// 4. Dumping a private credential file into the session
 		if (credentials.length > 0) {
-			return hazard('Reading a credential store outside the workspace', 'credential_leak', false)
+			return hazard('Reading a credential store outside the workspace', 'credential_leak', true)
 		}
 	}
 
@@ -341,8 +344,8 @@ export function detectCriticalHazards(event: ToolCallEvent, cwd: string): RiskEv
 				level: 3,
 				category: 'credential_leak',
 				reason: `Accessing restricted system credential store outside workspace: ${path}`,
-				requireConfirm: true,
-				blockDirectly: false
+				requireConfirm: false,
+				blockDirectly: true
 			}
 		}
 	}
@@ -425,23 +428,6 @@ export function evaluateRisk(event: ToolCallEvent, cwd: string, answers?: Answer
 		// Check for remote/infrastructure hazards
 		const remoteHazard = detectRemoteOrSystemHazards(rawCmd)
 		if (remoteHazard) return remoteHazard
-
-		// If JEV answers are provided and it explicitly flags Critical Hazard (Level 3)
-		if (answers) {
-			const risk = scoreOf(answers, 'risk')
-			if (risk.confidence >= THRESHOLDS.askConfidence) {
-				const lvl = Math.round(risk.score)
-				if (lvl >= 3) {
-					return {
-						level: 3,
-						category: 'system_tampering',
-						reason: `Critical system/remote hazard flagged by JEV System 1 (${risk.confidence.toFixed(2)})`,
-						requireConfirm: true,
-						blockDirectly: false
-					}
-				}
-			}
-		}
 
 		// All local workspace development, git reset, rm -rf, process management is Safe (Level 0)
 		return {

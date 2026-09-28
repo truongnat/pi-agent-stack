@@ -56,11 +56,11 @@ test('SubagentManager invokeBatch supports parallel and sequential modes', async
 test('spawnSubagent fails when requested tools are outside the role allowlist', async () => {
 	const manager = fakeManager().manager
 	const result = await manager.spawnSubagent(
-		{ role: 'researcher', prompt: 'Survey', tools: ['read', 'bash'] },
+		{ role: 'researcher', prompt: 'Survey', tools: ['read', 'write'] },
 		process.cwd()
 	)
 	assert.equal(result.status, 'failed')
-	assert.match(result.error ?? '', /cannot use tools: bash/)
+	assert.match(result.error ?? '', /cannot use tools: write/)
 	assert.equal(manager.getSubagent(result.id)?.status, 'failed')
 })
 
@@ -207,16 +207,11 @@ test('clearHistory keeps running subagents so they can still be killed', async (
 	assert.equal(manager.listSubagents().length, 0)
 })
 
-test('workers inherit the regex-only consent given in the parent session', async () => {
-	const shared = globalThis as { piJevRegexOnly?: boolean | undefined }
+test('workers always run regex-only Jev (no UI to confirm)', async () => {
 	const { manager, calls } = fakeManager()
-	shared.piJevRegexOnly = undefined
 	await manager.spawnSubagent({ role: 'coder', prompt: 'x' }, process.cwd())
-	assert.equal(calls[0]?.env?.PI_JEV_REGEX_ONLY, undefined)
-	shared.piJevRegexOnly = true
-	await manager.spawnSubagent({ role: 'coder', prompt: 'y' }, process.cwd())
-	assert.equal(calls[1]?.env?.PI_JEV_REGEX_ONLY, '1')
-	shared.piJevRegexOnly = undefined
+	assert.equal(calls[0]?.env?.PI_SUBAGENT_WORKER, '1')
+	assert.equal(calls[0]?.env?.PI_JEV_REGEX_ONLY, '1')
 })
 
 test('fallback CLIs get the full timeout before their first byte', async () => {
