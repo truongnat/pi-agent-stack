@@ -131,9 +131,9 @@ export function runPipeline(
 		for (const m of messages) {
 			if (!isToolResult(m)) continue
 			if (protectedTools.has(m.toolName)) continue
-			if (protectedByTurn.has(m.toolCallId)) continue
 			const rec = summaries.get(m.toolCallId)
 			if (!rec || rec.suspended) continue
+			if (protectedByTurn.has(m.toolCallId) && !rec.manual) continue
 			if (isAlreadyPlaceholder(m)) continue
 			const saved = compressionPlaceholderToolResult(m, rec.id, rec.topic)
 			if (!state.appliedCompressionTargets.has(m.toolCallId)) {

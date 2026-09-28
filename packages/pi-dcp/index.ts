@@ -166,7 +166,8 @@ export default function piDcp(pi: ExtensionAPI): void {
 
 	// 2. Track turn index so purgeErrors can age errored calls.
 	pi.on('turn_start', (event: TurnStartEvent) => {
-		state.turnIndex = event.turnIndex
+		// Pi restarts turnIndex at 0 every agent run; DCP needs a session-long count.
+		state.turnIndex++
 	})
 
 	// 2b. Save state after each agent turn completes. This ensures compressions

@@ -76,13 +76,16 @@ export function makeSweepCommand(state: SessionState, config: DcpConfig, logger:
 			summary: '(manual sweep — no summary; original outputs no longer in context)',
 			topic: 'manual sweep',
 			tokensSaved: 0,
-			suspended: false
+			suspended: false,
+			// Sweep targets the current turn, which recency protection would otherwise keep
+			// untouched for `turns` more prompts: the user asked for it now.
+			manual: true
 		}
 		state.compressions.set(id, rec)
 		logger.info('sweep staged', { id, count: ids.length })
 		void toast(
 			ctx,
-			`pi-dcp sweep: staged compression #${id} over ${ids.length} tool result(s). Run "/dcp decompress ${id}" to undo before the next message.`,
+			`pi-dcp sweep: compressed ${ids.length} tool result(s) from the next request on (#${id}). "/dcp decompress ${id}" restores them.`,
 			'info'
 		)
 	}

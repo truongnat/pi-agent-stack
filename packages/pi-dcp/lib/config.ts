@@ -106,6 +106,10 @@ export interface DcpConfig {
 			turns: number
 			protectedTools: string[]
 		}
+		/** Replace older bulky `read` results with Tree-Sitter skeletons. */
+		skeletonize: {
+			enabled: boolean
+		}
 	}
 }
 
@@ -189,6 +193,9 @@ export const DEFAULT_CONFIG: DcpConfig = Object.freeze({
 			enabled: true,
 			turns: 2,
 			protectedTools: []
+		},
+		skeletonize: {
+			enabled: true
 		}
 	}
 }) as DcpConfig
@@ -277,7 +284,25 @@ export function loadConfig(
 	const globalOverride = safeReadJson(GLOBAL_CONFIG_PATH, onError)
 	const projectPath = path.join(cwd, '.pi', 'dcp.json')
 	const projectOverride = safeReadJson(projectPath, onError)
-	return deepMerge(deepMerge(DEFAULT_CONFIG, globalOverride), projectOverride)
+	return mergeConfig(globalOverride, projectOverride)
+}
+
+/** Defaults, then ~/.pi-dcp/config.json, then the project's .pi/dcp.json. */
+export function mergeConfig(
+	globalOverride: Partial<DcpConfig> | null,
+	projectOverride: Partial<DcpConfig> | null
+): DcpConfig {
+	const merged = deepMerge(deepMerge(DEFAULT_CONFIG, globalOverride), projectOverride)
+	// The built-in per-model maps are defaults too: a user-set global limit ("40%") must beat
+	// them, or every listed Claude/GPT model keeps the built-in 35k-85k thresholds. Maps the
+	// user writes themselves still win.
+	const userCompress = [globalOverride, projectOverride].map(
+		(o) => (o?.compress ?? {}) as Record<string, unknown>
+	)
+	const sets = (key: string) => userCompress.some((c) => key in c)
+	if (sets('minContextLimit') && !sets('modelMinLimits')) merged.compress.modelMinLimits = {}
+	if (sets('maxContextLimit') && !sets('modelMaxLimits')) merged.compress.modelMaxLimits = {}
+	return merged
 }
 
 /**

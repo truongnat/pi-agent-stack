@@ -46,10 +46,10 @@ function textOf(m: ToolResultMessage): string {
 export function applySkeletonize(
 	messages: AnyMessage[],
 	config: DcpConfig,
-	_state: SessionState,
+	state: SessionState,
 	protectedByTurn: Set<string> = new Set()
 ): SkeletonizeResult {
-	if (!config.strategies.deduplication.enabled) {
+	if (config.strategies.skeletonize?.enabled === false) {
 		return { skeletonizedCount: 0, tokensSaved: 0 }
 	}
 
@@ -63,6 +63,10 @@ export function applySkeletonize(
 			if (typeof path === 'string') callIdToPath.set(call.id, path)
 		}
 	}
+	// The latest read of each file stays whole: the model edits against that text, and an
+	// edit built from a skeleton fails to match.
+	const latestReadOf = new Map<string, string>()
+	for (const [callId, path] of callIdToPath) latestReadOf.set(path, callId)
 
 	let skeletonizedCount = 0
 	let tokensSaved = 0
@@ -74,13 +78,20 @@ export function applySkeletonize(
 		if (m.toolName !== 'read' && m.toolName !== 'read_file') continue
 		const path = callIdToPath.get(m.toolCallId)
 		if (!path) continue
+		if (latestReadOf.get(path) === m.toolCallId) continue
 		const lang = languageFromPath(path)
 		if (!lang) continue
 		const source = textOf(m)
 		if (source.length < MIN_CHARS) continue
 		if (source.startsWith(SKELETON_MARK)) continue
 
-		const skel = skeletonizeCode(source, lang)
+		let skel: ReturnType<typeof skeletonizeCode>
+		try {
+			skel = skeletonizeCode(source, lang)
+		} catch {
+			// One unparsable file must not stop the rest of the pipeline.
+			continue
+		}
 		if (skel.reduction_percentage < 15 || !skel.skeleton.trim()) continue
 
 		const before = toolResultTokens(m)
@@ -91,6 +102,8 @@ export function applySkeletonize(
 			}
 		]
 		m.details = undefined
+		if (state.skeletonizedIds.has(m.toolCallId)) continue
+		state.skeletonizedIds.add(m.toolCallId)
 		tokensSaved += Math.max(0, before - toolResultTokens(m))
 		skeletonizedCount++
 	}

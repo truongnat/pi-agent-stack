@@ -62,6 +62,7 @@ interface SerializedCompressionRecord {
 	topic: string
 	tokensSaved: number
 	suspended: boolean
+	manual?: boolean
 }
 
 function serializeRecord(rec: CompressionRecord): SerializedCompressionRecord {
@@ -72,7 +73,8 @@ function serializeRecord(rec: CompressionRecord): SerializedCompressionRecord {
 		summary: rec.summary,
 		topic: rec.topic,
 		tokensSaved: rec.tokensSaved,
-		suspended: rec.suspended
+		suspended: rec.suspended,
+		...(rec.manual ? { manual: true } : {})
 	}
 }
 
@@ -84,7 +86,8 @@ function deserializeRecord(s: SerializedCompressionRecord): CompressionRecord {
 		summary: s.summary,
 		topic: s.topic,
 		tokensSaved: s.tokensSaved,
-		suspended: s.suspended
+		suspended: s.suspended,
+		...(s.manual ? { manual: true } : {})
 	}
 }
 

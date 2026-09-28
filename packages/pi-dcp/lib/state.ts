@@ -17,6 +17,8 @@ export interface CompressionRecord {
 	tokensSaved: number
 	/** If user ran /dcp decompress, this record is suspended until /dcp recompress. */
 	suspended: boolean
+	/** Made by /dcp sweep: the user asked for it now, so recency protection does not apply. */
+	manual?: boolean
 }
 
 export interface SessionStats {
@@ -48,6 +50,8 @@ export interface SessionState {
 	purgedErrorCallIds: Set<string>
 	/** Tool-call IDs that have already had a compression applied (idempotency for stats). */
 	appliedCompressionTargets: Set<string>
+	/** Read results already skeletonized once; later passes redo the rewrite but not the stats. */
+	skeletonizedIds: Set<string>
 	/** Turn at which we last emitted a soft nudge. Used for throttling. */
 	lastSoftNudgeTurn: number
 	/** Monotonic counter of before_agent_start invocations — powers nudgeFrequency. */
@@ -78,6 +82,7 @@ export function createSessionState(): SessionState {
 		dedupedCallIds: new Set(),
 		purgedErrorCallIds: new Set(),
 		appliedCompressionTargets: new Set(),
+		skeletonizedIds: new Set(),
 		lastSoftNudgeTurn: -Infinity,
 		nudgeFetchCount: 0,
 		lastIterationNudgeAt: 0
