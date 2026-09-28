@@ -360,6 +360,8 @@ export default function (pi: ExtensionAPI) {
 	pi.on('session_start', (_event, ctx) => {
 		Object.assign(h.config, loadConfig())
 		h.sent.clear()
+		h.regexOnly = undefined
+		;(globalThis as { piJevRegexOnly?: boolean | undefined }).piJevRegexOnly = undefined
 		h.status(ctx, undefined)
 	})
 

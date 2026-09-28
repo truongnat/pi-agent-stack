@@ -13,9 +13,9 @@ import {
 	THRESHOLDS,
 	type Answers
 } from './jev.ts'
-import { evaluateRisk } from './risk.ts'
+import { evaluateRisk, type RiskEvaluation } from './risk.ts'
 import { spill, spillHint } from './spill.ts'
-import { active, READ_TOOLS, short, type Block, type Harness } from './types.ts'
+import { active, ensureJevApiKey, READ_TOOLS, short, type Block, type Harness } from './types.ts'
 
 const resultText = (event: ToolResultEvent): string =>
 	event.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n')
@@ -132,11 +132,10 @@ export function isDangerousSecretAction(event: ToolCallEvent): boolean {
 /** Step 5: Context-aware multi-tier security and hazard guard. */
 async function guardVerdict(
 	h: Harness,
-	answers: Answers,
+	evalResult: RiskEvaluation,
 	event: ToolCallEvent,
 	ctx: ExtensionContext
 ): Promise<Block | undefined> {
-	const evalResult = evaluateRisk(event, ctx.cwd, answers)
 	if (evalResult.level === 0) {
 		return undefined
 	}
@@ -172,20 +171,67 @@ async function guardVerdict(
 	return undefined
 }
 
+/**
+ * Jev is missing (no key) or failed: say so once per session and let the user choose regex-only
+ * guarding or stop. `PI_JEV_REGEX_ONLY=1` is prior consent, for headless runs the user started.
+ */
+async function consentRegexOnly(
+	h: Harness,
+	ctx: ExtensionContext,
+	why: string
+): Promise<Block | undefined> {
+	const shared = globalThis as { piJevRegexOnly?: boolean | undefined }
+	h.regexOnly ??= shared.piJevRegexOnly
+	if (h.regexOnly === undefined && process.env.PI_JEV_REGEX_ONLY === '1') h.regexOnly = true
+	if (h.regexOnly === undefined && ctx.hasUI) {
+		h.regexOnly = await ctx.ui.confirm(
+			'jev-harness: JEV unavailable',
+			`${why}\n\nContinue with the local regex guard only?`
+		)
+	}
+	shared.piJevRegexOnly = h.regexOnly
+	if (h.regexOnly) {
+		h.status(ctx, 'guard: regex-only')
+		return undefined
+	}
+	h.stats.guardBlocked++
+	const who = ctx.hasUI
+		? 'The user declined regex-only mode.'
+		: 'No one is here to confirm; set JEV_API_KEY or run with PI_JEV_REGEX_ONLY=1.'
+	return { block: true, terminate: true, reason: `jev-harness stopped: ${why} ${who}` }
+}
+
 export async function onToolCall(
 	h: Harness,
 	event: ToolCallEvent,
 	ctx: ExtensionContext
 ): Promise<Block | undefined> {
 	try {
-		if (!active(h)) return undefined
+		if (h.config.mode === 'off') return undefined
+		const isRead = READ_TOOLS.includes(event.toolName)
+		const checkGuard = h.config.guard && !isRead
+
+		// Local rules first and without Jev: hard blocks, and `read` of credential stores.
+		if (h.config.guard && (checkGuard || event.toolName === 'read')) {
+			const local = evaluateRisk(event, ctx.cwd)
+			if (local.level > 0) return await guardVerdict(h, local, event, ctx)
+		}
+		if (isRead) return undefined
+
+		const hasKey = !!ensureJevApiKey()
 		const key = callKey(event.toolName, event.input)
 		h.recent.push({ tool: event.toolName, key, input: event.input })
 		if (h.recent.length > 12) h.recent.shift()
 		const repeats = h.recent.filter((r) => r.key === key).length
-		const checkLoop = h.config.loop && repeats >= LOOP_CHECK_AT && !h.loopChecked
-		const checkGuard = h.config.guard && !READ_TOOLS.includes(event.toolName)
+		const checkLoop = hasKey && h.config.loop && repeats >= LOOP_CHECK_AT && !h.loopChecked
 		if (!checkLoop && !checkGuard) return undefined
+		const enforce = h.config.mode === 'on'
+		if (!hasKey) {
+			return enforce && checkGuard
+				? await consentRegexOnly(h, ctx, 'No JEV_API_KEY is configured.')
+				: undefined
+		}
+
 		const questions = { ...(checkLoop ? loopQuestions : {}), ...(checkGuard ? guardQuestions : {}) }
 		const state = {
 			task: h.task,
@@ -195,12 +241,17 @@ export async function onToolCall(
 			recentCalls: h.recent.map((c) => ({ tool: c.tool, input: short(c.input, 160) }))
 		}
 		const result = await h.jev('tool_call', state, questions, ctx)
-		if (!result) return undefined
+		if (!result) {
+			return enforce && checkGuard
+				? await consentRegexOnly(h, ctx, 'The JEV request failed (timeout or network error).')
+				: undefined
+		}
 		if (checkLoop) {
 			const blocked = loopVerdict(h, result.answers, event, repeats)
 			if (blocked) return blocked
 		}
-		if (checkGuard) return guardVerdict(h, result.answers, event, ctx)
+		if (checkGuard)
+			return await guardVerdict(h, evaluateRisk(event, ctx.cwd, result.answers), event, ctx)
 		return undefined
 	} catch (err) {
 		h.stats.errors++

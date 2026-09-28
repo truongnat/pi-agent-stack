@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { ExtensionContext } from '@earendil-works/pi-coding-agent'
 
-import type { Question, Result } from './jev.ts'
+import type { Question, Result, ThresholdConfig } from './jev.ts'
 
 export type Mode = 'on' | 'log' | 'off' // log = ask Jev and record, change nothing
 
@@ -36,7 +36,7 @@ export type Config = {
 	advisorMaxTokens: number
 	advisorSkills: boolean
 	advisorVerification: boolean
-	thresholds?: import('./jev.ts').ThresholdConfig
+	thresholds?: ThresholdConfig
 }
 
 export type Stats = {
@@ -76,7 +76,7 @@ export type Stats = {
 
 export type RecentCall = { tool: string; key: string; input: unknown }
 
-export type Block = { block: true; reason: string }
+export type Block = { block: true; reason: string; terminate?: boolean }
 
 export type Candidate = { path: string; matched: { term: string; line: string; at: number }[] }
 
@@ -88,6 +88,8 @@ export type Harness = {
 	recent: RecentCall[]
 	sent: Set<string>
 	loopChecked: boolean
+	/** Session answer to "JEV unavailable, guard with regex only?"; undefined until asked. */
+	regexOnly?: boolean | undefined
 	status: (ctx: ExtensionContext, text?: string) => void
 	log: (entry: Record<string, unknown>) => void
 	jev: (

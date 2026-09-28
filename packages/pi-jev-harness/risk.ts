@@ -133,6 +133,86 @@ export function splitCommandSegments(command: string): string[] {
 		.filter(Boolean)
 }
 
+const CREDENTIAL_PATH =
+	/(~|\$\{?HOME\}?|\/home\/[^/\s]+|\/root)\/(\.ssh|\.aws|\.gnupg|\.keys|\.kube\/config|\.netrc|\.docker\/config\.json)|\bid_(rsa|ed25519|ecdsa)\b/
+
+const NETWORK_TOOLS = new Set([
+	'curl',
+	'wget',
+	'nc',
+	'ncat',
+	'socat',
+	'telnet',
+	'scp',
+	'rsync',
+	'ftp',
+	'sftp'
+])
+
+const LOCAL_HOST = /(localhost|127\.0\.0\.1|0\.0\.0\.0)/
+
+const SECRET_VAR = /\$\{?[A-Za-z0-9_]*(KEY|TOKEN|SECRET|PASS|PASSWORD)[A-Za-z0-9_]*\}?/
+
+const SECRET_WORD = /\b(api[_-]?key|access[_-]?token|token|secret|password|passwd)\b/i
+
+const SECRET_FILE = /(^|\/)(\.env(\.[\w-]+)*|[^/]+\.pem|id_rsa|id_ed25519|credentials\.json)$/
+
+const SAFE_ENV_FILE = /\.env\.(example|sample|template|dist)$/
+
+const PROTECTED_BRANCH = /^(refs\/heads\/)?(main|master|production|prod)$/
+
+/** Shell-ish words with quotes stripped; `sudo`/`env` prefixes dropped so `sudo rm` reads as `rm`. */
+export function commandWords(segment: string): string[] {
+	const words = (segment.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((w) =>
+		w.replace(/^["']|["']$/g, '')
+	)
+	while (words[0] === 'sudo' || words[0] === 'env' || words[0] === 'command') words.shift()
+	return words
+}
+
+const expandHome = (word: string): string => word.replace(/^(~|\$\{?HOME\}?)(?=$|\/)/, homedir())
+
+/** `rm -r` (any flag spelling) aimed exactly at `/`, `~`, `$HOME` or a system root such as `/etc`. */
+export function removesCriticalPath(words: string[]): boolean {
+	if (words[0] !== 'rm') return false
+	const flags = words.slice(1).filter((w) => w.startsWith('-'))
+	const recursive = flags.some((f) => f === '--recursive' || /^-[a-zA-Z]*[rR]/.test(f))
+	if (!recursive) return false
+	return words
+		.slice(1)
+		.filter((w) => !w.startsWith('-'))
+		.some((target) => {
+			const trimmed = expandHome(target)
+				.replace(/\/\*$/, '')
+				.replace(/(.)\/+$/, '$1')
+			const abs = trimmed === '' ? '/' : trimmed
+			return isAbsolute(abs) && CRITICAL_SYSTEM_PATHS.includes(normalize(abs))
+		})
+}
+
+/** `git push` that force-updates (flag or `+refspec`) main/master/production. */
+export function forcePushesProtected(words: string[]): boolean {
+	if (words[0] !== 'git' || !words.includes('push')) return false
+	const args = words.slice(words.indexOf('push') + 1)
+	const forced = args.some(
+		(a) => /^--force(-with-lease|-if-includes)?(=|$)/.test(a) || /^-[a-zA-Z]*f[a-zA-Z]*$/.test(a)
+	)
+	const refspecs = args.filter((a) => !a.startsWith('-')).slice(1)
+	return refspecs.some((ref) => {
+		const dst = ref.replace(/^\+/, '').split(':').pop() ?? ''
+		return PROTECTED_BRANCH.test(dst) && (forced || ref.startsWith('+'))
+	})
+}
+
+/** `git add` naming a real secret file (`.env.example` and friends are fine). */
+export function stagesSecretFile(words: string[]): boolean {
+	if (words[0] !== 'git' || words[1] !== 'add') return false
+	return words.slice(2).some((w) => SECRET_FILE.test(w) && !SAFE_ENV_FILE.test(w))
+}
+
+const isOutbound = (words: string[]): boolean =>
+	NETWORK_TOOLS.has(words[0] ?? '') && !words.some((w) => LOCAL_HOST.test(w))
+
 /**
  * Checks if a single command segment is an unconditionally safe development command.
  */
@@ -174,57 +254,59 @@ export function isSafeDevSegment(segment: string): boolean {
  */
 export function detectCriticalHazards(event: ToolCallEvent, cwd: string): RiskEvaluation | null {
 	if (event.toolName === 'bash') {
-		const cmd = String(event.input?.command || '').toLowerCase()
+		const raw = String(event.input?.command || '')
+		const segments = splitCommandSegments(raw).map(commandWords)
+		const hazard = (
+			reason: string,
+			category: RiskEvaluation['category'],
+			blockDirectly: boolean
+		): RiskEvaluation => ({ level: 3, category, reason, requireConfirm: true, blockDirectly })
 
 		// 1. Committing private credentials to git
-		if (/git\s+add.*(\.env|\.pem|id_rsa|id_ed25519|credentials\.json)/i.test(cmd)) {
-			return {
-				level: 3,
-				category: 'credential_leak',
-				reason: 'Attempting to stage sensitive master credentials/keys into git',
-				requireConfirm: true,
-				blockDirectly: true
-			}
+		if (segments.some(stagesSecretFile)) {
+			return hazard(
+				'Attempting to stage sensitive master credentials/keys into git',
+				'credential_leak',
+				true
+			)
 		}
 
-		// 2. Exfiltrating secrets via network to external domains
-		if (
-			/(curl|wget|nc|ncat|socat|telnet).*(-d|--data|--header|auth).*(\$|key|token|secret)/i.test(
-				cmd
-			) &&
-			!/(localhost|127\.0\.0\.1|0\.0\.0\.0)/i.test(cmd)
-		) {
-			return {
-				level: 3,
-				category: 'credential_leak',
-				reason: 'Possible outbound credential exfiltration via network command',
-				requireConfirm: true,
-				blockDirectly: true
-			}
+		// 2. Credential files piped or uploaded to a non-local host
+		const outbound = segments.filter(isOutbound)
+		if (outbound.length > 0 && CREDENTIAL_PATH.test(raw)) {
+			return hazard('Credential file sent to a network command', 'credential_leak', true)
 		}
 
-		// 3. System root destruction
-		if (
-			/rm\s+(-rf?|-f)\s+(\/|\/\*|~|\$HOME|\/System|\/Library|\/etc|\/usr)(\s|$|;|\*)/i.test(cmd)
-		) {
-			return {
-				level: 3,
-				category: 'system_tampering',
-				reason: 'Critical destructive command targeting root or home directory',
-				requireConfirm: true,
-				blockDirectly: true
-			}
+		// 3. Secret-looking values sent out: may be a normal authenticated API call, so the user decides
+		if (outbound.some((w) => w.some((word) => SECRET_VAR.test(word) || SECRET_WORD.test(word)))) {
+			return hazard(
+				'Possible outbound credential exfiltration via network command',
+				'credential_leak',
+				false
+			)
 		}
 
-		// 4. Disk & file system tampering
-		if (/(mkfs|dd\s+if=.*of=\/dev\/|chmod\s+-R\s+777\s+\/|chown\s+-R\s+root\s+\/)/i.test(cmd)) {
-			return {
-				level: 3,
-				category: 'system_tampering',
-				reason: 'Low-level disk format or master permission tampering detected',
-				requireConfirm: true,
-				blockDirectly: true
-			}
+		// 4. System root / home destruction, whatever the flag spelling
+		if (segments.some(removesCriticalPath) || /--no-preserve-root/.test(raw)) {
+			return hazard(
+				'Critical destructive command targeting root or home directory',
+				'system_tampering',
+				true
+			)
+		}
+
+		// 5. Disk & file system tampering
+		if (/(mkfs|dd\s+if=.*of=\/dev\/|chmod\s+-R\s+777\s+\/|chown\s+-R\s+root\s+\/)/i.test(raw)) {
+			return hazard(
+				'Low-level disk format or master permission tampering detected',
+				'system_tampering',
+				true
+			)
+		}
+
+		// 6. Reading credential stores into the conversation: same rule as the read tool
+		if (CREDENTIAL_PATH.test(raw)) {
+			return hazard('Reading a credential store outside the workspace', 'credential_leak', false)
 		}
 	}
 
@@ -252,8 +334,10 @@ export function detectRemoteOrSystemHazards(command: string): RiskEvaluation | n
 	const lower = command.toLowerCase()
 
 	// 1. Destructive remote branch deletion or force push to main/master/production
+	const forced = splitCommandSegments(command).map(commandWords).some(forcePushesProtected)
 	if (
-		/git\s+push\s+.*(--delete\s+(main|master|production|prod)|:\s*(main|master|production|prod)|--force\s+origin\s+(main|master|production|prod))/i.test(
+		forced ||
+		/git\s+push\s+.*(--delete\s+(main|master|production|prod)\b|\s:(main|master|production|prod)\b)/i.test(
 			lower
 		)
 	) {

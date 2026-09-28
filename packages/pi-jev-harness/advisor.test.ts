@@ -8,8 +8,8 @@ import {
 	generateAdvisorBriefing
 } from './advisor.ts'
 import { emptyStats } from './index.ts'
-import { scaleThinkingForTurn } from './model-route.ts'
 import { applyThresholdOverrides, THRESHOLDS } from './jev.ts'
+import { scaleThinkingForTurn } from './model-route.ts'
 import { scanRepoMap } from './repomap.ts'
 import { onBeforeAgentStart } from './route.ts'
 import { isDangerousSecretAction, isSafeProjectCommand } from './tools.ts'
@@ -242,7 +242,9 @@ test('nativeSearchCandidates finds terms in this package', async () => {
 	const { nativeSearchCandidates } = await import('./route.ts')
 	const hits = nativeSearchCandidates(process.cwd(), ['scanRepoMap'], new Set(), 8)
 	if (hits.length === 0) return
-	assert.ok(hits.some((h) => h.path.includes('repomap') || h.matched.some((m) => m.term === 'scanRepoMap')))
+	assert.ok(
+		hits.some((h) => h.path.includes('repomap') || h.matched.some((m) => m.term === 'scanRepoMap'))
+	)
 })
 
 test('scaleThinkingForTurn dynamically scales thinking down for exploration and up for complex tasks', () => {

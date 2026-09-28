@@ -13,6 +13,8 @@ export JEV_API_KEY=...         # https://console.typesafe.ai/keys
 
 No runtime dependencies. Node 22.18 or newer. `rg` (ripgrep) on the path for context pre-fetch.
 
+**Without Jev.** The local rules (`rm -r` on `/` or `~`, credential files sent over the network, staging `.env`, force-pushing `main`, reading `~/.ssh`) run before any Jev call and do not need a key. If a write-capable call arrives and Jev is missing (no `JEV_API_KEY`) or fails, Pi asks once per session whether to continue on those local rules only. Answering no, or having no UI to ask (`pi -p`, orchestrator workers), stops the run. `PI_JEV_REGEX_ONLY=1` answers yes in advance for headless runs. The TypeSafe gate (`config/typesafe-gate.ts`) shares the same answer, so one session asks once.
+
 ## What it does
 
 Six things, each switchable in config.

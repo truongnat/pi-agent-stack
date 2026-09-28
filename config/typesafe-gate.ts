@@ -13,6 +13,8 @@ const TOOL_TIMEOUT_MS = 8000;
 const PROMPT_TIMEOUT_MS = 12000;
 
 type GateOut = {
+	/** Set by runScript when the gate itself did not answer (timeout, spawn error, bad JSON). */
+	failed?: boolean;
 	decision?: string;
 	reason?: string;
 	hookSpecificOutput?: {
@@ -37,21 +39,22 @@ function runScript(script: string, payload: unknown, timeoutMs: number): Promise
 		};
 		const timer = setTimeout(() => {
 			child.kill("SIGTERM");
-			finish({});
+			finish({ failed: true });
 		}, timeoutMs);
 		child.stdout.on("data", (chunk) => {
 			out += String(chunk);
 		});
 		child.on("error", () => {
 			clearTimeout(timer);
-			finish({});
+			finish({ failed: true });
 		});
+		child.stdin.on("error", () => undefined);
 		child.on("close", () => {
 			clearTimeout(timer);
 			try {
 				finish(JSON.parse(out || "{}") as GateOut);
 			} catch {
-				finish({});
+				finish({ failed: true });
 			}
 		});
 		child.stdin.end(JSON.stringify(payload));
@@ -66,15 +69,43 @@ function reasonOf(result: GateOut): string {
 	return result.reason || result.hookSpecificOutput?.permissionDecisionReason || "";
 }
 
+type Ui = {
+	hasUI?: boolean;
+	ui?: {
+		confirm?: (title: string, message: string) => Promise<boolean>;
+		notify?: (m: string, k?: string) => void;
+	};
+};
+
+/** Shared with pi-jev-harness so one session asks "JEV unavailable, regex only?" once. */
+const shared = globalThis as { piJevRegexOnly?: boolean | undefined };
+
+async function consentRegexOnly(ctx: Ui, why: string): Promise<boolean> {
+	if (shared.piJevRegexOnly === undefined && process.env.PI_JEV_REGEX_ONLY === "1") {
+		shared.piJevRegexOnly = true;
+	}
+	if (shared.piJevRegexOnly === undefined && ctx.hasUI && ctx.ui?.confirm) {
+		shared.piJevRegexOnly = await ctx.ui.confirm(
+			"typesafe gate: JEV unavailable",
+			`${why}\n\nContinue with the local regex guard only?`,
+		);
+	}
+	return shared.piJevRegexOnly === true;
+}
+
+const jevUnavailable = (result: GateOut, reason: string): boolean =>
+	result.failed === true || /jev unavailable|typesafe gate failed/i.test(reason);
+
 export default function typesafeGate(pi: {
 	on: (event: string, handler: (...args: unknown[]) => unknown) => void;
 }) {
+	pi.on("session_start", () => {
+		shared.piJevRegexOnly = undefined;
+	});
+
 	pi.on("tool_call", async (event: unknown, ctx: unknown) => {
 		const call = event as { toolName?: string; input?: Record<string, unknown> };
-		const ui = ctx as {
-			hasUI?: boolean;
-			ui?: { confirm?: (q: string) => Promise<boolean>; notify?: (m: string, k?: string) => void };
-		};
+		const ui = ctx as Ui;
 		const toolName = String(call.toolName || "unknown");
 		const input = call.input && typeof call.input === "object" ? call.input : {};
 		const result = await runScript(
@@ -87,6 +118,23 @@ export default function typesafeGate(pi: {
 		if (decision === "deny") {
 			ui.ui?.notify?.(`Jev deny: ${reason}`, "error");
 			return { block: true, reason: reason || "jev deny", terminate: true };
+		}
+		const why = `Jev did not answer (${reason || "gate failed"}).`;
+		if (jevUnavailable(result, reason) && !(await consentRegexOnly(ui, why))) {
+			const who = ui.hasUI
+				? "the user declined regex-only mode."
+				: "no one is here to confirm; set JEV_API_KEY or PI_JEV_REGEX_ONLY=1.";
+			return { block: true, terminate: true, reason: `typesafe gate stopped: Jev unavailable and ${who}` };
+		}
+		if (decision === "ask") {
+			const ok =
+				ui.hasUI && ui.ui?.confirm
+					? await ui.ui.confirm(`typesafe gate: ${toolName}`, `${reason}\n\nRun it?`)
+					: false;
+			if (!ok) {
+				const who = ui.hasUI ? "The user declined." : "No one is here to confirm.";
+				return { block: true, reason: `typesafe gate: ${reason || "needs confirmation"}. ${who}` };
+			}
 		}
 		return undefined;
 	});

@@ -5,8 +5,8 @@ import type {
 	ExtensionAPI,
 	ExtensionContext
 } from '@earendil-works/pi-coding-agent'
-
 import { isNativeAvailable, searchWorkspace } from 'pi-native-bridge'
+
 import { generateAdvisorBriefing } from './advisor.ts'
 import { compactHistory } from './compactor.ts'
 import { choiceOf, noulOf, relevanceQuestions, routingQuestions, THRESHOLDS } from './jev.ts'
