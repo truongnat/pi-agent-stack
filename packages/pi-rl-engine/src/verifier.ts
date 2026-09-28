@@ -95,6 +95,11 @@ function isMakeTestTarget(cwd: string): boolean {
 }
 
 /**
+ * Single-quote a path for `sh -c`: file names come from git and may contain `$(…)`, backticks or `$id`.
+ */
+export const shellQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`
+
+/**
  * Target a specific unit test file related to the changed files,
  * or fallback to static check / scoped tests to protect large enterprise codebases.
  */
@@ -115,7 +120,9 @@ export function detectTestCommand(cwd: string, changedFiles: string[] = []): str
 		const norm = file.replace(/\\/g, '/')
 		if (/\.(test|spec)\.[cm]?[jt]sx?$/.test(norm) && existsSync(join(cwd, file))) {
 			// Directly edited a test file: run only this test file
-			return manager === 'bun' ? `bun test "${file}"` : `${runPrefix} -- "${file}"`
+			return manager === 'bun'
+				? `bun test ${shellQuote(file)}`
+				: `${runPrefix} -- ${shellQuote(file)}`
 		}
 
 		// Look for co-located or test/ mirror file
@@ -138,7 +145,9 @@ export function detectTestCommand(cwd: string, changedFiles: string[] = []): str
 
 		for (const cand of candidates) {
 			if (existsSync(join(cwd, cand))) {
-				return manager === 'bun' ? `bun test "${cand}"` : `${runPrefix} -- "${cand}"`
+				return manager === 'bun'
+					? `bun test ${shellQuote(cand)}`
+					: `${runPrefix} -- ${shellQuote(cand)}`
 			}
 		}
 	}

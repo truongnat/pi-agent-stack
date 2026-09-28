@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { computeReward, detectTestCommand, runCommand } from '../src/verifier.ts'
+import { computeReward, detectTestCommand, runCommand, shellQuote } from '../src/verifier.ts'
 
 test('detectTestCommand identifies targeted test file when available', () => {
 	const cmd = detectTestCommand(process.cwd(), ['packages/pi-rl-engine/src/verifier.ts'])
@@ -32,4 +35,18 @@ test('computeReward calculates score based on execution', () => {
 	})
 	assert.equal(res.passed, true)
 	assert.equal(res.totalReward, 1.0)
+})
+
+test('a test file name with shell syntax is passed as a literal path, never executed', () => {
+	const dir = mkdtempSync(join(tmpdir(), 'verifier-'))
+	writeFileSync(join(dir, 'package.json'), '{"packageManager":"bun@1.3.0"}')
+	const evil = 'a$(touch pwned)`touch pwned2`.test.ts'
+	writeFileSync(join(dir, evil), '')
+	const cmd = detectTestCommand(dir, [evil])
+	assert.ok(cmd)
+	runCommand(`echo ${cmd.replace(/^bun test /, '')}`, dir)
+	assert.equal(existsSync(join(dir, 'pwned')), false)
+	assert.equal(existsSync(join(dir, 'pwned2')), false)
+	const echoed = runCommand(`printf %s ${shellQuote("it's")}`, dir)
+	assert.equal(echoed.output, "it's")
 })
