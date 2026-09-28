@@ -106,480 +106,58 @@ pub fn skeletonize_code(source: &str, language: &str) -> SkeletonResult {
     }
 }
 
-// --- TypeScript / TSX Skeletonizer ---
+// --- Shared signature extraction ---
+//
+// A signature is the source text from the start of a declaration (or of the `export` / decorator
+// that wraps it) up to its body. Slicing the source keeps what hand-built strings used to drop:
+// visibility, `async`, generics, `-> T`, Go receivers, Java return types and modifiers.
 
-fn skeletonize_ts(source: &str, is_tsx: bool) -> String {
-    let mut parser = Parser::new();
-    let ts_lang = if is_tsx {
-        tree_sitter_typescript::language_tsx()
-    } else {
-        tree_sitter_typescript::language_typescript()
-    };
-
-    if parser.set_language(&ts_lang).is_err() {
-        return fallback_skeleton(source);
-    }
-
-    let Some(tree) = parser.parse(source, None) else {
-        return fallback_skeleton(source);
-    };
-
-    let root_node = tree.root_node();
-    let source_bytes = source.as_bytes();
-    let mut out = String::with_capacity(source.len() / 2);
-
-    let mut cursor = root_node.walk();
-    for child in root_node.children(&mut cursor) {
-        format_ts_node(&child, source_bytes, &mut out, 0);
-    }
-
-    out.trim().to_string()
+fn text<'a>(node: &Node, src: &'a [u8]) -> &'a str {
+    node.utf8_text(src).unwrap_or("").trim()
 }
 
-fn format_ts_node(node: &Node, source: &[u8], out: &mut String, indent_level: usize) {
-    let kind = node.kind();
-    let indent = "  ".repeat(indent_level);
+fn slice(src: &[u8], start: usize, end: usize) -> &str {
+    std::str::from_utf8(&src[start..end])
+        .unwrap_or("")
+        .trim_end()
+}
 
-    match kind {
-        "import_statement" | "export_statement"
-            if node.child_by_field_name("declaration").is_none() =>
-        {
-            // Re-export or import
-            if let Ok(text) = node.utf8_text(source) {
-                out.push_str(&indent);
-                out.push_str(text.trim());
-                out.push_str("\n\n");
-            }
+/// `header { /* omitted */ }` when the node has a body, else its full text.
+fn braced_signature(node: &Node, from: usize, src: &[u8], indent: &str, out: &mut String) {
+    match node.child_by_field_name("body") {
+        Some(body) => {
+            out.push_str(indent);
+            out.push_str(slice(src, from, body.start_byte()));
+            out.push_str(" { /* omitted */ }\n");
         }
-        "interface_declaration" | "type_alias_declaration" | "enum_declaration" => {
-            if let Ok(text) = node.utf8_text(source) {
-                out.push_str(&indent);
-                out.push_str(text.trim());
-                out.push_str("\n\n");
-            }
+        None => {
+            out.push_str(indent);
+            out.push_str(slice(src, from, node.end_byte()).trim_start());
+            out.push('\n');
         }
-        "function_declaration" | "export_statement" => {
-            if kind == "export_statement" {
-                if let Some(decl) = node.child_by_field_name("declaration") {
-                    format_ts_node(&decl, source, out, indent_level);
-                    return;
-                }
-            }
-
-            // Function declaration
-            let name = node
-                .child_by_field_name("name")
-                .and_then(|n| n.utf8_text(source).ok())
-                .unwrap_or("anonymous");
-            let params = node
-                .child_by_field_name("parameters")
-                .and_then(|n| n.utf8_text(source).ok())
-                .unwrap_or("()");
-            let ret_type = node
-                .child_by_field_name("return_type")
-                .and_then(|n| n.utf8_text(source).ok())
-                .unwrap_or("");
-
-            let is_async = node
-                .utf8_text(source)
-                .map(|t| t.starts_with("async"))
-                .unwrap_or(false);
-            let async_prefix = if is_async { "async " } else { "" };
-
-            out.push_str(&format!(
-                "{indent}export {async_prefix}function {name}{params}{ret_type} {{\n{indent}  /* [implementation omitted] */\n{indent}}}\n\n"
-            ));
-        }
-        "class_declaration" => {
-            let name = node
-                .child_by_field_name("name")
-                .and_then(|n| n.utf8_text(source).ok())
-                .unwrap_or("AnonymousClass");
-
-            out.push_str(&format!("{indent}export class {name} {{\n"));
-
-            if let Some(body) = node.child_by_field_name("body") {
-                let mut body_cursor = body.walk();
-                for member in body.children(&mut body_cursor) {
-                    match member.kind() {
-                        "method_definition" => {
-                            let m_name = member
-                                .child_by_field_name("name")
-                                .and_then(|n| n.utf8_text(source).ok())
-                                .unwrap_or("method");
-                            let params = member
-                                .child_by_field_name("parameters")
-                                .and_then(|n| n.utf8_text(source).ok())
-                                .unwrap_or("()");
-                            let ret = member
-                                .child_by_field_name("return_type")
-                                .and_then(|n| n.utf8_text(source).ok())
-                                .unwrap_or("");
-                            out.push_str(&format!(
-                                "{indent}  {m_name}{params}{ret} {{\n{indent}    /* [omitted] */\n{indent}  }}\n"
-                            ));
-                        }
-                        "public_field_definition" | "property_signature" => {
-                            if let Ok(text) = member.utf8_text(source) {
-                                out.push_str(&format!(
-                                    "{indent}  {};\n",
-                                    text.trim().trim_end_matches(';')
-                                ));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-
-            out.push_str(&format!("{indent}}}\n\n"));
-        }
-        "comment" => {
-            if let Ok(text) = node.utf8_text(source) {
-                if text.starts_with("/**") {
-                    out.push_str(&indent);
-                    out.push_str(text.trim());
-                    out.push('\n');
-                }
-            }
-        }
-        _ => {}
     }
 }
 
-// --- Rust Skeletonizer ---
-
-fn skeletonize_rust(source: &str) -> String {
+fn parse(source: &str, language: tree_sitter::Language) -> Option<tree_sitter::Tree> {
     let mut parser = Parser::new();
-    let rust_lang = tree_sitter_rust::language();
+    parser.set_language(&language).ok()?;
+    parser.parse(source, None)
+}
 
-    if parser.set_language(&rust_lang).is_err() {
-        return fallback_skeleton(source);
-    }
-
-    let Some(tree) = parser.parse(source, None) else {
+fn skeleton_with(
+    source: &str,
+    language: tree_sitter::Language,
+    emit: fn(&Node, usize, &[u8], &mut String),
+) -> String {
+    let Some(tree) = parse(source, language) else {
         return fallback_skeleton(source);
     };
-
     let root = tree.root_node();
-    let source_bytes = source.as_bytes();
+    let src = source.as_bytes();
     let mut out = String::with_capacity(source.len() / 2);
-
     let mut cursor = root.walk();
     for child in root.children(&mut cursor) {
-        match child.kind() {
-            "use_declaration" | "struct_item" | "enum_item" | "type_item" | "trait_item" => {
-                if let Ok(text) = child.utf8_text(source_bytes) {
-                    out.push_str(text.trim());
-                    out.push_str("\n\n");
-                }
-            }
-            "function_item" => {
-                let name = child
-                    .child_by_field_name("name")
-                    .and_then(|n| n.utf8_text(source_bytes).ok())
-                    .unwrap_or("fn");
-                let params = child
-                    .child_by_field_name("parameters")
-                    .and_then(|n| n.utf8_text(source_bytes).ok())
-                    .unwrap_or("()");
-                let ret = child
-                    .child_by_field_name("return_type")
-                    .and_then(|n| n.utf8_text(source_bytes).ok())
-                    .unwrap_or("");
-                let vis = child
-                    .child_by_field_name("visibility")
-                    .and_then(|n| n.utf8_text(source_bytes).ok())
-                    .map(|v| format!("{v} "))
-                    .unwrap_or_default();
-
-                out.push_str(&format!(
-                    "{vis}fn {name}{params}{ret} {{\n    /* [omitted] */\n}}\n\n"
-                ));
-            }
-            "impl_item" => {
-                format_rust_impl(&child, source_bytes, &mut out);
-            }
-            _ => {}
-        }
-    }
-
-    out.trim().to_string()
-}
-
-// --- Python Skeletonizer ---
-
-fn skeletonize_python(source: &str) -> String {
-    let mut parser = Parser::new();
-    let py_lang = tree_sitter_python::language();
-
-    if parser.set_language(&py_lang).is_err() {
-        return fallback_skeleton(source);
-    }
-
-    let Some(tree) = parser.parse(source, None) else {
-        return fallback_skeleton(source);
-    };
-
-    let root = tree.root_node();
-    let source_bytes = source.as_bytes();
-    let mut out = String::with_capacity(source.len() / 2);
-
-    let mut cursor = root.walk();
-    for child in root.children(&mut cursor) {
-        match child.kind() {
-            "import_statement" | "import_from_statement" => {
-                if let Ok(text) = child.utf8_text(source_bytes) {
-                    out.push_str(text.trim());
-                    out.push('\n');
-                }
-            }
-            "function_definition" => {
-                let name = child
-                    .child_by_field_name("name")
-                    .and_then(|n| n.utf8_text(source_bytes).ok())
-                    .unwrap_or("func");
-                let params = child
-                    .child_by_field_name("parameters")
-                    .and_then(|n| n.utf8_text(source_bytes).ok())
-                    .unwrap_or("()");
-                let ret = child
-                    .child_by_field_name("return_type")
-                    .and_then(|n| n.utf8_text(source_bytes).ok())
-                    .map(|r| format!(" -> {r}"))
-                    .unwrap_or_default();
-
-                out.push_str(&format!("\ndef {name}{params}{ret}:\n    ...\n"));
-            }
-            "class_definition" => {
-                format_python_class(&child, source_bytes, &mut out);
-            }
-            _ => {}
-        }
-    }
-
-    out.trim().to_string()
-}
-
-fn format_rust_impl(node: &Node, source: &[u8], out: &mut String) {
-    let ty = node
-        .child_by_field_name("type")
-        .and_then(|n| n.utf8_text(source).ok())
-        .unwrap_or("Type");
-    let trait_name = node
-        .child_by_field_name("trait")
-        .and_then(|n| n.utf8_text(source).ok());
-    match trait_name {
-        Some(tr) => out.push_str(&format!("impl {tr} for {ty} {{\n")),
-        None => out.push_str(&format!("impl {ty} {{\n")),
-    }
-
-    if let Some(body) = node.child_by_field_name("body") {
-        let mut cursor = body.walk();
-        for member in body.children(&mut cursor) {
-            if member.kind() != "function_item" {
-                continue;
-            }
-            let name = member
-                .child_by_field_name("name")
-                .and_then(|n| n.utf8_text(source).ok())
-                .unwrap_or("fn");
-            let params = member
-                .child_by_field_name("parameters")
-                .and_then(|n| n.utf8_text(source).ok())
-                .unwrap_or("()");
-            let ret = member
-                .child_by_field_name("return_type")
-                .and_then(|n| n.utf8_text(source).ok())
-                .unwrap_or("");
-            out.push_str(&format!("    fn {name}{params}{ret} {{ /* omitted */ }}\n"));
-        }
-    }
-    out.push_str("}\n\n");
-}
-
-fn format_python_class(node: &Node, source: &[u8], out: &mut String) {
-    let name = node
-        .child_by_field_name("name")
-        .and_then(|n| n.utf8_text(source).ok())
-        .unwrap_or("Class");
-    out.push_str(&format!("\nclass {name}:\n"));
-    let Some(body) = node.child_by_field_name("body") else {
-        out.push_str("    ...\n");
-        return;
-    };
-    let mut wrote = false;
-    let mut cursor = body.walk();
-    for member in body.children(&mut cursor) {
-        if member.kind() != "function_definition" {
-            continue;
-        }
-        let m_name = member
-            .child_by_field_name("name")
-            .and_then(|n| n.utf8_text(source).ok())
-            .unwrap_or("method");
-        let params = member
-            .child_by_field_name("parameters")
-            .and_then(|n| n.utf8_text(source).ok())
-            .unwrap_or("(self)");
-        out.push_str(&format!("    def {m_name}{params}:\n        ...\n"));
-        wrote = true;
-    }
-    if !wrote {
-        out.push_str("    ...\n");
-    }
-}
-
-fn skeletonize_go(source: &str) -> String {
-    let mut parser = Parser::new();
-    if parser.set_language(&tree_sitter_go::language()).is_err() {
-        return fallback_skeleton(source);
-    }
-    let Some(tree) = parser.parse(source, None) else {
-        return fallback_skeleton(source);
-    };
-    let source_bytes = source.as_bytes();
-    let mut out = String::with_capacity(source.len() / 2);
-    let root = tree.root_node();
-    let mut cursor = root.walk();
-    for child in root.children(&mut cursor) {
-        match child.kind() {
-            "import_declaration" | "const_declaration" | "var_declaration" | "type_declaration" => {
-                if let Ok(text) = child.utf8_text(source_bytes) {
-                    out.push_str(text.trim());
-                    out.push_str("\n\n");
-                }
-            }
-            "function_declaration" | "method_declaration" => {
-                let name = child
-                    .child_by_field_name("name")
-                    .and_then(|n| n.utf8_text(source_bytes).ok())
-                    .unwrap_or("fn");
-                let params = child
-                    .child_by_field_name("parameters")
-                    .and_then(|n| n.utf8_text(source_bytes).ok())
-                    .unwrap_or("()");
-                let ret = child
-                    .child_by_field_name("result")
-                    .and_then(|n| n.utf8_text(source_bytes).ok())
-                    .map(|r| format!(" {r}"))
-                    .unwrap_or_default();
-                out.push_str(&format!("func {name}{params}{ret} {{ /* omitted */ }}\n\n"));
-            }
-            _ => {}
-        }
-    }
-    out.trim().to_string()
-}
-
-fn skeletonize_java(source: &str) -> String {
-    let mut parser = Parser::new();
-    if parser.set_language(&tree_sitter_java::language()).is_err() {
-        return fallback_skeleton(source);
-    }
-    let Some(tree) = parser.parse(source, None) else {
-        return fallback_skeleton(source);
-    };
-    let source_bytes = source.as_bytes();
-    let mut out = String::with_capacity(source.len() / 2);
-    let root = tree.root_node();
-    let mut cursor = root.walk();
-    for child in root.children(&mut cursor) {
-        match child.kind() {
-            "package_declaration" | "import_declaration" => {
-                if let Ok(text) = child.utf8_text(source_bytes) {
-                    out.push_str(text.trim());
-                    out.push('\n');
-                }
-            }
-            "class_declaration" | "interface_declaration" | "enum_declaration" => {
-                let name = child
-                    .child_by_field_name("name")
-                    .and_then(|n| n.utf8_text(source_bytes).ok())
-                    .unwrap_or("Type");
-                out.push_str(&format!("\nclass {name} {{\n"));
-                if let Some(body) = child.child_by_field_name("body") {
-                    let mut bc = body.walk();
-                    for member in body.children(&mut bc) {
-                        if member.kind() != "method_declaration" {
-                            continue;
-                        }
-                        let m_name = member
-                            .child_by_field_name("name")
-                            .and_then(|n| n.utf8_text(source_bytes).ok())
-                            .unwrap_or("method");
-                        let params = member
-                            .child_by_field_name("parameters")
-                            .and_then(|n| n.utf8_text(source_bytes).ok())
-                            .unwrap_or("()");
-                        out.push_str(&format!("  {m_name}{params} {{ /* omitted */ }}\n"));
-                    }
-                }
-                out.push_str("}\n");
-            }
-            _ => {}
-        }
-    }
-    out.trim().to_string()
-}
-
-fn skeletonize_js(source: &str) -> String {
-    let mut parser = Parser::new();
-    if parser.set_language(&tree_sitter_javascript::language()).is_err() {
-        return fallback_skeleton(source);
-    }
-    let Some(tree) = parser.parse(source, None) else {
-        return fallback_skeleton(source);
-    };
-    let source_bytes = source.as_bytes();
-    let mut out = String::with_capacity(source.len() / 2);
-    let root = tree.root_node();
-    let mut cursor = root.walk();
-    for child in root.children(&mut cursor) {
-        match child.kind() {
-            "import_statement" => {
-                if let Ok(text) = child.utf8_text(source_bytes) {
-                    out.push_str(text.trim());
-                    out.push_str("\n\n");
-                }
-            }
-            "function_declaration" => {
-                let name = child
-                    .child_by_field_name("name")
-                    .and_then(|n| n.utf8_text(source_bytes).ok())
-                    .unwrap_or("fn");
-                let params = child
-                    .child_by_field_name("parameters")
-                    .and_then(|n| n.utf8_text(source_bytes).ok())
-                    .unwrap_or("()");
-                out.push_str(&format!("function {name}{params} {{ /* omitted */ }}\n\n"));
-            }
-            "class_declaration" => {
-                let name = child
-                    .child_by_field_name("name")
-                    .and_then(|n| n.utf8_text(source_bytes).ok())
-                    .unwrap_or("Class");
-                out.push_str(&format!("class {name} {{ /* omitted */ }}\n\n"));
-            }
-            "export_statement" => {
-                if let Some(decl) = child.child_by_field_name("declaration") {
-                    if decl.kind() == "function_declaration" {
-                        let name = decl
-                            .child_by_field_name("name")
-                            .and_then(|n| n.utf8_text(source_bytes).ok())
-                            .unwrap_or("fn");
-                        let params = decl
-                            .child_by_field_name("parameters")
-                            .and_then(|n| n.utf8_text(source_bytes).ok())
-                            .unwrap_or("()");
-                        out.push_str(&format!(
-                            "export function {name}{params} {{ /* omitted */ }}\n\n"
-                        ));
-                    }
-                }
-            }
-            _ => {}
-        }
+        emit(&child, child.start_byte(), src, &mut out);
     }
     let s = out.trim().to_string();
     if s.is_empty() {
@@ -587,6 +165,309 @@ fn skeletonize_js(source: &str) -> String {
     } else {
         s
     }
+}
+
+// --- TypeScript / TSX / JavaScript ---
+
+fn skeletonize_ts(source: &str, is_tsx: bool) -> String {
+    let lang = if is_tsx {
+        tree_sitter_typescript::language_tsx()
+    } else {
+        tree_sitter_typescript::language_typescript()
+    };
+    skeleton_with(source, lang, emit_ts)
+}
+
+fn skeletonize_js(source: &str) -> String {
+    skeleton_with(source, tree_sitter_javascript::language(), emit_ts)
+}
+
+/// `from` is where the printed text starts: the node itself, or the `export` wrapping it.
+fn emit_ts(node: &Node, from: usize, src: &[u8], out: &mut String) {
+    match node.kind() {
+        "export_statement" => match node.child_by_field_name("declaration") {
+            Some(decl) => emit_ts(&decl, from, src, out),
+            None => {
+                out.push_str(text(node, src));
+                out.push_str("\n\n");
+            }
+        },
+        "import_statement"
+        | "interface_declaration"
+        | "type_alias_declaration"
+        | "enum_declaration" => {
+            out.push_str(slice(src, from, node.end_byte()));
+            out.push_str("\n\n");
+        }
+        "function_declaration" | "generator_function_declaration" => {
+            braced_signature(node, from, src, "", out);
+            out.push('\n');
+        }
+        "class_declaration" | "abstract_class_declaration" | "class" => {
+            let Some(body) = node.child_by_field_name("body") else {
+                return;
+            };
+            out.push_str(slice(src, from, body.start_byte()));
+            out.push_str(" {\n");
+            let mut cursor = body.walk();
+            for member in body.children(&mut cursor) {
+                match member.kind() {
+                    "method_definition" | "method_signature" | "abstract_method_signature" => {
+                        braced_signature(&member, member.start_byte(), src, "  ", out)
+                    }
+                    "public_field_definition" | "field_definition" | "property_signature" => {
+                        out.push_str("  ");
+                        out.push_str(text(&member, src).trim_end_matches(';'));
+                        out.push_str(";\n");
+                    }
+                    _ => {}
+                }
+            }
+            out.push_str("}\n\n");
+        }
+        // `export const f = async (a: A): Promise<B> => { ... }`
+        "lexical_declaration" | "variable_declaration" => {
+            let mut cursor = node.walk();
+            let mut wrote = false;
+            for decl in node
+                .named_children(&mut cursor)
+                .filter(|c| c.kind() == "variable_declarator")
+            {
+                let Some(value) = decl.child_by_field_name("value") else {
+                    continue;
+                };
+                let is_fn = matches!(
+                    value.kind(),
+                    "arrow_function" | "function_expression" | "function"
+                );
+                if let (true, Some(body)) = (is_fn, value.child_by_field_name("body")) {
+                    if body.kind() == "statement_block" {
+                        out.push_str(slice(src, from, body.start_byte()));
+                        out.push_str(" { /* omitted */ }\n\n");
+                        wrote = true;
+                    }
+                }
+            }
+            // Short constants are signatures too; long object/array literals are bodies.
+            if !wrote && node.end_byte() - from <= 160 {
+                out.push_str(slice(src, from, node.end_byte()));
+                out.push_str("\n\n");
+            }
+        }
+        "comment" => {
+            let t = text(node, src);
+            if t.starts_with("/**") {
+                out.push_str(t);
+                out.push('\n');
+            }
+        }
+        _ => {}
+    }
+}
+
+// --- Rust ---
+
+fn skeletonize_rust(source: &str) -> String {
+    skeleton_with(source, tree_sitter_rust::language(), emit_rust)
+}
+
+fn emit_rust(node: &Node, from: usize, src: &[u8], out: &mut String) {
+    match node.kind() {
+        "use_declaration" | "struct_item" | "enum_item" | "type_item" | "trait_item"
+        | "const_item" | "static_item" | "attribute_item" | "mod_item" | "macro_definition"
+            if node.kind() != "mod_item" || node.child_by_field_name("body").is_none() =>
+        {
+            out.push_str(slice(src, from, node.end_byte()));
+            out.push_str(if node.kind() == "attribute_item" {
+                "\n"
+            } else {
+                "\n\n"
+            });
+        }
+        "function_item" => {
+            braced_signature(node, from, src, "", out);
+            out.push('\n');
+        }
+        "impl_item" | "mod_item" => {
+            let Some(body) = node.child_by_field_name("body") else {
+                return;
+            };
+            out.push_str(slice(src, from, body.start_byte()));
+            out.push_str(" {\n");
+            let mut cursor = body.walk();
+            for member in body.children(&mut cursor) {
+                match member.kind() {
+                    "function_item" => {
+                        braced_signature(&member, member.start_byte(), src, "    ", out)
+                    }
+                    "attribute_item" | "const_item" | "type_item" | "use_declaration" => {
+                        out.push_str("    ");
+                        out.push_str(text(&member, src));
+                        out.push('\n');
+                    }
+                    _ => {}
+                }
+            }
+            out.push_str("}\n\n");
+        }
+        _ => {}
+    }
+}
+
+// --- Python ---
+
+fn skeletonize_python(source: &str) -> String {
+    skeleton_with(source, tree_sitter_python::language(), emit_python)
+}
+
+fn python_def(node: &Node, from: usize, src: &[u8], indent: &str, out: &mut String) {
+    match node.kind() {
+        // Decorators stay attached: `@app.route("/x")` is part of the signature.
+        "decorated_definition" => {
+            if let Some(def) = node.child_by_field_name("definition") {
+                python_def(&def, from, src, indent, out);
+            }
+        }
+        "function_definition" => {
+            let Some(body) = node.child_by_field_name("body") else {
+                return;
+            };
+            let header = slice(src, from, body.start_byte());
+            for line in header.lines() {
+                out.push_str(indent);
+                out.push_str(line.trim_start());
+                out.push('\n');
+            }
+            out.push_str(indent);
+            out.push_str("    ...\n");
+        }
+        "class_definition" => {
+            let Some(body) = node.child_by_field_name("body") else {
+                return;
+            };
+            for line in slice(src, from, body.start_byte()).lines() {
+                out.push_str(indent);
+                out.push_str(line.trim_start());
+                out.push('\n');
+            }
+            let inner = format!("{indent}    ");
+            let mut wrote = false;
+            let mut cursor = body.walk();
+            for member in body.children(&mut cursor) {
+                if matches!(
+                    member.kind(),
+                    "function_definition" | "decorated_definition"
+                ) {
+                    python_def(&member, member.start_byte(), src, &inner, out);
+                    wrote = true;
+                }
+            }
+            if !wrote {
+                out.push_str(&inner);
+                out.push_str("...\n");
+            }
+        }
+        _ => {}
+    }
+}
+
+fn emit_python(node: &Node, from: usize, src: &[u8], out: &mut String) {
+    match node.kind() {
+        "import_statement" | "import_from_statement" | "future_import_statement" => {
+            out.push_str(text(node, src));
+            out.push('\n');
+        }
+        "function_definition" | "class_definition" | "decorated_definition" => {
+            out.push('\n');
+            python_def(node, from, src, "", out);
+        }
+        _ => {}
+    }
+}
+
+// --- Go ---
+
+fn skeletonize_go(source: &str) -> String {
+    skeleton_with(source, tree_sitter_go::language(), emit_go)
+}
+
+fn emit_go(node: &Node, from: usize, src: &[u8], out: &mut String) {
+    match node.kind() {
+        "package_clause" | "import_declaration" | "const_declaration" | "var_declaration"
+        | "type_declaration" => {
+            out.push_str(slice(src, from, node.end_byte()));
+            out.push_str("\n\n");
+        }
+        // Includes the receiver: `func (s *Server) Start(ctx context.Context) error`.
+        "function_declaration" | "method_declaration" => {
+            braced_signature(node, from, src, "", out);
+            out.push('\n');
+        }
+        _ => {}
+    }
+}
+
+// --- Java ---
+
+fn skeletonize_java(source: &str) -> String {
+    skeleton_with(source, tree_sitter_java::language(), emit_java)
+}
+
+fn emit_java(node: &Node, from: usize, src: &[u8], out: &mut String) {
+    match node.kind() {
+        "package_declaration" | "import_declaration" => {
+            out.push_str(text(node, src));
+            out.push('\n');
+        }
+        "class_declaration"
+        | "interface_declaration"
+        | "enum_declaration"
+        | "record_declaration" => {
+            java_type(node, from, src, "", out);
+        }
+        _ => {}
+    }
+}
+
+fn java_type(node: &Node, from: usize, src: &[u8], indent: &str, out: &mut String) {
+    let Some(body) = node.child_by_field_name("body") else {
+        return;
+    };
+    // The real keyword and modifiers: `public interface Repo<T> extends Base`.
+    out.push('\n');
+    out.push_str(indent);
+    out.push_str(slice(src, from, body.start_byte()));
+    out.push_str(" {\n");
+    let inner = format!("{indent}  ");
+    let mut cursor = body.walk();
+    for member in body.children(&mut cursor) {
+        match member.kind() {
+            "method_declaration" | "constructor_declaration" => {
+                braced_signature(&member, member.start_byte(), src, &inner, out)
+            }
+            "field_declaration" | "constant_declaration" | "enum_constant" => {
+                out.push_str(&inner);
+                out.push_str(text(&member, src));
+                out.push('\n');
+            }
+            "class_declaration"
+            | "interface_declaration"
+            | "enum_declaration"
+            | "record_declaration" => java_type(&member, member.start_byte(), src, &inner, out),
+            // Enum constants and members live one level down in `enum_body_declarations`.
+            "enum_body_declarations" => {
+                let mut c = member.walk();
+                for m in member.children(&mut c) {
+                    if matches!(m.kind(), "method_declaration" | "constructor_declaration") {
+                        braced_signature(&m, m.start_byte(), src, &inner, out);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out.push_str(indent);
+    out.push_str("}\n");
 }
 
 fn fallback_skeleton(source: &str) -> String {
@@ -712,7 +593,9 @@ class Worker:
         src.push_str(&"x".repeat(MAX_SKELETON_SOURCE_BYTES));
         let result = skeletonize_code(&src, "typescript");
         assert_eq!(result.original_bytes, src.len());
-        assert!(result.skeleton.contains("export function tiny") || result.skeleton_bytes < src.len());
+        assert!(
+            result.skeleton.contains("export function tiny") || result.skeleton_bytes < src.len()
+        );
     }
 
     #[test]
@@ -742,5 +625,61 @@ public class Worker {
         assert!(result.skeleton.contains("Worker"));
         assert!(result.skeleton.contains("run") || result.reduction_percentage >= 0.0);
         assert!(!result.skeleton.contains("n + 1"));
+    }
+
+    #[test]
+    fn rust_keeps_visibility_and_return_arrow() {
+        let rs = "pub async fn load<T: Clone>(id: u32) -> Result<T, E> {\n    todo!()\n}\n";
+        let s = skeletonize_code(rs, "rust").skeleton;
+        assert!(
+            s.contains("pub async fn load<T: Clone>(id: u32) -> Result<T, E>"),
+            "{s}"
+        );
+        assert!(!s.contains("todo!"));
+    }
+
+    #[test]
+    fn ts_keeps_arrow_exports_and_real_export_keywords() {
+        let ts = "function helper(a: number): number {\n  return a * 2\n}\nexport const run = async (x: string): Promise<void> => {\n  await go(x)\n}\nexport default class App extends Base {\n  start(): void { boot() }\n}\n";
+        let s = skeletonize_code(ts, "typescript").skeleton;
+        assert!(s.contains("function helper(a: number): number"), "{s}");
+        assert!(!s.contains("export function helper"), "not exported: {s}");
+        assert!(
+            s.contains("export const run = async (x: string): Promise<void> =>"),
+            "{s}"
+        );
+        assert!(s.contains("export default class App extends Base"), "{s}");
+        assert!(s.contains("start(): void"), "{s}");
+        assert!(!s.contains("await go"));
+        assert!(!s.contains("boot()"));
+    }
+
+    #[test]
+    fn python_keeps_decorated_definitions() {
+        let py = "@app.route('/x')\ndef handler(req) -> Response:\n    return ok()\n\nclass A:\n    @property\n    def name(self) -> str:\n        return 'a'\n";
+        let s = skeletonize_code(py, "python").skeleton;
+        assert!(s.contains("@app.route('/x')"), "{s}");
+        assert!(s.contains("def handler(req) -> Response:"), "{s}");
+        assert!(s.contains("@property"), "{s}");
+        assert!(!s.contains("return ok()"));
+    }
+
+    #[test]
+    fn go_keeps_method_receivers() {
+        let go = "package main\nfunc (s *Server) Start(port int) error {\n    return nil\n}\n";
+        let s = skeletonize_code(go, "go").skeleton;
+        assert!(s.contains("func (s *Server) Start(port int) error"), "{s}");
+        assert!(!s.contains("return nil"));
+    }
+
+    #[test]
+    fn java_keeps_kind_keyword_and_return_types() {
+        let java = "public interface Repo<T> {\n    T find(long id);\n}\npublic enum Color { RED, GREEN; int code() { return 1; } }\npublic class W {\n    public int run(int n) {\n        return n + 1;\n    }\n}\n";
+        let s = skeletonize_code(java, "java").skeleton;
+        assert!(s.contains("public interface Repo<T>"), "{s}");
+        assert!(s.contains("T find(long id);"), "{s}");
+        assert!(s.contains("public enum Color"), "{s}");
+        assert!(s.contains("public int run(int n)"), "{s}");
+        assert!(!s.contains("n + 1"));
     }
 }

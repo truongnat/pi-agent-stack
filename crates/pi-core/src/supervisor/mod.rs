@@ -5,7 +5,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::io::Read;
-use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
@@ -47,7 +46,8 @@ pub fn execute_supervised(
         c
     };
 
-    if !cwd.is_empty() && Path::new(cwd).exists() {
+    // A missing cwd must fail the spawn, not silently run in the caller's directory.
+    if !cwd.is_empty() {
         cmd.current_dir(cwd);
     }
 
@@ -144,6 +144,12 @@ pub fn execute_supervised(
         Err(mpsc::RecvTimeoutError::Disconnected) => (-1, false),
     };
 
+    // Leftover background children (`cmd &`) keep the group alive and the pipes open, so the
+    // readers would block and stdout come back empty. The command is done: end the group.
+    if !timed_out {
+        kill_process_group(pid, 9);
+    }
+
     let stdout = stdout_rx
         .recv_timeout(Duration::from_millis(500))
         .unwrap_or_default();
@@ -237,5 +243,20 @@ mod tests {
         let res = execute_supervised("kill -KILL $$", "", 5000, 1024);
         assert_eq!(res.exit_code, 128 + 9);
         assert!(!res.timed_out);
+    }
+
+    #[test]
+    fn missing_cwd_fails_instead_of_running_elsewhere() {
+        let res = execute_supervised("pwd", "/definitely/not/here", 5000, 1024);
+        assert_ne!(res.exit_code, 0);
+        assert!(res.stdout.is_empty());
+    }
+
+    #[test]
+    fn background_children_do_not_swallow_stdout() {
+        let res = execute_supervised("echo visible; sleep 30 &", "", 5000, 1024);
+        assert_eq!(res.exit_code, 0);
+        assert!(res.stdout.contains("visible"), "{:?}", res.stdout);
+        assert!(res.duration_ms < 4000);
     }
 }
