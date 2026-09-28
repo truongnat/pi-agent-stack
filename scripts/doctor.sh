@@ -16,7 +16,9 @@ check_file() {
 
 command -v pi >/dev/null 2>&1 && echo "OK   pi" || { echo "MISS pi"; fail=1; }
 command -v node >/dev/null 2>&1 && echo "OK   node $(node --version)" || { echo "MISS node"; fail=1; }
-command -v python3 >/dev/null 2>&1 && echo "OK   python3 $(python3 --version | cut -d' ' -f2)" || { echo "MISS python3"; fail=1; }
+command -v bun >/dev/null 2>&1 && echo "OK   bun $(bun --version)" || { echo "MISS bun"; fail=1; }
+# Optional: only the xlsx2md CLI needs it.
+command -v python3 >/dev/null 2>&1 && echo "OK   python3 $(python3 --version | cut -d' ' -f2)" || echo "WARN python3 not found; pi-xlsx2md will not work"
 check_file "$AGENT_DIR/settings.json"
 check_file "$AGENT_DIR/jev-harness.json"
 check_file "$AGENT_DIR/subscription-providers.json"
@@ -110,12 +112,19 @@ if [[ -n "$native_lib" ]]; then
 	else
 		echo "WARN bun not on PATH; skipped FFI probe"
 	fi
-elif command -v cargo >/dev/null 2>&1; then
-	echo "MISS native pi-core dylib (cargo is installed; run bun run setup or cargo build --release -p pi-core)"
-	fail=1
 else
-	echo "WARN native pi-core not built (no cargo); TypeScript fallbacks are in use"
+	echo "MISS native pi-core not built; run scripts/install.sh (it installs Rust when missing)"
+	fail=1
 fi
+
+# Bridges pointing at packages that no longer exist fail at Pi startup.
+for bridge in "$AGENT_DIR/extensions/"*.ts; do
+	target="$(sed -n "s#^export { default } from '\.\./\(pi-agent-stack/packages/[^']*\)'.*#\1#p" "$bridge")"
+	if [[ -n "$target" && ! -f "$AGENT_DIR/$target" ]]; then
+		echo "MISS $bridge points at missing $target; rerun scripts/install.sh"
+		fail=1
+	fi
+done
 
 echo
 pi list

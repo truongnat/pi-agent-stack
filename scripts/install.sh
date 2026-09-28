@@ -28,6 +28,11 @@ ensure_pi_cli() {
 	fi
 }
 
+if ! command -v bun >/dev/null 2>&1; then
+	echo "bun is required: curl -fsSL https://bun.sh/install | bash" >&2
+	exit 1
+fi
+
 ensure_pi_cli
 
 if ! command -v node >/dev/null 2>&1; then
@@ -43,15 +48,27 @@ rsync -a --delete \
 	--exclude '__pycache__' \
 	--exclude 'cache.json' \
 	--exclude 'decisions.jsonl' \
+	--exclude '/crates/pi-core/target' \
 	"$ROOT_DIR/" "$AGENT_DIR/pi-agent-stack/"
 
-# Build native Rust core if cargo is available
-if command -v cargo >/dev/null 2>&1; then
+# Native Rust core (pi-core): installs the Rust toolchain when missing, then builds into the
+# staged crate's own target dir. --target-dir overrides any global CARGO_TARGET_DIR, because the
+# loader looks here. PI_SKIP_NATIVE=1 skips it and leaves the TypeScript fallbacks in use.
+ensure_cargo() {
+	if command -v cargo >/dev/null 2>&1; then
+		return 0
+	fi
+	if [[ ! -x "$HOME/.cargo/bin/cargo" ]]; then
+		echo "Rust toolchain not found; installing rustup (minimal profile)..."
+		curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --no-modify-path
+	fi
+	export PATH="$HOME/.cargo/bin:$PATH"
+}
+PI_CORE_DIR="$AGENT_DIR/pi-agent-stack/crates/pi-core"
+if [[ "${PI_SKIP_NATIVE:-0}" != 1 ]]; then
+	ensure_cargo
 	echo "Building native Rust core engine (pi-core)..."
-	(cd "$AGENT_DIR/pi-agent-stack/crates/pi-core" && cargo build --release)
-elif [[ -f "$ROOT_DIR/crates/pi-core/target/release/libpi_core.dylib" ]]; then
-	mkdir -p "$AGENT_DIR/pi-agent-stack/crates/pi-core/target/release"
-	cp "$ROOT_DIR/crates/pi-core/target/release/libpi_core."* "$AGENT_DIR/pi-agent-stack/crates/pi-core/target/release/" 2>/dev/null || true
+	cargo build --release --manifest-path "$PI_CORE_DIR/Cargo.toml" --target-dir "$PI_CORE_DIR/target"
 fi
 
 # Link workspaces and dependencies
@@ -80,13 +97,33 @@ cp "$AGENT_DIR/pi-agent-stack/extensions/ember-ui.ts" "$AGENT_DIR/extensions/emb
 mkdir -p "$AGENT_DIR/themes"
 cp "$AGENT_DIR/pi-agent-stack/themes/"*.json "$AGENT_DIR/themes/"
 
-cp "$AGENT_DIR/pi-agent-stack/config/jev-harness.json" "$AGENT_DIR/jev-harness.json"
-cp "$AGENT_DIR/pi-agent-stack/config/subscription-providers.json" "$AGENT_DIR/subscription-providers.json"
-cp "$AGENT_DIR/pi-agent-stack/config/orchestrator.json" "$AGENT_DIR/orchestrator.json"
-cp "$AGENT_DIR/pi-agent-stack/config/persona.json" "$AGENT_DIR/persona-config.json"
-cp "$AGENT_DIR/pi-agent-stack/config/AGENTS.md" "$AGENT_DIR/AGENTS.md"
-mkdir -p "$HOME/.pi-dcp"
-cp "$AGENT_DIR/pi-agent-stack/config/dcp.json" "$HOME/.pi-dcp/config.json"
+# Bridges left behind by removed packages would fail to import at startup. Only bridges into
+# pi-agent-stack/packages are touched; other extensions in the directory are not ours.
+for bridge in "$AGENT_DIR/extensions/"*.ts; do
+	target="$(sed -n "s#^export { default } from '\.\./\(pi-agent-stack/packages/[^']*\)'.*#\1#p" "$bridge")"
+	if [[ -n "$target" && ! -f "$AGENT_DIR/$target" ]]; then
+		echo "Removing stale bridge $bridge (target $target is gone)"
+		rm -f "$bridge"
+	fi
+done
+
+# Config files belong to the user once installed (the extensions also save to some of them):
+# copy only when missing, and say when the repo's version differs instead of overwriting it.
+install_config() {
+	local src="$AGENT_DIR/pi-agent-stack/$1" dst="$2"
+	mkdir -p "$(dirname "$dst")"
+	if [[ ! -f "$dst" ]]; then
+		cp "$src" "$dst"
+	elif ! cmp -s "$src" "$dst"; then
+		echo "Kept your $dst; the repo version differs (diff '$src' '$dst')"
+	fi
+}
+install_config config/jev-harness.json "$AGENT_DIR/jev-harness.json"
+install_config config/subscription-providers.json "$AGENT_DIR/subscription-providers.json"
+install_config config/orchestrator.json "$AGENT_DIR/orchestrator.json"
+install_config config/persona.json "$AGENT_DIR/persona-config.json"
+install_config config/AGENTS.md "$AGENT_DIR/AGENTS.md"
+install_config config/dcp.json "$HOME/.pi-dcp/config.json"
 
 
 
@@ -103,7 +140,7 @@ fi
 pi install "$SOL_PI_DIR" --approve
 
 # Write user-wide sol-pi.json config (observationPack + actionFusion enabled)
-cp "$AGENT_DIR/pi-agent-stack/config/sol-pi.json" "$AGENT_DIR/sol-pi.json"
+install_config config/sol-pi.json "$AGENT_DIR/sol-pi.json"
 
 # TypeSafe harness — sync to ~/.agents/typesafe-harness
 TYPESAFE_DIR="${TYPESAFE_HARNESS_DIR:-$HOME/.agents/typesafe-harness}"
@@ -165,7 +202,10 @@ if command -v ai-memory >/dev/null 2>&1 && ! have_skill ai-memory-retrieval; the
 		>/dev/null || echo "warning: ai-memory skills not installed" >&2
 fi
 
-bunx skills update -g -y >/dev/null || echo "warning: skills update failed" >&2
+# Updating touches every global skill the user has, not only this stack's: opt in.
+if [[ "${PI_UPDATE_SKILLS:-0}" == 1 ]]; then
+	bunx skills update -g -y >/dev/null || echo "warning: skills update failed" >&2
+fi
 
 echo
 echo "Pi agent stack installed."

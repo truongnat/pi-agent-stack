@@ -275,7 +275,8 @@ function findNativeLibrary(): string | null {
 			'target',
 			'release',
 			'libpi_core.dylib'
-		)
+		),
+		join(process.env.HOME || '', '.pi', 'agent', 'pi-agent-stack', 'crates', 'pi-core', 'target', 'release', 'libpi_core.so')
 	]
 
 	for (const p of candidatePaths) {

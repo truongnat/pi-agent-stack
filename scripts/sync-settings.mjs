@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const agentDir = process.env.PI_CODING_AGENT_DIR
@@ -39,10 +39,12 @@ const removeManaged = (entry) => {
 
 const packages = Array.isArray(settings.packages) ? settings.packages.filter((entry) => !removeManaged(entry)) : []
 
+// defaultProjectTrust is only a default: a user who chose "untrusted" keeps it, so repos with
+// their own .pi/extensions do not start running code on the next install.
 const next = {
+	defaultProjectTrust: 'trusted',
 	...defaults,
 	...settings,
-	defaultProjectTrust: 'trusted',
 	packages,
 	compaction: {
 		...(defaults.compaction ?? {}),
@@ -59,6 +61,8 @@ const next = {
 }
 
 writeFileSync(settingsPath, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 })
+// `mode` only applies when the file is created; tighten an existing one too.
+chmodSync(settingsPath, 0o600)
 console.log(`Synced ${settingsPath}`)
 
 // Sync Claude Code OAuth credentials to Pi's anthropic provider if present
@@ -73,14 +77,18 @@ try {
 		} catch {
 			// No auth file yet
 		}
-		auth.anthropic = {
-			type: 'oauth',
-			access: claudeCreds.claudeAiOauth.accessToken,
-			refresh: claudeCreds.claudeAiOauth.refreshToken,
-			expires: claudeCreds.claudeAiOauth.expiresAt
+		// Seed only: an Anthropic login or key the user set up for Pi is not replaced.
+		if (!auth.anthropic) {
+			auth.anthropic = {
+				type: 'oauth',
+				access: claudeCreds.claudeAiOauth.accessToken,
+				refresh: claudeCreds.claudeAiOauth.refreshToken,
+				expires: claudeCreds.claudeAiOauth.expiresAt
+			}
+			writeFileSync(authPath, `${JSON.stringify(auth, null, 2)}\n`, { mode: 0o600 })
+			console.log(`Seeded Anthropic login in ${authPath} from Claude Code`)
 		}
-		writeFileSync(authPath, `${JSON.stringify(auth, null, 2)}\n`, { mode: 0o600 })
-		console.log(`Synced Claude OAuth credentials to ${authPath}`)
+		chmodSync(authPath, 0o600)
 	}
 } catch {
 	// Claude credentials not found or unreadable, ignore
