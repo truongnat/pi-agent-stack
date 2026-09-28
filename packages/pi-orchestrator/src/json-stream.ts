@@ -116,12 +116,17 @@ export function formatToolActivity(name: string, args: unknown): string {
 			const details = Object.entries(input)
 				.filter(
 					([key, value]) =>
-						!['content', 'oldText', 'newText', 'prompt'].includes(key) &&
+						!/(?:content|oldText|newText|prompt|password|secret|token|api.?key|credential)/i.test(
+							key
+						) &&
 						value != null &&
 						typeof value !== 'object'
 				)
 				.slice(0, 2)
-				.map(([key, value]) => `${key}: ${clip(String(value), 48)}`)
+				.map(
+					([key, value]) =>
+						`${key}: ${clip(key.toLowerCase() === 'path' ? shortPath(String(value)) : String(value), 48)}`
+				)
 			return `${name}${details.length ? ` · ${details.join(' · ')}` : ''}`
 		}
 	}

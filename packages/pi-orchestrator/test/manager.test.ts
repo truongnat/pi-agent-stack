@@ -3,7 +3,7 @@ import test from 'node:test'
 import {
 	buildPiWorkerArgs,
 	describeIdleTimeout,
-	formatActivityMarkdown,
+	formatActivityText,
 	isTimeoutOrCapStderr,
 	shellJoin,
 	SubagentManager
@@ -136,11 +136,12 @@ test('shellJoin quotes argv for spawnSupervised', () => {
 	assert.equal(shellJoin('agy', ['-p', "it's"]), `'agy' '-p' 'it'\\''s'`)
 })
 
-test('formatActivityMarkdown is list markdown with elapsed time', () => {
-	const md = formatActivityMarkdown(12, ['💭 plan', '▶ read `foo.ts`'])
-	assert.match(md, /\*12s\*/)
-	assert.match(md, /- 💭 plan/)
-	assert.match(md, /- ▶ read/)
+test('formatActivityText is elapsed time plus indented trail', () => {
+	const text = formatActivityText(12, ['💭 plan', '▶ read `foo.ts`'])
+	assert.match(text, /^12s\n/)
+	assert.match(text, /  💭 plan/)
+	assert.match(text, /  ▶ read/)
+	assert.equal(text.includes('*12s*'), false)
 })
 
 test('Esc stops the subagent: no model retry and no fallback CLIs after an abort', async () => {

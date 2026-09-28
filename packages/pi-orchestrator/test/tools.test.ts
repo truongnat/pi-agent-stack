@@ -212,11 +212,29 @@ test('invoke_subagent renderCall and renderResult render clean TUI components wi
 
 	// 4. Result rendering (expanded with Markdown)
 	const expandedComp = (invokeSubagentTool as any).renderResult(
-		result,
+		{
+			content: [{ type: 'text', text: 'ignored' }],
+			details: {
+				results: [
+					{
+						name: 'Archimedes',
+						role: 'coder',
+						status: 'completed',
+						durationMs: 12,
+						tokensUsed: 8,
+						output: '# Report\n\n**FAB07001** → AB07001'
+					}
+				]
+			}
+		},
 		{ expanded: true },
 		mockTheme
 	)
 	assert.ok(expandedComp)
+	const expandedText = flattenComponent(expandedComp)
+	assert.match(expandedText, /FAB07001/)
+	assert.equal(expandedText.includes('**FAB07001**'), false)
+	assert.equal(expandedText.includes('# Report'), false)
 
 	// 5. Manage subagents call & result renderers
 	const manageCallComp = (manageSubagentsTool as any).renderCall({ action: 'list' }, mockTheme)

@@ -1,15 +1,12 @@
-import {
-	getMarkdownTheme,
-	type ExtensionAPI,
-	type ExtensionContext
-} from '@earendil-works/pi-coding-agent'
-import { Box, Markdown, Text } from '@earendil-works/pi-tui'
+import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent'
+import { Box, Text } from '@earendil-works/pi-tui'
 import { loadOrchestratorConfig, saveOrchestratorConfig } from './config.ts'
 import { checkOrchestratorGuard } from './guard.ts'
 import { SubagentManager } from './manager.ts'
 import { DEFAULT_ROSTER } from './roster.ts'
 import { renderDag } from './dag.ts'
 import { createOrchestratorTools, getRoleIcon } from './tools.ts'
+import { renderMarkdown } from './tui-markdown.ts'
 import { attachDashboard } from './dashboard.ts'
 import { summarizeJsonEvent } from './json-stream.ts'
 
@@ -143,8 +140,7 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 							`\n\n*... and ${rawLines.length - 8} more lines (expand to view)*`
 					}
 				}
-				const mdTheme = getMarkdownTheme()
-				box.addChild(new Markdown(displayContent, 1, 0, mdTheme))
+				box.addChild(renderMarkdown(displayContent, 1, theme, 'customMessageText'))
 			}
 			return box
 		})
@@ -171,8 +167,7 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 							`\n\n*... and ${rawLines.length - 8} more lines (expand to view)*`
 					}
 				}
-				const mdTheme = getMarkdownTheme()
-				box.addChild(new Markdown(displayContent, 1, 0, mdTheme))
+				box.addChild(renderMarkdown(displayContent, 1, theme, 'customMessageText'))
 			}
 			return box
 		})

@@ -90,9 +90,9 @@ export function shellJoin(bin: string, args: string[]): string {
 	return [q(bin), ...args.map(q)].join(' ')
 }
 
-export function formatActivityMarkdown(elapsedSec: number, trail: string[]): string {
-	const items = trail.map((line) => `- ${line}`).join('\n')
-	return `*${elapsedSec}s*\n\n${items}`
+export function formatActivityText(elapsedSec: number, trail: string[]): string {
+	const items = trail.map((line) => `  ${line}`).join('\n')
+	return `${elapsedSec}s\n${items}`
 }
 
 export type WorkerRequest = {
@@ -752,7 +752,7 @@ export class SubagentManager {
 				role: instance.role,
 				name: instance.name,
 				status: 'streaming',
-				currentActivity: formatActivityMarkdown(elapsedSec, activityTrail),
+				currentActivity: formatActivityText(elapsedSec, activityTrail),
 				previewMarkdown: assembledAssistant
 			})
 		}
@@ -765,7 +765,7 @@ export class SubagentManager {
 					role: instance.role,
 					name: instance.name,
 					status: 'streaming',
-					currentActivity: formatActivityMarkdown(elapsedSec, activityTrail),
+					currentActivity: formatActivityText(elapsedSec, activityTrail),
 					previewMarkdown: assembledAssistant
 				})
 			} else {
@@ -774,7 +774,7 @@ export class SubagentManager {
 					role: instance.role,
 					name: instance.name,
 					status: 'running',
-					currentActivity: formatActivityMarkdown(elapsedSec, [
+					currentActivity: formatActivityText(elapsedSec, [
 						'⏳ waiting for worker stream (thinking / tools / text)…'
 					])
 				})

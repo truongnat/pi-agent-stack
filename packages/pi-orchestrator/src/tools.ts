@@ -1,5 +1,6 @@
-import { defineTool, getMarkdownTheme, type ToolDefinition } from '@earendil-works/pi-coding-agent'
-import { Box, Markdown, Text } from '@earendil-works/pi-tui'
+import { defineTool, type ToolDefinition } from '@earendil-works/pi-coding-agent'
+import { Box, Text } from '@earendil-works/pi-tui'
+import { renderMarkdown } from './tui-markdown.ts'
 import * as t from 'typebox'
 import { planDag } from './dag.ts'
 import { checkOrchestratorGuard } from './guard.ts'
@@ -347,7 +348,6 @@ export function createOrchestratorTools(
 				const completedCount = tasks.filter((t) => t.status === 'completed').length
 				const total = tasks.length || 1
 				const badge = theme.fg('accent', theme.bold(`[ ⚡ EXECUTING ${activeCount}/${total} ]`))
-				const mdTheme = getMarkdownTheme()
 				const box = new Box(0, 0, (t) => theme.bg('customMessageBg', t))
 				box.addChild(
 					new Text(
@@ -366,7 +366,7 @@ export function createOrchestratorTools(
 								: theme.fg('warning', '▶')
 					box.addChild(new Text(`  ${statusSymbol} ${badgeStr} ${theme.bold(t.name)}`, 0, 0))
 					if (t.currentActivity) {
-						box.addChild(new Markdown(String(t.currentActivity), 4, 0, mdTheme))
+						box.addChild(new Text(theme.fg('muted', String(t.currentActivity)), 4, 0))
 					}
 					if (t.previewMarkdown?.trim()) {
 						let preview = String(t.previewMarkdown).trim()
@@ -377,14 +377,13 @@ export function createOrchestratorTools(
 									lines.slice(0, 10).join('\n') + `\n\n*… ${lines.length - 10} more lines (expand)*`
 							}
 						}
-						box.addChild(new Markdown(preview, 4, 0, mdTheme))
+						box.addChild(renderMarkdown(preview, 4, theme))
 					}
 				}
 				return box
 			}
 
 			// 2. Completed State: Lay out each subagent's actual work, findings & thoughts!
-			const mdTheme = getMarkdownTheme()
 			const box = new Box(1, 0, (t) => theme.bg('customMessageBg', t))
 
 			if (rawDetails?.results) {
@@ -418,7 +417,7 @@ export function createOrchestratorTools(
 									`\n\n*... and ${lines.length - 8} more lines (expand to view full report)*`
 							}
 						}
-						box.addChild(new Markdown(displayOutput, 4, 0, mdTheme))
+						box.addChild(renderMarkdown(displayOutput, 4, theme))
 					}
 				}
 
@@ -444,7 +443,7 @@ export function createOrchestratorTools(
 				box.addChild(new Text(header, 0, 0))
 
 				if (c.summary) {
-					box.addChild(new Markdown(c.summary, 2, 0, mdTheme))
+					box.addChild(renderMarkdown(c.summary, 2, theme))
 				}
 
 				if (primary) {
@@ -460,7 +459,7 @@ export function createOrchestratorTools(
 									`\n\n*... and ${lines.length - 8} more lines (expand to view full report)*`
 							}
 						}
-						box.addChild(new Markdown(displayOutput, 4, 0, mdTheme))
+						box.addChild(renderMarkdown(displayOutput, 4, theme))
 					}
 				}
 
@@ -468,7 +467,7 @@ export function createOrchestratorTools(
 			}
 
 			// 3. Fallback state with rich Markdown rendering
-			box.addChild(new Markdown(text, 1, 0, mdTheme))
+			box.addChild(renderMarkdown(text, 1, theme))
 			return box
 		}
 	})
@@ -603,9 +602,8 @@ export function createOrchestratorTools(
 		},
 		renderResult(result, _options, theme) {
 			const text = result?.content?.map((c: any) => c.text || '').join('\n') || ''
-			const mdTheme = getMarkdownTheme()
 			const box = new Box(1, 0, (t) => theme.bg('customMessageBg', t))
-			box.addChild(new Markdown(text, 1, 0, mdTheme))
+			box.addChild(renderMarkdown(text, 1, theme))
 			return box
 		}
 	})
@@ -662,9 +660,8 @@ export function createOrchestratorTools(
 		},
 		renderResult(result, _options, theme) {
 			const text = result?.content?.map((c: any) => c.text || '').join('\n') || ''
-			const mdTheme = getMarkdownTheme()
 			const box = new Box(1, 0, (t) => theme.bg('customMessageBg', t))
-			box.addChild(new Markdown(text, 1, 0, mdTheme))
+			box.addChild(renderMarkdown(text, 1, theme))
 			return box
 		}
 	})
