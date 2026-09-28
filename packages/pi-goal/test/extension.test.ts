@@ -186,8 +186,7 @@ function goalCtx(opts: { idle?: boolean } = {}) {
 	return { ctx, calls }
 }
 
-async function settle(mock: ReturnType<typeof createMockPi>, ctx: unknown, outcome: string) {
-	for (const h of mock.listeners.agent_before_settle || []) h({ outcome }, ctx)
+async function settle(mock: ReturnType<typeof createMockPi>, ctx: unknown) {
 	for (const h of mock.listeners.agent_settled || []) await h({}, ctx)
 }
 
@@ -198,8 +197,10 @@ test('Esc stops the goal: an aborted run pauses it and sends no continuation', a
 		const { ctx } = goalCtx()
 		await mock.commands.goal.handler('Refactor billing', ctx)
 		const sent = mock.sentMessages.length
-		mock.listeners.agent_end?.[0]?.(agentEnd([{ input: 500, output: 100, stopReason }]), ctx)
-		await settle(mock, ctx, 'aborted')
+		// Pi's run signal is still live during agent_end, and aborted after Esc.
+		const during = { ...ctx, signal: AbortSignal.abort() }
+		mock.listeners.agent_end?.[0]?.(agentEnd([{ input: 500, output: 100, stopReason }]), during)
+		await settle(mock, ctx)
 		assert.equal(ext.getGoal()?.status, 'paused', stopReason)
 		assert.equal(mock.sentMessages.length, sent, `no "Continue" after Esc (${stopReason})`)
 	}
@@ -213,7 +214,8 @@ test('/goal pause and /goal clear abort the run in progress', async () => {
 	await mock.commands.goal.handler('pause', ctx)
 	assert.equal(calls.abort, 1)
 	const sent = mock.sentMessages.length
-	await settle(mock, ctx, 'aborted')
+	mock.listeners.agent_end?.[0]?.(agentEnd([{ input: 1, output: 1, stopReason: 'aborted' }]), ctx)
+	await settle(mock, ctx)
 	assert.equal(ext.getGoal()?.status, 'paused')
 	assert.equal(mock.sentMessages.length, sent)
 
@@ -237,7 +239,7 @@ test('tokens come from the replies, and the budget runs one wrap-up turn then st
 		ctx
 	)
 	assert.equal(ext.getGoal()?.tokensUsed, 1350)
-	await settle(mock, ctx, 'completed')
+	await settle(mock, ctx)
 	assert.equal(ext.getGoal()?.status, 'budget_limited')
 
 	const wrap = mock.listeners.before_agent_start?.[0]?.({ prompt: 'x' }, ctx)
@@ -245,7 +247,7 @@ test('tokens come from the replies, and the budget runs one wrap-up turn then st
 	assert.match(wrap?.message?.content ?? '', /budget/i)
 	mock.listeners.agent_end?.[0]?.(agentEnd([{ input: 100, output: 20 }]), ctx)
 	const sent = mock.sentMessages.length
-	await settle(mock, ctx, 'completed')
+	await settle(mock, ctx)
 	assert.equal(ext.getGoal()?.status, 'budget_limited')
 	assert.equal(mock.sentMessages.length, sent, 'no turn after the wrap-up')
 })

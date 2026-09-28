@@ -1,7 +1,7 @@
 import type { EvaluatorResult, GoalConfig, GoalState, StopDecision, TurnMetrics } from './types.ts'
 
 export const DEFAULT_CONFIG: Required<GoalConfig> = {
-	maxTurns: 100,
+	maxTurns: 30,
 	maxObjectiveLength: 4000,
 	maxEmptyTurns: 3,
 	maxBlockerTurns: 3,

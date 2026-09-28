@@ -60,8 +60,6 @@ export function createGoalExtension(pi: ExtensionAPI) {
 	let selfReportedReason: string | undefined
 	let lastEvaluatorNote: string | undefined
 	let lastMetrics: TurnMetrics | null = null
-	/** Outcome Pi reports for the run that is about to settle (Esc shows up here as 'aborted'). */
-	let lastOutcome: 'completed' | 'aborted' | 'error' | undefined
 	let wrapUpInProgress = false
 
 	/** `null` records a clear, so a restore does not bring the old goal back. */
@@ -282,7 +280,6 @@ export function createGoalExtension(pi: ExtensionAPI) {
 		pendingWrapUp = false
 		wrapUpInProgress = false
 		lastMetrics = null
-		lastOutcome = undefined
 		currentGoal =
 			event.reason === 'new' ? null : restoreGoal(ctx.sessionManager?.getBranch?.() ?? [])
 		updateStatus(ctx)
@@ -386,11 +383,13 @@ export function createGoalExtension(pi: ExtensionAPI) {
 		// Pi 0.87 puts usage, stop reason and error on each assistant message of this run.
 		const replies = event.messages.filter((m): m is AssistantMessage => m.role === 'assistant')
 		const last = replies.at(-1)
-		const total = replies.reduce((sum, m) => sum + (m.usage?.totalTokens ?? 0), 0)
+		// Budget counts input + output (docs/plans/goal.md). Cache reads are left out: every reply
+		// re-reads the cached context, and counting it would exhaust a budget in one run.
+		const input = replies.reduce((sum, m) => sum + (m.usage?.input ?? 0), 0)
 		const output = replies.reduce((sum, m) => sum + (m.usage?.output ?? 0), 0)
 
 		const metrics: TurnMetrics = {
-			inputTokens: Math.max(0, total - output),
+			inputTokens: input,
 			outputTokens: output,
 			elapsedMs: Math.round(performance.now() - turnStartTime),
 			hasText: turnHasText,
@@ -398,7 +397,10 @@ export function createGoalExtension(pi: ExtensionAPI) {
 			hasToolCalls: turnHasToolCalls,
 			selfReportedStatus,
 			selfReportedReason,
-			stopReason: last?.stopReason,
+			// The run's signal is still live during agent_end; after Esc it is aborted even when the
+			// abort landed mid-tool and no reply carries stopReason 'aborted'. (agent_before_settle
+			// is skipped on abort, so it cannot carry this.)
+			stopReason: ctx.signal?.aborted ? 'aborted' : last?.stopReason,
 			error: last?.stopReason === 'error' ? last.errorMessage || 'model request failed' : undefined
 		}
 		lastMetrics = metrics
@@ -413,18 +415,11 @@ export function createGoalExtension(pi: ExtensionAPI) {
 		}
 	})
 
-	pi.on('agent_before_settle', (event) => {
-		lastOutcome = event.outcome
-		return undefined
-	})
-
 	pi.on('agent_settled', async (_event, ctx) => {
-		const outcome = lastOutcome
-		lastOutcome = undefined
 		const wrapUpFinished = wrapUpInProgress && currentGoal?.status === 'budget_limited'
 		wrapUpInProgress = false
 		if (!currentGoal || (currentGoal.status !== 'active' && !wrapUpFinished)) return
-		const base = lastMetrics || {
+		const metrics = lastMetrics || {
 			inputTokens: 0,
 			outputTokens: 0,
 			elapsedMs: 0,
@@ -432,14 +427,6 @@ export function createGoalExtension(pi: ExtensionAPI) {
 			hasThinking: false,
 			hasToolCalls: false
 		}
-		// Esc can land mid-tool with no aborted assistant message; the run outcome always says so.
-		const metrics: TurnMetrics =
-			outcome === 'aborted'
-				? { ...base, stopReason: 'aborted' }
-				: outcome === 'error' && !base.error
-					? { ...base, error: 'agent run failed' }
-					: base
-
 		let evaluatorResult: EvaluatorResult | undefined
 		if (metrics.selfReportedStatus === 'complete') {
 			evaluatorResult = await evaluateGoalWithJev({

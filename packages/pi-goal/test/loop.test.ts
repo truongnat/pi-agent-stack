@@ -201,7 +201,7 @@ test('evaluateStopRules gives grace period for self-reported blockers before hal
 })
 
 test('turn cap still stops a model that keeps claiming completion the evaluator rejects', () => {
-	const state = { ...createGoal('Ship it'), turns: 100 }
+	const state = { ...createGoal('Ship it'), turns: 30 }
 	const decision = evaluateStopRules(
 		state,
 		{
