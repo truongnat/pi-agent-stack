@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { runStreamingLines } from '../src/line-stream.ts'
+import { redact } from '../src/redact.ts'
 import { defaultRunner } from '../src/subprocess.ts'
 
 const big = 'x'.repeat(2_000_000)
@@ -64,4 +65,19 @@ void test('a multi-byte character split across stdout chunks survives', async ()
 	assert.deepEqual(seen, ['ệ'])
 	const run = await defaultRunner({ ...base, command: 'sh', args: ['-c', script] })
 	assert.equal(run.stdout.trim(), 'ệ')
+})
+
+void test('redact hides JSON token values, JWTs and Google OAuth tokens', () => {
+	const jwt =
+		'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U'
+	const leaked = [
+		'{"access_token": "abc123secretvalue"}',
+		`auth failed: ${jwt}`,
+		'token ya29.a0AfH6SMBx-longgoogletoken_value',
+		'refresh 1//0gLongRefreshTokenValueHere-abc'
+	]
+	for (const text of leaked) {
+		assert.doesNotMatch(redact(text), /abc123secret|dozjg|a0AfH6|0gLongRefresh/, text)
+	}
+	assert.equal(redact('plain error: model not found'), 'plain error: model not found')
 })
