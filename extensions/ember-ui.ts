@@ -6,16 +6,26 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const COPPER = "\x1b[38;2;245;169;127m";
-const BOLD_COPPER = "\x1b[1;38;2;245;169;127m";
-const MAUVE = "\x1b[38;2;198;160;246m";
-const EMERALD = "\x1b[38;2;166;218;149m";
-const AMBER = "\x1b[38;2;238;212;159m";
-const TEXT = "\x1b[38;2;202;211;245m";
-const BOLD_TEXT = "\x1b[1;38;2;202;211;245m";
-const RESET = "\x1b[0m";
-const MUTE = "\x1b[38;2;110;115;141m";
-const SEP = ` ${MUTE}│${RESET} `;
+import { Text } from "@earendil-works/pi-tui";
+
+type ThemeLike = {
+	fg(color: string, text: string): string;
+	bold(text: string): string;
+	getThinkingBorderColor?(level: string): (text: string) => string;
+};
+
+// Semantic roles only: the active theme (ember / ember-light, or any user theme) decides the actual colors.
+const paletteFor = (t: ThemeLike) => ({
+	copper: (s: string) => t.fg("accent", s),
+	boldCopper: (s: string) => t.bold(t.fg("accent", s)),
+	mauve: (s: string) => t.fg("mdLink", s),
+	emerald: (s: string) => t.fg("success", s),
+	amber: (s: string) => t.fg("warning", s),
+	boldText: (s: string) => t.bold(t.fg("text", s)),
+	mute: (s: string) => t.fg("dim", s),
+	thinking: (level: string, s: string) => (t.getThinkingBorderColor ? t.getThinkingBorderColor(level)(s) : t.fg("accent", s)),
+});
+type Palette = ReturnType<typeof paletteFor>;
 
 function hasJevKey(): boolean {
 	if (process.env.JEV_API_KEY && process.env.JEV_API_KEY !== "replace-me") return true;
@@ -31,111 +41,102 @@ function hasJevKey(): boolean {
 	return false;
 }
 
-const BG_RECESSED = "\x1b[48;2;30;32;48m";
-const BG_ROUTER = "\x1b[48;2;36;39;58m";
-
 let currentActiveRole: string | undefined;
 
-function getSubscriptionChip(): string {
+function getSubscriptionChip(c: Palette): string {
 	try {
 		const statusFile = join(homedir(), ".pi", "agent", "subscription-providers-status.json");
 		if (existsSync(statusFile)) {
 			const snap = JSON.parse(readFileSync(statusFile, "utf8"));
 			const chips: string[] = [];
-			if (snap.cursor?.ready) chips.push(`${MUTE}cur:${RESET}${EMERALD}ok${RESET}`);
-			if (snap.antigravity?.ready) chips.push(`${MUTE}agy:${RESET}${EMERALD}ok${RESET}`);
-			if (snap["claude-code"]?.ready) chips.push(`${MUTE}cld:${RESET}${EMERALD}ok${RESET}`);
+			if (snap.cursor?.ready) chips.push(`${c.mute("cur:")}${c.emerald("ok")}`);
+			if (snap.antigravity?.ready) chips.push(`${c.mute("agy:")}${c.emerald("ok")}`);
+			if (snap["claude-code"]?.ready) chips.push(`${c.mute("cld:")}${c.emerald("ok")}`);
 			if (chips.length > 0) return chips.join(" ");
 		}
 	} catch {
 		// Ignore
 	}
-	return `${MUTE}routes:ready${RESET}`;
+	return c.mute("routes:ready");
 }
 
-function getOrchestratorChip(): string {
+function getOrchestratorChip(c: Palette): string {
 	try {
 		const bridge = (globalThis as any).piAgentStackOrchestrator;
 		if (bridge) {
 			const subagents = bridge.listSubagents ? bridge.listSubagents() : [];
 			const running = subagents.filter((s: any) => s.status === 'running');
 			if (running.length > 0) {
-				return `${MAUVE}🤖 orc:${running.length} act${RESET}`;
+				return c.mauve(`🤖 orc:${running.length} act`);
 			}
 			const ready = bridge.isReady ? bridge.isReady() : false;
 			const providers = bridge.getProviders ? bridge.getProviders() : [];
 			if (ready && providers.length >= 2) {
-				return `${EMERALD}🤖 orc:${providers.length}p${RESET}`;
+				return c.emerald(`🤖 orc:${providers.length}p`);
 			}
 		}
 	} catch {
 		// Ignore
 	}
-	return `${MUTE}🤖 orc:1p${RESET}`;
+	return c.mute("🤖 orc:1p");
 }
 
-function getRoleBadge(): string {
-	if (!currentActiveRole) {
-		return `${MUTE}[${RESET}${MAUVE}🏛 Supervisor${RESET}${MUTE}]${RESET}`;
-	}
+function getRoleBadge(c: Palette): string {
+	const wrap = (label: string) => `${c.mute("[")}${label}${c.mute("]")}`;
+	if (!currentActiveRole) return wrap(c.mauve("🏛 Supervisor"));
 	switch (currentActiveRole.toLowerCase()) {
 		case 'coder':
 		case 'edit':
 		case 'write':
-			return `${MUTE}[${RESET}${BOLD_COPPER}🧑‍💻 Coder${RESET}${MUTE}]${RESET}`;
+			return wrap(c.boldCopper("🧑‍💻 Coder"));
 		case 'tester':
 		case 'test':
-			return `${MUTE}[${RESET}${EMERALD}🧪 Tester${RESET}${MUTE}]${RESET}`;
+			return wrap(c.emerald("🧪 Tester"));
 		case 'reviewer':
 		case 'audit':
-			return `${MUTE}[${RESET}${AMBER}🔍 Reviewer${RESET}${MUTE}]${RESET}`;
+			return wrap(c.amber("🔍 Reviewer"));
 		case 'researcher':
 		case 'read':
 		case 'search':
-			return `${MUTE}[${RESET}${MAUVE}📚 Researcher${RESET}${MUTE}]${RESET}`;
+			return wrap(c.mauve("📚 Researcher"));
 		case 'plan':
+		case 'planner':
 		case 'advisor':
 		case 'goal':
-			return `${MUTE}[${RESET}${AMBER}📋 Planner${RESET}${MUTE}]${RESET}`;
+			return wrap(c.amber("📋 Planner"));
 		case 'consensus':
-			return `${MUTE}[${RESET}${BOLD_COPPER}🏛 Consensus${RESET}${MUTE}]${RESET}`;
+			return wrap(c.boldCopper("🏛 Consensus"));
 		default:
-			return `${MUTE}[${RESET}${BOLD_TEXT}${currentActiveRole}${RESET}${MUTE}]${RESET}`;
+			return wrap(c.boldText(currentActiveRole));
 	}
 }
 
-function rail(ctx: {
-	model?: { id?: string; provider?: string };
-	sessionManager?: { getModel?: () => { id?: string } };
-	thinkingLevel?: string;
-	getThinkingLevel?: () => string;
-}): string[] {
-	const model =
-		ctx.model?.id ||
-		ctx.sessionManager?.getModel?.()?.id ||
-		"default";
-	const provider = ctx.model?.provider || "custom";
-	const providerBadge = `${MUTE}[${RESET}${BOLD_COPPER}${provider}${RESET}${MUTE}]${RESET}`;
-	const modelLabel = `${BOLD_TEXT}${model}${RESET}`;
+type RailState = { model: string; provider: string; thinking: string };
 
-	const thinking =
-		ctx.thinkingLevel ||
-		ctx.getThinkingLevel?.() ||
-		"high";
-	const thinkBadge = `${MAUVE}⚡ ${thinking}${RESET}`;
+function rail(t: ThemeLike, state: RailState): string {
+	const c = paletteFor(t);
+	const providerBadge = `${c.mute("[")}${c.boldCopper(state.provider)}${c.mute("]")}`;
+	const modelLabel = c.boldText(state.model);
+	const thinkBadge = c.thinking(state.thinking, `⚡ ${state.thinking}`);
+	const jevBadge = hasJevKey() ? c.emerald("🛡️ jev") : c.amber("🛡️ off");
+	const brand = c.boldCopper("● EMBER");
+	return ` ┌─[ ${brand} ]──[ ${providerBadge} ${modelLabel} ]──[ ${getRoleBadge(c)} ]──[ ${thinkBadge} ]──[ ${jevBadge} ]──[ ${getOrchestratorChip(c)} ]──[ ${getSubscriptionChip(c)} ]`;
+}
 
-	const jevActive = hasJevKey();
-	const jevBadge = jevActive
-		? `${EMERALD}🛡️ jev${RESET}`
-		: `${AMBER}🛡️ off${RESET}`;
-
-	const subChip = getSubscriptionChip();
-	const orcChip = getOrchestratorChip();
-	const roleBadge = getRoleBadge();
-	const brand = `${BOLD_COPPER}● EMBER${RESET}`;
-
-	const line1 = ` ┌─[ ${brand} ]──[ ${providerBadge} ${modelLabel} ]──[ ${roleBadge} ]──[ ${thinkBadge} ]──[ ${jevBadge} ]──[ ${orcChip} ]──[ ${subChip} ]`;
-	return [line1];
+// Rebuilds the line from the live theme on every render, so a light/dark switch recolors it without a new event.
+function railWidget(state: RailState) {
+	return (_tui: unknown, theme: ThemeLike) => {
+		const text = new Text("", 1, 0);
+		return {
+			render(width: number) {
+				text.setText(rail(theme, state));
+				return text.render(width);
+			},
+			invalidate() {
+				text.invalidate();
+			},
+		};
+	};
 }
 
 export default function emberUi(pi: {
@@ -152,7 +153,8 @@ export default function emberUi(pi: {
 			sessionManager?: { getModel?: () => { id?: string } };
 			thinkingLevel?: string;
 			ui?: {
-				setWidget?: (key: string, content: string[] | undefined, opts?: { placement?: string }) => void;
+				theme?: ThemeLike;
+				setWidget?: (key: string, content: ReturnType<typeof railWidget> | undefined, opts?: { placement?: string }) => void;
 				setWorkingIndicator?: (opts?: { frames?: string[]; intervalMs?: number }) => void;
 				setHiddenThinkingLabel?: (label?: string) => void;
 				setTitle?: (title: string) => void;
@@ -161,24 +163,26 @@ export default function emberUi(pi: {
 		if (!ui.hasUI || ui.mode === "json" || ui.mode === "print") return;
 		lastCtx = ui;
 
-		const thinkingLevel = ui.thinkingLevel || pi.getThinkingLevel?.();
-		ui.ui?.setWidget?.("ember-rail", rail({ ...ui, thinkingLevel, getThinkingLevel: pi.getThinkingLevel }), {
-			placement: "aboveEditor",
-		});
+		ui.ui?.setWidget?.(
+			"ember-rail",
+			railWidget({
+				model: ui.model?.id || ui.sessionManager?.getModel?.()?.id || "default",
+				provider: ui.model?.provider || "custom",
+				thinking: ui.thinkingLevel || pi.getThinkingLevel?.() || "high",
+			}),
+			{ placement: "aboveEditor" },
+		);
 
-		ui.ui?.setWorkingIndicator?.({
-			frames: [
-				`${COPPER}·${RESET}`,
-				`${COPPER}:${RESET}`,
-				`${COPPER}•${RESET}`,
-				`${COPPER}●${RESET}`,
-				`${COPPER}•${RESET}`,
-				`${COPPER}:${RESET}`,
-			],
-			intervalMs: 85,
-		});
-
-		ui.ui?.setHiddenThinkingLabel?.(`${MAUVE}thinking${RESET}`);
+		// ponytail: indicator/label take pre-colored strings, so a theme switch recolors them on the next paint (next turn or tool call), not instantly.
+		const theme = ui.ui?.theme;
+		if (theme) {
+			const c = paletteFor(theme);
+			ui.ui?.setWorkingIndicator?.({
+				frames: ["·", ":", "•", "●", "•", ":"].map(c.copper),
+				intervalMs: 85,
+			});
+			ui.ui?.setHiddenThinkingLabel?.(c.mauve("thinking"));
+		}
 
 		const modelId = ui.model?.id || ui.sessionManager?.getModel?.()?.id || "ember";
 		ui.ui?.setTitle?.(`pi ember | ${modelId} | ${currentActiveRole || 'supervisor'}`);

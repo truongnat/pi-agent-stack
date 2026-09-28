@@ -1,5 +1,5 @@
 {
-  "theme": "ember-light/ember",
+  "theme": "ember",
   "quietStartup": true,
   "showCacheMissNotices": false,
   "cacheWarming": "idle",
