@@ -48,6 +48,8 @@ export interface SubagentInstance {
 	tokensUsed: number
 	scratchpadDir: string
 	logs: SubagentLogEntry[]
+	/** Writes an RPC command to the running pi worker; undefined once it settled or exited. */
+	send?: ((command: object) => boolean) | undefined
 	/** Set when the task ran in an isolated worktree. */
 	patch?: { patchPath: string; files: string[] }
 }

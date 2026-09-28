@@ -42,22 +42,21 @@ export function describeIdleTimeout(opts: {
 	return `${base}. Stream went silent after progress (long thinking or stalled generation).`
 }
 
+/** `pi --mode rpc`: the prompt is sent over stdin (see WorkerRequest.rpc). */
 export function buildPiWorkerArgs(opts: {
 	model?: string
 	sessionDir: string
 	tools: string[]
-	prompt: string
 }): string[] {
 	const args = [
 		'--mode',
-		'json',
+		'rpc',
 		'--session-dir',
 		opts.sessionDir,
 		'--no-skills',
 		'--no-themes',
 		'--tools',
-		opts.tools.join(','),
-		opts.prompt
+		opts.tools.join(',')
 	]
 	if (opts.model && opts.model !== 'default') {
 		args.unshift('--model', opts.model)
@@ -86,6 +85,11 @@ export type WorkerRequest = {
 	firstByteTimeoutMs?: number
 	env?: Record<string, string>
 	instance?: SubagentInstance
+	/**
+	 * `pi --mode rpc` worker: the prompt goes over stdin, `send` is handed to the caller for
+	 * steer/follow_up while it runs, and stdin closes (ending the worker) at agent_settled.
+	 */
+	rpc?: { prompt: string; onSend: (send: ((command: object) => boolean) | undefined) => void }
 }
 
 export type WorkerResult = { stdout: string; stderr: string; code: number | null }
@@ -126,20 +130,7 @@ export class SubagentManager {
 	public scratchpadRoot: string
 
 	constructor(config?: Partial<OrchestratorConfig>, options: { runner?: WorkerRunner } = {}) {
-		this.runner =
-			options.runner ??
-			((r) =>
-				this.execSubprocessWorker(
-					r.command,
-					r.args,
-					r.cwd,
-					r.signal,
-					r.onChunk,
-					r.maxTimeoutMs,
-					r.env,
-					r.instance,
-					r.firstByteTimeoutMs
-				))
+		this.runner = options.runner ?? ((r) => this.execSubprocessWorker(r))
 		this.config = { ...loadOrchestratorConfig(), ...config }
 		this.scratchpadRoot =
 			this.config.scratchpadRoot ?? join(homedir(), '.pi-orchestrator', 'scratchpads')
@@ -443,17 +434,11 @@ export class SubagentManager {
 		}
 	}
 
-	private async execSubprocessWorker(
-		command: string,
-		args: string[],
-		cwd: string,
-		signal?: AbortSignal,
-		onChunk?: (chunk: string) => void,
-		maxTimeoutMs = 600_000,
-		extraEnv: Record<string, string> = {},
-		instance?: SubagentInstance,
-		firstByteTimeoutMs = 180_000
-	): Promise<{ stdout: string; stderr: string; code: number | null }> {
+	private async execSubprocessWorker(request: WorkerRequest): Promise<WorkerResult> {
+		const { command, args, cwd, signal, onChunk, instance, rpc } = request
+		const maxTimeoutMs = request.maxTimeoutMs
+		const extraEnv = request.env ?? {}
+		const firstByteTimeoutMs = request.firstByteTimeoutMs ?? 180_000
 		const envPath = `${homedir()}/.bun/bin:${homedir()}/.local/bin:${process.env.PATH || ''}`
 		const env = { ...process.env, PATH: envPath, ...extraEnv }
 		// 3 min until first byte; 8 min of silence after the worker has streamed (Codex thinking gaps).
@@ -466,13 +451,46 @@ export class SubagentManager {
 					cwd,
 					env,
 					detached: process.platform !== 'win32',
-					stdio: ['ignore', 'pipe', 'pipe']
+					stdio: [rpc ? 'pipe' : 'ignore', 'pipe', 'pipe']
 				})
 				if (instance && child.pid) {
 					instance.pid = child.pid
 				}
 				let stdout = ''
 				let stderr = ''
+				let rpcLine = ''
+				let rpcError: string | undefined
+				const send = (cmd: object): boolean => {
+					if (!child.stdin || child.stdin.writableEnded || child.exitCode !== null) return false
+					child.stdin.write(`${JSON.stringify(cmd)}\n`)
+					return true
+				}
+				// JSONL records split on LF only (readline would also split on U+2028 inside JSON).
+				const onRpcRecord = (rec: Record<string, unknown>) => {
+					if (rec.type === 'agent_settled') {
+						rpc?.onSend(undefined)
+						child.stdin?.end()
+					} else if (
+						rec.type === 'extension_ui_request' &&
+						['select', 'confirm', 'input', 'editor'].includes(String(rec.method))
+					) {
+						// Nobody can answer a worker's dialog: decline, as a headless run would.
+						send({ type: 'extension_ui_response', id: rec.id, cancelled: true })
+					} else if (rec.type === 'agent_end' && Array.isArray(rec.messages)) {
+						const last = [...(rec.messages as Array<Record<string, unknown>>)]
+							.reverse()
+							.find((m) => m.role === 'assistant')
+						rpcError =
+							last?.stopReason === 'error'
+								? String(last.errorMessage || 'model request failed')
+								: undefined
+					}
+				}
+				if (rpc) {
+					child.stdin?.on('error', () => undefined)
+					rpc.onSend(send)
+					send({ type: 'prompt', message: rpc.prompt })
+				}
 				let sawStream = false
 				let idleTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -514,6 +532,17 @@ export class SubagentManager {
 						idleTimeoutMs = 480_000
 					}
 					resetIdleTimer()
+					if (rpc) {
+						const lines = (rpcLine + str).split('\n')
+						rpcLine = lines.pop() ?? ''
+						for (const line of lines) {
+							try {
+								onRpcRecord(JSON.parse(line) as Record<string, unknown>)
+							} catch {
+								// Not a protocol record.
+							}
+						}
+					}
 					if (onChunk) onChunk(str)
 				})
 				child.stderr?.on('data', (str: string) => {
@@ -564,6 +593,12 @@ export class SubagentManager {
 				child.on('close', (code) => {
 					if (idleTimer) clearTimeout(idleTimer)
 					clearTimeout(maxTimer)
+					rpc?.onSend(undefined)
+					// An RPC worker exits 0 after a failed run too; the last reply says it failed.
+					if (rpcError && code === 0) {
+						resolve({ stdout: stdout.trim(), stderr: rpcError, code: 1 })
+						return
+					}
 					resolve({ stdout: stdout.trim(), stderr: stderr.trim(), code })
 				})
 			} catch (err) {
@@ -611,14 +646,19 @@ export class SubagentManager {
 		const piArgs = buildPiWorkerArgs({
 			model: instance.model,
 			sessionDir: workerSessionDir,
-			tools: builtInAllowed,
-			prompt: fullPrompt
+			tools: builtInAllowed
 		})
+		const rpc = {
+			prompt: fullPrompt,
+			onSend: (send: ((command: object) => boolean) | undefined) => {
+				instance.send = send
+			}
+		}
 
 		this.logToScratchpad(instance, {
 			timestamp: Date.now(),
 			type: 'info',
-			message: `Dispatching native pi worker (--mode json) with model "${instance.model}" and tools: [${builtInAllowed.join(', ')}]`
+			message: `Dispatching native pi worker (--mode rpc) with model "${instance.model}" and tools: [${builtInAllowed.join(', ')}]`
 		})
 
 		let jsonBuf = ''
@@ -722,6 +762,7 @@ export class SubagentManager {
 				onChunk: handlePiJsonChunk,
 				maxTimeoutMs: options.hardTimeoutMs ?? 900_000,
 				env: workerEnv(),
+				rpc,
 				instance
 			})
 			if (!assembledAssistant && piResult.stdout) {
@@ -786,6 +827,7 @@ export class SubagentManager {
 						onChunk: handlePiJsonChunk,
 						maxTimeoutMs: options.hardTimeoutMs ?? 900_000,
 						env: workerEnv(),
+						rpc,
 						instance
 					})
 					if (piResult.code === 0) {

@@ -101,7 +101,7 @@ test('manage_subagents tool handles list, status, kill, and clear actions', asyn
 	)
 })
 
-test('send_subagent_message delivers guidance to existing subagent', async () => {
+test('send_subagent_message refuses a finished subagent instead of claiming delivery', async () => {
 	const manager = fakeManager().manager
 	const { sendSubagentMessageTool } = createOrchestratorTools(manager)
 
@@ -118,10 +118,8 @@ test('send_subagent_message delivers guidance to existing subagent', async () =>
 		{} as any
 	)
 
-	assert.match(
-		sendRes.content[0]?.type === 'text' ? sendRes.content[0].text : '',
-		/Message successfully delivered/
-	)
+	assert.match(sendRes.content[0]?.type === 'text' ? sendRes.content[0].text : '', /not delivered/)
+	assert.equal((sendRes as { isError?: boolean }).isError, true)
 })
 
 test('invoke_subagent tool executes with require_consensus and returns consensus report', async () => {

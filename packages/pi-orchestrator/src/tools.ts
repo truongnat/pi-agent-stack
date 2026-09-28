@@ -601,7 +601,8 @@ export function createOrchestratorTools(manager: SubagentManager) {
 	const sendSubagentMessageTool: ToolDefinition<typeof SendSubagentMessageSchema> = defineTool({
 		name: 'send_subagent_message',
 		label: 'Send Subagent Message',
-		description: 'Send a guidance message or followup question to an active subagent.',
+		description:
+			'Steer a running subagent: the message reaches it after its current tool calls, before its next model call.',
 		promptSnippet: 'send_subagent_message({ subagent_id, message })',
 		parameters: SendSubagentMessageSchema,
 		executionMode: 'sequential',
@@ -615,17 +616,29 @@ export function createOrchestratorTools(manager: SubagentManager) {
 				}
 			}
 
+			// Only a pi worker in RPC mode can take a message; CLI fallbacks and finished runs cannot.
+			const delivered =
+				sub.status === 'running' && sub.send?.({ type: 'steer', message: params.message })
+			if (!delivered) {
+				return {
+					content: [
+						{
+							type: 'text',
+							text: `Subagent "${sub.name}" is not running a pi worker (status: ${sub.status}); the message was not delivered.`
+						}
+					],
+					isError: true,
+					details: undefined
+				}
+			}
 			return {
 				content: [
 					{
 						type: 'text',
-						text: `Message successfully delivered to subagent "${sub.name}".`
+						text: `Sent to "${sub.name}" as a steer: it arrives after the worker's current tool calls, before its next model call.`
 					}
 				],
-				details: {
-					delivered: true,
-					subagentId: sub.id
-				}
+				details: { delivered: true, subagentId: sub.id }
 			}
 		},
 		renderCall(args, theme) {

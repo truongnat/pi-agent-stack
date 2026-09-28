@@ -7,6 +7,7 @@ import {
 	shellJoin,
 	SubagentManager
 } from '../src/manager.ts'
+import { createOrchestratorTools } from '../src/tools.ts'
 import type { SubagentTask } from '../src/types.ts'
 import { fakeManager, piReply } from './fake-runner.ts'
 
@@ -103,14 +104,13 @@ test('buildPiWorkerArgs uses a session dir so SoL-Pi can start', () => {
 	const args = buildPiWorkerArgs({
 		model: 'antigravity/gemini-3.8-flash-high',
 		sessionDir: '/tmp/scratch/pi-session',
-		tools: ['read', 'grep'],
-		prompt: 'hello'
+		tools: ['read', 'grep']
 	})
 	assert.equal(args.includes('--no-session'), false)
 	const dirAt = args.indexOf('--session-dir')
 	assert.ok(dirAt >= 0)
 	assert.equal(args[dirAt + 1], '/tmp/scratch/pi-session')
-	assert.ok(args.includes('--mode'))
+	assert.equal(args[args.indexOf('--mode') + 1], 'rpc')
 	assert.ok(args.includes('antigravity/gemini-3.8-flash-high'))
 })
 
@@ -205,4 +205,47 @@ test('fallback CLIs get the full timeout before their first byte', async () => {
 	await manager.spawnSubagent({ role: 'coder', prompt: 'x' }, process.cwd())
 	assert.equal(calls[0]?.firstByteTimeoutMs, undefined)
 	assert.ok(calls.slice(1).every((c) => c.firstByteTimeoutMs === 600_000))
+})
+
+test('send_subagent_message steers the running worker over RPC', async () => {
+	const sent: object[] = []
+	let release: () => void = () => undefined
+	const { manager } = fakeManager(
+		{},
+		(request) =>
+			new Promise((resolve) => {
+				request.rpc?.onSend((cmd) => {
+					sent.push(cmd)
+					return true
+				})
+				release = () => {
+					request.rpc?.onSend(undefined)
+					void piReply('done')(request).then(resolve)
+				}
+			})
+	)
+	const { sendSubagentMessageTool } = createOrchestratorTools(manager)
+	const pending = manager.spawnSubagent({ role: 'coder', prompt: 'x' }, process.cwd())
+	await new Promise((r) => setTimeout(r, 10))
+	const id = manager.listSubagents()[0]!.id
+	const res = await sendSubagentMessageTool.execute(
+		'1',
+		{ subagent_id: id, message: 'use pnpm' },
+		new AbortController().signal,
+		() => {},
+		{} as never
+	)
+	assert.deepEqual(sent, [{ type: 'steer', message: 'use pnpm' }])
+	assert.match(JSON.stringify(res.content), /steer/i)
+	release()
+	await pending
+	const late = await sendSubagentMessageTool.execute(
+		'2',
+		{ subagent_id: id, message: 'too late' },
+		new AbortController().signal,
+		() => {},
+		{} as never
+	)
+	assert.match(JSON.stringify(late.content), /not running/i)
+	assert.equal(sent.length, 1)
 })

@@ -58,7 +58,7 @@ test('invokeDag runs in dependency order, passes outputs down, skips after a fai
 	const { fakeManager } = await import('./fake-runner.ts')
 	const started: string[] = []
 	const { manager } = fakeManager({ maxConcurrentSubagents: 4 }, async (request) => {
-		const prompt = request.args.find((a) => a.includes('Task:')) ?? ''
+		const prompt = request.rpc?.prompt ?? request.args.find((a) => a.includes('Task:')) ?? ''
 		const id = /do (\w+)/.exec(prompt)?.[1] ?? '?'
 		started.push(id)
 		if (id === 'bad') return { stdout: '', stderr: 'boom', code: 1 }
