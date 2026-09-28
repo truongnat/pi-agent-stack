@@ -33,6 +33,7 @@ import {
 	blockActive,
 	captureLive,
 	chooseAccount,
+	CorruptJsonError,
 	failedBeforeOutput,
 	httpQuota,
 	livePools,
@@ -480,6 +481,17 @@ declare global {
 
 type NotifyCtx = Pick<ExtensionContext, 'hasUI' | 'ui'>
 
+let corruptStoreReported = false
+
+/** Background sync swallows errors, but a corrupt store needs the user: say so once. */
+function reportStoreError(ctx: NotifyCtx | undefined, error: unknown): undefined {
+	if (error instanceof CorruptJsonError && ctx?.hasUI && !corruptStoreReported) {
+		corruptStoreReported = true
+		ctx.ui.notify(error.message, 'warning')
+	}
+	return undefined
+}
+
 /** Save new logins into their pools and follow refreshed tokens of known ones. */
 async function syncAccounts(ctx: NotifyCtx | undefined): Promise<AccountStore> {
 	const added: Array<{ pool: PoolId; label: string; count: number }> = []
@@ -522,13 +534,14 @@ async function rotate(
 ): Promise<Account | undefined> {
 	const previous = store[pool]?.active ? store[pool]?.accounts[store[pool].active] : undefined
 	const result = await chooseAccount(pool, store, cachedQuota)
+	// Switch the live login first: if that write fails, the store must still name the old account.
+	if (result.switchTo) writeLive(pool, result.switchTo.credential)
 	// Quota checks awaited the network; apply this pool's outcome to the latest store.
 	updateStore((current) => {
 		const entry = result.store[pool]
 		return entry ? { ...current, [pool]: entry } : current
 	})
 	if (!result.switchTo) return undefined
-	writeLive(pool, result.switchTo.credential)
 	if (ctx.hasUI) {
 		ctx.ui.notify(
 			`${prefix}${pool}: ${previous?.label ?? 'account'} ${result.reason ?? 'unavailable'} → switched to ${result.switchTo.label}`,
@@ -640,7 +653,10 @@ export default function (pi: ExtensionAPI): void {
 	let syncTimer: NodeJS.Timeout | undefined
 	const scheduleSync = () => {
 		clearTimeout(syncTimer)
-		syncTimer = setTimeout(() => void syncAccounts(accountsCtx).catch(() => {}), 800)
+		syncTimer = setTimeout(
+			() => void syncAccounts(accountsCtx).catch((e) => reportStoreError(accountsCtx, e)),
+			800
+		)
 	}
 	// Directory watches survive the atomic renames Pi and the CLIs use to rewrite credentials.
 	for (const file of watchedFiles()) {
@@ -658,8 +674,8 @@ export default function (pi: ExtensionAPI): void {
 		accountsCtx = ctx
 		const pool = poolForProvider(ctx.model?.provider, livePools())
 		if (!pool) return
-		const store = await syncAccounts(ctx).catch(() => undefined)
-		if (store) await rotate(pool, store, ctx, '').catch(() => undefined)
+		const store = await syncAccounts(ctx).catch((e) => reportStoreError(ctx, e))
+		if (store) await rotate(pool, store, ctx, '').catch((e) => reportStoreError(ctx, e))
 	})
 
 	pi.on('agent_end', async (event, ctx) => {
@@ -849,7 +865,7 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on('session_start', (_event, ctx) => {
 		accountsCtx = ctx
-		void syncAccounts(ctx).catch(() => {})
+		void syncAccounts(ctx).catch((e) => reportStoreError(ctx, e))
 		void redirectAnthropic(pi, ctx).catch(() => {})
 		void upgradeClaudeAlias(pi, ctx).catch(() => {})
 		void refreshUsageStatus(ctx).catch(() => {})
