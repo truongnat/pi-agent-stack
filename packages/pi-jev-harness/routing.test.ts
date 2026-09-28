@@ -123,3 +123,11 @@ void test('bandit routing: only a clearly better, no-more-expensive, proven arm'
 	})
 	assert.equal(explored?.key, 'b/unproven')
 })
+
+void test('tools named in the prompt are never hidden by routing', async () => {
+	const { namedInPrompt } = await import('./route.ts')
+	assert.equal(namedInPrompt('bash', 'Use the bash tool to run `echo ok`'), true)
+	assert.equal(namedInPrompt('ls', 'run ls on src/'), true)
+	assert.equal(namedInPrompt('ls', 'check the tools list'), false, 'no substring match')
+	assert.equal(namedInPrompt('read', 'already done'), false)
+})

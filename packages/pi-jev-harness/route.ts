@@ -324,16 +324,24 @@ async function prefetch(
 	return { message, note: `pre-fetched ${regions.join(', ')}` }
 }
 
-function applyToolRouting(
+/** Tools the prompt names ("use the bash tool", "run grep") are never hidden, whatever Jev says. */
+export function namedInPrompt(name: string, prompt: string): boolean {
+	const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+	return new RegExp(`(^|[^\\w])${escaped}([^\\w]|$)`, 'i').test(prompt)
+}
+
+export function applyToolRouting(
 	h: Harness,
 	pi: ExtensionAPI,
 	names: string[],
 	kind: { choice: string; confidence: number },
-	answers: Parameters<typeof noulOf>[0]
+	answers: Parameters<typeof noulOf>[0],
+	prompt = ''
 ): { keep: string[]; note: string; hideTools: boolean } {
 	const keep = names.filter(
 		(name) =>
 			THRESHOLD_ALWAYS_KEEP.includes(name) ||
+			namedInPrompt(name, prompt) ||
 			noulOf(answers, `use_${name}`) >= THRESHOLDS.toolNeeded
 	)
 	const hidden = names.filter((name) => !keep.includes(name))
@@ -400,7 +408,7 @@ async function route(
 	if (!result) return null
 	const kind = choiceOf(result.answers, 'kind')
 	const modelNote = await applyModelPolicy(h, pi, ctx, result.answers, models)
-	const toolsRouted = applyToolRouting(h, pi, names, kind, result.answers)
+	const toolsRouted = applyToolRouting(h, pi, names, kind, result.answers, prompt)
 	let note = toolsRouted.note
 	if (modelNote) note += `, ${modelNote}`
 	return { kind: kind.choice, note, hideTools: toolsRouted.hideTools }
