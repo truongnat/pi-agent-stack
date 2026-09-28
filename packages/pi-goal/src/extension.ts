@@ -1,8 +1,11 @@
 import {
 	getMarkdownTheme,
+	type AgentEndEvent,
 	type ExtensionAPI,
-	type ExtensionContext
+	type ExtensionContext,
+	type SessionEntry
 } from '@earendil-works/pi-coding-agent'
+
 import { Box, Markdown, Text } from '@earendil-works/pi-tui'
 
 import { evaluateGoalWithJev } from './evaluator.ts'
@@ -24,6 +27,25 @@ import {
 import { createGoalTools } from './tools.ts'
 import type { EvaluatorResult, GoalState, TurnMetrics } from './types.ts'
 
+type AssistantMessage = Extract<AgentEndEvent['messages'][number], { role: 'assistant' }>
+
+/**
+ * Last goal-state entry on the current branch (sibling forks keep their own). A goal that was
+ * running comes back paused: nothing is driving the loop after a restart.
+ */
+export function restoreGoal(branch: readonly SessionEntry[]): GoalState | null {
+	for (let i = branch.length - 1; i >= 0; i--) {
+		const entry = branch[i]
+		if (entry?.type !== 'custom' || entry.customType !== 'goal-state' || !entry.data) continue
+		const data = entry.data as GoalState | { cleared: true }
+		if ('cleared' in data) return null
+		return data.status === 'active'
+			? { ...data, status: 'paused', lastReason: 'Session restored; /goal resume to continue' }
+			: data
+	}
+	return null
+}
+
 export function createGoalExtension(pi: ExtensionAPI) {
 	let currentGoal: GoalState | null = null
 	let turnStartTime = 0
@@ -38,10 +60,14 @@ export function createGoalExtension(pi: ExtensionAPI) {
 	let selfReportedReason: string | undefined
 	let lastEvaluatorNote: string | undefined
 	let lastMetrics: TurnMetrics | null = null
+	/** Outcome Pi reports for the run that is about to settle (Esc shows up here as 'aborted'). */
+	let lastOutcome: 'completed' | 'aborted' | 'error' | undefined
+	let wrapUpInProgress = false
 
-	function saveState(state: GoalState) {
+	/** `null` records a clear, so a restore does not bring the old goal back. */
+	function saveState(state: GoalState | null) {
 		try {
-			pi.appendEntry('goal-state', state)
+			pi.appendEntry('goal-state', state ?? { cleared: true })
 		} catch {
 			// Ignore if appendEntry unavailable
 		}
@@ -53,6 +79,13 @@ export function createGoalExtension(pi: ExtensionAPI) {
 			ctx.ui.setStatus('goal', renderGoalFooter(currentGoal))
 		} else {
 			ctx.ui.setStatus('goal', undefined)
+		}
+	}
+
+	/** Pause/clear must stop the run in progress too, not only the next continuation. */
+	function stopRunningTurn(ctx: ExtensionContext) {
+		if (typeof ctx.isIdle === 'function' && !ctx.isIdle() && typeof ctx.abort === 'function') {
+			ctx.abort()
 		}
 	}
 
@@ -244,15 +277,14 @@ export function createGoalExtension(pi: ExtensionAPI) {
 		}
 	})
 
-	pi.on('session_start', (event: any, ctx) => {
-		const entries = event?.entries || []
-		for (let i = entries.length - 1; i >= 0; i--) {
-			const e = entries[i]
-			if (e?.type === 'custom' && e?.customType === 'goal-state' && e?.data) {
-				currentGoal = e.data
-				break
-			}
-		}
+	pi.on('session_start', (event, ctx) => {
+		isContinuationTurn = false
+		pendingWrapUp = false
+		wrapUpInProgress = false
+		lastMetrics = null
+		lastOutcome = undefined
+		currentGoal =
+			event.reason === 'new' ? null : restoreGoal(ctx.sessionManager?.getBranch?.() ?? [])
 		updateStatus(ctx)
 	})
 
@@ -266,19 +298,22 @@ export function createGoalExtension(pi: ExtensionAPI) {
 		selfReportedStatus = undefined
 		selfReportedReason = undefined
 
+		// The wrap-up turn runs with status budget_limited, so it is handled before the active check.
+		if (currentGoal && pendingWrapUp) {
+			pendingWrapUp = false
+			isContinuationTurn = false
+			return {
+				message: {
+					customType: 'goal-steering',
+					content: buildBudgetLimitPrompt(currentGoal),
+					display: false
+				}
+			}
+		}
+
 		if (currentGoal && currentGoal.status === 'active') {
 			if (isContinuationTurn) {
 				isContinuationTurn = false
-				if (pendingWrapUp) {
-					pendingWrapUp = false
-					return {
-						message: {
-							customType: 'goal-steering',
-							content: buildBudgetLimitPrompt(currentGoal),
-							display: false
-						}
-					}
-				}
 				const note = lastEvaluatorNote
 				lastEvaluatorNote = undefined
 				return {
@@ -303,17 +338,21 @@ export function createGoalExtension(pi: ExtensionAPI) {
 		return undefined
 	})
 
-	function processMessageSignals(msg: any) {
+	/**
+	 * `message_update` carries the whole partial message each time, so text is only collected
+	 * from agent_end's final messages; appending on every update duplicated it quadratically.
+	 */
+	function processMessageSignals(msg: any, collectText = false) {
 		if (!msg) return
 		if (msg.role === 'assistant' || msg.type === 'assistant') {
 			if (typeof msg.content === 'string' && msg.content.trim()) {
 				turnHasText = true
-				lastAssistantText += msg.content
+				if (collectText) lastAssistantText += msg.content
 			} else if (Array.isArray(msg.content)) {
 				for (const part of msg.content) {
 					if (part?.type === 'text' && typeof part.text === 'string' && part.text.trim()) {
 						turnHasText = true
-						lastAssistantText += part.text
+						if (collectText) lastAssistantText += part.text
 					}
 					if (part?.type === 'thinking' || typeof part?.thinking === 'string') {
 						turnHasThinking = true
@@ -341,25 +380,26 @@ export function createGoalExtension(pi: ExtensionAPI) {
 		lastToolSummary.push(`${event.toolName}(${shortInput})`)
 	})
 
-	pi.on('agent_end', (event: any, ctx) => {
-		// Ensure messages are fully inspected
-		if (Array.isArray(event?.messages)) {
-			for (const msg of event.messages) {
-				processMessageSignals(msg)
-			}
-		}
+	pi.on('agent_end', (event, ctx) => {
+		lastAssistantText = ''
+		for (const msg of event.messages) processMessageSignals(msg, true)
+		// Pi 0.87 puts usage, stop reason and error on each assistant message of this run.
+		const replies = event.messages.filter((m): m is AssistantMessage => m.role === 'assistant')
+		const last = replies.at(-1)
+		const total = replies.reduce((sum, m) => sum + (m.usage?.totalTokens ?? 0), 0)
+		const output = replies.reduce((sum, m) => sum + (m.usage?.output ?? 0), 0)
 
 		const metrics: TurnMetrics = {
-			inputTokens: event?.usage?.input ?? 0,
-			outputTokens: event?.usage?.output ?? 0,
+			inputTokens: Math.max(0, total - output),
+			outputTokens: output,
 			elapsedMs: Math.round(performance.now() - turnStartTime),
 			hasText: turnHasText,
 			hasThinking: turnHasThinking,
 			hasToolCalls: turnHasToolCalls,
 			selfReportedStatus,
 			selfReportedReason,
-			stopReason: event?.stopReason,
-			error: event?.error ? String(event.error) : undefined
+			stopReason: last?.stopReason,
+			error: last?.stopReason === 'error' ? last.errorMessage || 'model request failed' : undefined
 		}
 		lastMetrics = metrics
 
@@ -373,9 +413,18 @@ export function createGoalExtension(pi: ExtensionAPI) {
 		}
 	})
 
+	pi.on('agent_before_settle', (event) => {
+		lastOutcome = event.outcome
+		return undefined
+	})
+
 	pi.on('agent_settled', async (_event, ctx) => {
-		if (!currentGoal || currentGoal.status !== 'active') return
-		const metrics = lastMetrics || {
+		const outcome = lastOutcome
+		lastOutcome = undefined
+		const wrapUpFinished = wrapUpInProgress && currentGoal?.status === 'budget_limited'
+		wrapUpInProgress = false
+		if (!currentGoal || (currentGoal.status !== 'active' && !wrapUpFinished)) return
+		const base = lastMetrics || {
 			inputTokens: 0,
 			outputTokens: 0,
 			elapsedMs: 0,
@@ -383,6 +432,13 @@ export function createGoalExtension(pi: ExtensionAPI) {
 			hasThinking: false,
 			hasToolCalls: false
 		}
+		// Esc can land mid-tool with no aborted assistant message; the run outcome always says so.
+		const metrics: TurnMetrics =
+			outcome === 'aborted'
+				? { ...base, stopReason: 'aborted' }
+				: outcome === 'error' && !base.error
+					? { ...base, error: 'agent run failed' }
+					: base
 
 		let evaluatorResult: EvaluatorResult | undefined
 		if (metrics.selfReportedStatus === 'complete') {
@@ -434,6 +490,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 			saveState(currentGoal)
 			updateStatus(ctx)
 			pendingWrapUp = true
+			wrapUpInProgress = true
 			isContinuationTurn = true
 			lastMetrics = null
 			if (ctx.hasUI) {
@@ -522,6 +579,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 				})
 				saveState(currentGoal)
 				updateStatus(ctx)
+				stopRunningTurn(ctx)
 				sendGoalMessage(
 					ctx,
 					`⏸️ Goal paused: "${currentGoal.objective}". Use \`/goal resume\` to continue.`,
@@ -542,6 +600,7 @@ export function createGoalExtension(pi: ExtensionAPI) {
 					sameBlockerTurns: 0,
 					consecutiveErrors: 0,
 					emptyTurns: 0,
+					resumedAtTurn: currentGoal.turns,
 					lastReason: undefined
 				})
 				saveState(currentGoal)
@@ -558,7 +617,9 @@ export function createGoalExtension(pi: ExtensionAPI) {
 
 			if (input.startsWith('clear')) {
 				currentGoal = null
+				saveState(null)
 				updateStatus(ctx)
+				stopRunningTurn(ctx)
 				sendGoalMessage(ctx, '🗑️ Active goal cleared.', { action: 'clear' })
 				return
 			}
@@ -700,10 +761,15 @@ export function createGoalExtension(pi: ExtensionAPI) {
 				})
 				saveState(currentGoal)
 				updateStatus(ctx)
+				stopRunningTurn(ctx)
 				sendGoalMessage(ctx, '⏸️ Goal paused.', { action: 'pause' })
 			} else if (picked === '▶️  Resume goal') {
 				currentGoal = updateGoalState(currentGoal, {
 					status: 'active',
+					sameBlockerTurns: 0,
+					consecutiveErrors: 0,
+					emptyTurns: 0,
+					resumedAtTurn: currentGoal.turns,
 					lastReason: undefined
 				})
 				saveState(currentGoal)
@@ -752,7 +818,9 @@ export function createGoalExtension(pi: ExtensionAPI) {
 				)
 				if (ok) {
 					currentGoal = null
+					saveState(null)
 					updateStatus(ctx)
+					stopRunningTurn(ctx)
 					sendGoalMessage(ctx, '🗑️ Active goal cleared.', { action: 'clear' })
 				}
 			}

@@ -8,6 +8,15 @@ export const DEFAULT_CONFIG: Required<GoalConfig> = {
 	maxConsecutiveErrors: 3
 }
 
+/** "Tests fail (3 errors)." and "tests fail, 5 errors" are the same blocker. */
+export function normalizeBlocker(reason: string | undefined): string {
+	const words = (reason ?? '')
+		.toLowerCase()
+		.replace(/[\d\W_]+/g, ' ')
+		.trim()
+	return words || 'unknown'
+}
+
 export function applyTurnMetrics(state: GoalState, metrics: TurnMetrics): GoalState {
 	const newTokensUsed = state.tokensUsed + (metrics.inputTokens + metrics.outputTokens)
 	const newTimeUsed = state.timeUsedMs + Math.max(0, metrics.elapsedMs)
@@ -20,7 +29,7 @@ export function applyTurnMetrics(state: GoalState, metrics: TurnMetrics): GoalSt
 	let sameBlockerTurns = state.sameBlockerTurns
 	let lastBlocker = state.lastBlocker
 	if (metrics.selfReportedStatus === 'blocked') {
-		const blocker = metrics.selfReportedReason?.trim() || 'unknown'
+		const blocker = normalizeBlocker(metrics.selfReportedReason)
 		if (blocker === state.lastBlocker) {
 			sameBlockerTurns++
 		} else {
@@ -52,14 +61,15 @@ export function evaluateStopRules(
 	config: GoalConfig = {}
 ): StopDecision {
 	const effectiveConfig = { ...DEFAULT_CONFIG, ...config }
+	const evaluatorRejected =
+		metrics.selfReportedStatus === 'complete' &&
+		evaluatorResult !== undefined &&
+		!evaluatorResult.met &&
+		evaluatorResult.confidence >= 0.6
 
 	// 1. Esc / user abort
 	if (metrics.stopReason === 'aborted') {
-		return {
-			shouldStop: true,
-			newStatus: 'paused',
-			reason: 'Goal paused by user'
-		}
+		return { shouldStop: true, newStatus: 'paused', reason: 'Goal paused by user' }
 	}
 
 	// 2. Wrap-up turn finished
@@ -71,22 +81,7 @@ export function evaluateStopRules(
 		}
 	}
 
-	// 3. Model reported blocked (allow grace attempts for self-healing)
-	if (metrics.selfReportedStatus === 'blocked') {
-		if (state.sameBlockerTurns >= effectiveConfig.maxBlockerTurns) {
-			return {
-				shouldStop: true,
-				newStatus: 'blocked',
-				reason: metrics.selfReportedReason || 'Model reported persistent blocker'
-			}
-		}
-		return {
-			shouldStop: false,
-			reason: `Obstacle reported: "${metrics.selfReportedReason}". Attempting alternative approach (attempt ${state.sameBlockerTurns}/${effectiveConfig.maxBlockerTurns})...`
-		}
-	}
-
-	// 4. Model reported paused
+	// 3. Model asked to pause, or finished and nothing disagrees
 	if (metrics.selfReportedStatus === 'paused') {
 		return {
 			shouldStop: true,
@@ -94,17 +89,7 @@ export function evaluateStopRules(
 			reason: metrics.selfReportedReason || 'Model requested pause'
 		}
 	}
-
-	// 5. Model self-reported complete
-	if (metrics.selfReportedStatus === 'complete') {
-		// If Jev evaluator disagrees with high confidence, do not stop!
-		if (evaluatorResult && !evaluatorResult.met && evaluatorResult.confidence >= 0.6) {
-			return {
-				shouldStop: false,
-				reason: `JEV evaluator determined goal is not met yet: ${evaluatorResult.reason}`
-			}
-		}
-
+	if (metrics.selfReportedStatus === 'complete' && !evaluatorRejected) {
 		return {
 			shouldStop: true,
 			newStatus: 'complete',
@@ -112,23 +97,25 @@ export function evaluateStopRules(
 		}
 	}
 
-	// 6. Turn error (auto-recover up to maxConsecutiveErrors before halting)
-	if (metrics.error) {
-		const maxErrors = effectiveConfig.maxConsecutiveErrors
-		if ((state.consecutiveErrors || 0) >= maxErrors) {
-			return {
-				shouldStop: true,
-				newStatus: 'blocked',
-				reason: `Turn failed after ${state.consecutiveErrors} consecutive errors: ${metrics.error}`
-			}
-		}
+	// 4. Hard stops. These run before any "keep going" answer, so a model that keeps
+	// claiming completion or reporting new blockers still hits the caps.
+	if (
+		metrics.selfReportedStatus === 'blocked' &&
+		state.sameBlockerTurns >= effectiveConfig.maxBlockerTurns
+	) {
 		return {
-			shouldStop: false,
-			reason: `Turn error encountered (${state.consecutiveErrors}/${maxErrors}): ${metrics.error}. Attempting automatic recovery...`
+			shouldStop: true,
+			newStatus: 'blocked',
+			reason: metrics.selfReportedReason || 'Model reported persistent blocker'
 		}
 	}
-
-	// 7. No progress for maxEmptyTurns consecutive turns
+	if (metrics.error && (state.consecutiveErrors || 0) >= effectiveConfig.maxConsecutiveErrors) {
+		return {
+			shouldStop: true,
+			newStatus: 'blocked',
+			reason: `Turn failed after ${state.consecutiveErrors} consecutive errors: ${metrics.error}`
+		}
+	}
 	if (state.emptyTurns >= effectiveConfig.maxEmptyTurns) {
 		return {
 			shouldStop: true,
@@ -136,8 +123,6 @@ export function evaluateStopRules(
 			reason: `No progress made for ${state.emptyTurns} consecutive turns`
 		}
 	}
-
-	// 8. Token budget reached (trigger 1 wrap-up turn)
 	if (state.tokenBudget && state.tokensUsed >= state.tokenBudget) {
 		return {
 			shouldStop: false,
@@ -146,9 +131,7 @@ export function evaluateStopRules(
 			reason: `Token budget limit reached (${state.tokensUsed}/${state.tokenBudget})`
 		}
 	}
-
-	// 9. Turn cap reached
-	if (state.turns >= effectiveConfig.maxTurns) {
+	if (state.turns - (state.resumedAtTurn ?? 0) >= effectiveConfig.maxTurns) {
 		return {
 			shouldStop: true,
 			newStatus: 'paused',
@@ -156,7 +139,24 @@ export function evaluateStopRules(
 		}
 	}
 
-	return {
-		shouldStop: false
+	// 5. Keep going, with a note for the next turn
+	if (evaluatorRejected) {
+		return {
+			shouldStop: false,
+			reason: `JEV evaluator determined goal is not met yet: ${evaluatorResult.reason}`
+		}
 	}
+	if (metrics.selfReportedStatus === 'blocked') {
+		return {
+			shouldStop: false,
+			reason: `Obstacle reported: "${metrics.selfReportedReason}". Attempting alternative approach (attempt ${state.sameBlockerTurns}/${effectiveConfig.maxBlockerTurns})...`
+		}
+	}
+	if (metrics.error) {
+		return {
+			shouldStop: false,
+			reason: `Turn error encountered (${state.consecutiveErrors}/${effectiveConfig.maxConsecutiveErrors}): ${metrics.error}. Attempting automatic recovery...`
+		}
+	}
+	return { shouldStop: false }
 }

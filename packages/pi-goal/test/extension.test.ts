@@ -1,7 +1,39 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { createGoalExtension } from '../src/extension.ts'
+import type { AgentEndEvent, ExtensionAPI } from '@earendil-works/pi-coding-agent'
+import { createGoalExtension, restoreGoal } from '../src/extension.ts'
+
+type Reply = Extract<AgentEndEvent['messages'][number], { role: 'assistant' }>
+
+/** An agent_end exactly as Pi 0.87 emits it: usage and stop reason live on each reply. */
+function agentEnd(
+	replies: Array<{
+		input: number
+		output: number
+		stopReason?: Reply['stopReason']
+		error?: string
+	}>
+): AgentEndEvent {
+	const messages = replies.map((r): Reply => ({
+		role: 'assistant',
+		content: [{ type: 'text', text: 'working' }],
+		api: 'anthropic-messages',
+		provider: 'anthropic',
+		model: 'test',
+		usage: {
+			input: r.input,
+			output: r.output,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: r.input + r.output,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+		},
+		stopReason: r.stopReason ?? 'stop',
+		...(r.error ? { errorMessage: r.error } : {}),
+		timestamp: 0
+	}))
+	return { type: 'agent_end', messages } satisfies AgentEndEvent
+}
 
 function createMockPi() {
 	const listeners: Record<string, Function[]> = {}
@@ -99,7 +131,7 @@ test('createGoalExtension lifecycle: start goal, steering prompt, complete stop'
 
 	// 4. agent_end
 	const agentEndHandlers = mock.listeners.agent_end || []
-	agentEndHandlers[0]?.({ usage: { input: 1200, output: 400 } }, mockCtx)
+	agentEndHandlers[0]?.(agentEnd([{ input: 1200, output: 400 }]), mockCtx)
 
 	// 5. agent_settled terminates goal
 	const settledHandlers = mock.listeners.agent_settled || []
@@ -132,4 +164,96 @@ test('sendLoopMessage queues followUp/steer when agent is not idle (reload overl
 	await mock.commands.goal.handler('inject mid-stream note', injectCtx)
 	assert.equal(mock.sentOptions.at(-1)?.deliverAs, 'steer')
 	assert.ok(ext.getGoal())
+})
+
+function goalCtx(opts: { idle?: boolean } = {}) {
+	const calls = { abort: 0, notices: [] as string[] }
+	const ctx = {
+		hasUI: true,
+		isIdle: () => opts.idle ?? true,
+		abort: () => {
+			calls.abort++
+		},
+		sessionManager: { getBranch: () => [] },
+		ui: {
+			setStatus: () => {},
+			notify: (m: string) => calls.notices.push(m),
+			select: async () => 'Cancel',
+			input: async () => '',
+			confirm: async () => true
+		}
+	}
+	return { ctx, calls }
+}
+
+async function settle(mock: ReturnType<typeof createMockPi>, ctx: unknown, outcome: string) {
+	for (const h of mock.listeners.agent_before_settle || []) h({ outcome }, ctx)
+	for (const h of mock.listeners.agent_settled || []) await h({}, ctx)
+}
+
+test('Esc stops the goal: an aborted run pauses it and sends no continuation', async () => {
+	for (const stopReason of ['aborted', 'toolUse'] as const) {
+		const mock = createMockPi()
+		const ext = createGoalExtension(mock.pi)
+		const { ctx } = goalCtx()
+		await mock.commands.goal.handler('Refactor billing', ctx)
+		const sent = mock.sentMessages.length
+		mock.listeners.agent_end?.[0]?.(agentEnd([{ input: 500, output: 100, stopReason }]), ctx)
+		await settle(mock, ctx, 'aborted')
+		assert.equal(ext.getGoal()?.status, 'paused', stopReason)
+		assert.equal(mock.sentMessages.length, sent, `no "Continue" after Esc (${stopReason})`)
+	}
+})
+
+test('/goal pause and /goal clear abort the run in progress', async () => {
+	const mock = createMockPi()
+	const ext = createGoalExtension(mock.pi)
+	const { ctx, calls } = goalCtx({ idle: false })
+	await mock.commands.goal.handler('Refactor billing', ctx)
+	await mock.commands.goal.handler('pause', ctx)
+	assert.equal(calls.abort, 1)
+	const sent = mock.sentMessages.length
+	await settle(mock, ctx, 'aborted')
+	assert.equal(ext.getGoal()?.status, 'paused')
+	assert.equal(mock.sentMessages.length, sent)
+
+	await mock.commands.goal.handler('clear', ctx)
+	assert.equal(calls.abort, 2)
+	assert.deepEqual(mock.customEntries.at(-1), { type: 'goal-state', data: { cleared: true } })
+})
+
+test('tokens come from the replies, and the budget runs one wrap-up turn then stops', async () => {
+	const mock = createMockPi()
+	const ext = createGoalExtension(mock.pi)
+	const { ctx } = goalCtx()
+	await mock.commands.goal.handler('Refactor billing', ctx)
+	await mock.commands.goal.handler('budget 1000', ctx)
+	mock.listeners.before_agent_start?.[0]?.({ prompt: 'x' }, ctx)
+	mock.listeners.agent_end?.[0]?.(
+		agentEnd([
+			{ input: 900, output: 100 },
+			{ input: 300, output: 50 }
+		]),
+		ctx
+	)
+	assert.equal(ext.getGoal()?.tokensUsed, 1350)
+	await settle(mock, ctx, 'completed')
+	assert.equal(ext.getGoal()?.status, 'budget_limited')
+
+	const wrap = mock.listeners.before_agent_start?.[0]?.({ prompt: 'x' }, ctx)
+	assert.equal(wrap?.message?.customType, 'goal-steering')
+	assert.match(wrap?.message?.content ?? '', /budget/i)
+	mock.listeners.agent_end?.[0]?.(agentEnd([{ input: 100, output: 20 }]), ctx)
+	const sent = mock.sentMessages.length
+	await settle(mock, ctx, 'completed')
+	assert.equal(ext.getGoal()?.status, 'budget_limited')
+	assert.equal(mock.sentMessages.length, sent, 'no turn after the wrap-up')
+})
+
+test('restore takes the branch entry, pauses a running goal, and honours clear', () => {
+	const goal = { id: 'g', objective: 'o', status: 'active', tokensUsed: 5, turns: 2 }
+	const entry = (data: unknown) => ({ type: 'custom', customType: 'goal-state', data }) as never
+	assert.equal(restoreGoal([entry(goal)])?.status, 'paused')
+	assert.equal(restoreGoal([entry(goal), entry({ cleared: true })]), null)
+	assert.equal(restoreGoal([]), null)
 })

@@ -13,6 +13,8 @@ export interface GoalState {
 	consecutiveErrors?: number
 	lastReason?: string
 	lastBlocker?: string
+	/** Turn count when the goal was last resumed; the turn cap counts from here. */
+	resumedAtTurn?: number
 	createdAt: number
 	updatedAt: number
 }

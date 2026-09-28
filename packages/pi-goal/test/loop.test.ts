@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { applyTurnMetrics, evaluateStopRules } from '../src/loop.ts'
+import { applyTurnMetrics, evaluateStopRules, normalizeBlocker } from '../src/loop.ts'
 import { createGoal } from '../src/state.ts'
 import type { TurnMetrics } from '../src/types.ts'
 
@@ -198,4 +198,28 @@ test('evaluateStopRules gives grace period for self-reported blockers before hal
 
 	assert.equal(decision2.shouldStop, true)
 	assert.equal(decision2.newStatus, 'blocked')
+})
+
+test('turn cap still stops a model that keeps claiming completion the evaluator rejects', () => {
+	const state = { ...createGoal('Ship it'), turns: 100 }
+	const decision = evaluateStopRules(
+		state,
+		{
+			inputTokens: 0,
+			outputTokens: 0,
+			elapsedMs: 0,
+			hasText: true,
+			hasThinking: false,
+			hasToolCalls: true,
+			selfReportedStatus: 'complete',
+			selfReportedReason: 'Completed all 4 requirements'
+		},
+		{ met: false, confidence: 0.9, reason: 'not yet' }
+	)
+	assert.equal(decision.shouldStop, true)
+	assert.equal(decision.newStatus, 'paused')
+})
+
+test('reworded blockers count as the same blocker', () => {
+	assert.equal(normalizeBlocker('Tests fail (3 errors).'), normalizeBlocker('tests fail, 5 errors'))
 })

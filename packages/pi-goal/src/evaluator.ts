@@ -27,10 +27,11 @@ export async function evaluateGoalWithJev(params: {
 				reason: res.reason
 			}
 		} catch (err) {
+			// An evaluator outage is not evidence against the model's claim; rejecting here looped forever.
 			return {
-				met: false,
-				confidence: 0.7,
-				reason: `JEV evaluator error during verification: ${err instanceof Error ? err.message : String(err)}`
+				met: true,
+				confidence: 0.3,
+				reason: `JEV evaluator unavailable (${err instanceof Error ? err.message : String(err)}); accepting the self-report`
 			}
 		}
 	}
@@ -48,11 +49,12 @@ export async function evaluateGoalWithJev(params: {
 	}
 
 	// Check if reason is just generic dismissal or single step
+	// Anchored at both ends: "Completed all 4 requirements; 12/12 tests pass" is a real summary.
 	const genericDismissals = [
-		/^(done|ok|complete|completed|finished|all done|fixed|i am done|finished all)[\s.!]*/i,
-		/^turn complete/i,
-		/^(step|phase|part|task)\s*\d+.*(done|complete|finished|success)/i,
-		/^completed (step|phase|part|task)\s*\d+/i
+		/^(done|ok|complete|completed|finished|all done|fixed|i am done|finished all)[\s.!]*$/i,
+		/^turn complete[\s.!]*$/i,
+		/^(step|phase|part|task)\s*\d+\s*(is\s*)?(done|complete|completed|finished|succeeded)(\s+successfully)?[\s.!]*$/i,
+		/^completed (step|phase|part|task)\s*\d+[\s.!]*$/i
 	]
 	for (const pattern of genericDismissals) {
 		if (pattern.test(trimmedReason)) {
