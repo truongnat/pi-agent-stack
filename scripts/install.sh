@@ -52,9 +52,12 @@ rsync -a --delete \
 	--exclude '/packages/pi-native-bridge/native' \
 	"$ROOT_DIR/" "$AGENT_DIR/pi-agent-stack/"
 
-# Native Rust core (pi-core): installs the Rust toolchain when missing, then builds into the
-# staged crate's own target dir. --target-dir overrides any global CARGO_TARGET_DIR, because the
-# loader looks here. PI_SKIP_NATIVE=1 skips it and leaves the TypeScript fallbacks in use.
+# Native Rust core (pi-core Node-API addon). Downloads the prebuilt release asset for this
+# platform (checked against its .sha256 and loaded with node before use). Without one, or with
+# PI_NATIVE_FROM_SOURCE=1, it is built: the Rust toolchain is installed when missing and
+# --target-dir overrides any global CARGO_TARGET_DIR. PI_SKIP_NATIVE=1 keeps the TS fallbacks.
+# shellcheck source=scripts/native-platform.sh
+source "$ROOT_DIR/scripts/native-platform.sh"
 ensure_cargo() {
 	if command -v cargo >/dev/null 2>&1; then
 		return 0
@@ -67,11 +70,35 @@ ensure_cargo() {
 }
 CRATES_DIR="$AGENT_DIR/pi-agent-stack/crates"
 ADDON_DIR="$AGENT_DIR/pi-agent-stack/packages/pi-native-bridge/native"
-if [[ "${PI_SKIP_NATIVE:-0}" != 1 ]]; then
+NATIVE_TAG="native-v$(native_version "$ROOT_DIR")"
+NATIVE_ASSET="pi_core-$(native_platform).node"
+NATIVE_URL="${PI_NATIVE_BASE_URL:-https://github.com/${PI_NATIVE_REPO:-truongnat/pi-agent-stack}/releases/download/$NATIVE_TAG}"
+
+download_addon() {
+	local tmp expected
+	tmp="$(mktemp -d)"
+	curl -fsSL "$NATIVE_URL/$NATIVE_ASSET.sha256" -o "$tmp/sha" || return 1
+	expected="$(tr -d '[:space:]' <"$tmp/sha")"
+	if [[ -f "$ADDON_DIR/pi_core.node" && "$(sha256_of "$ADDON_DIR/pi_core.node")" == "$expected" ]]; then
+		echo "pi-core addon $NATIVE_TAG ($NATIVE_ASSET) already installed"
+		return 0
+	fi
+	echo "Downloading pi-core addon $NATIVE_TAG ($NATIVE_ASSET)..."
+	curl -fsSL "$NATIVE_URL/$NATIVE_ASSET" -o "$tmp/addon" || return 1
+	if [[ "$(sha256_of "$tmp/addon")" != "$expected" ]]; then
+		echo "warning: $NATIVE_ASSET checksum mismatch; building from source instead" >&2
+		return 1
+	fi
+	native_loads "$tmp/addon" || return 1
+	mkdir -p "$ADDON_DIR"
+	mv "$tmp/addon" "$ADDON_DIR/pi_core.node"
+}
+
+build_addon() {
 	ensure_cargo
 	echo "Building native Rust core engine (pi-core Node-API addon)..."
 	cargo build --release -p pi-core-napi --manifest-path "$CRATES_DIR/Cargo.toml" --target-dir "$CRATES_DIR/target"
-	addon=""
+	local addon=""
 	for name in libpi_core_napi.so libpi_core_napi.dylib pi_core_napi.dll; do
 		[[ -f "$CRATES_DIR/target/release/$name" ]] && addon="$CRATES_DIR/target/release/$name"
 	done
@@ -81,6 +108,13 @@ if [[ "${PI_SKIP_NATIVE:-0}" != 1 ]]; then
 	fi
 	mkdir -p "$ADDON_DIR"
 	cp "$addon" "$ADDON_DIR/pi_core.node"
+}
+
+if [[ "${PI_SKIP_NATIVE:-0}" != 1 ]]; then
+	if [[ "${PI_NATIVE_FROM_SOURCE:-0}" == 1 ]] || ! download_addon; then
+		[[ "${PI_NATIVE_FROM_SOURCE:-0}" == 1 ]] || echo "No prebuilt $NATIVE_ASSET for $NATIVE_TAG; building from source"
+		build_addon
+	fi
 fi
 
 # Link workspaces and dependencies
