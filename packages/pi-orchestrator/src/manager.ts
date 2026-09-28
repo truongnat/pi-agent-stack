@@ -105,6 +105,15 @@ export function fallbackWorkers(
 	]
 }
 
+/**
+ * Workers have no UI to ask "JEV unavailable, regex only?". When the user already said yes in
+ * this session (jev-harness / typesafe gate share the answer), workers inherit it.
+ */
+export function workerEnv(): Record<string, string> {
+	const consent = (globalThis as { piJevRegexOnly?: boolean }).piJevRegexOnly === true
+	return { PI_SUBAGENT_WORKER: '1', ...(consent ? { PI_JEV_REGEX_ONLY: '1' } : {}) }
+}
+
 export class SubagentManager {
 	private instances = new Map<string, SubagentInstance>()
 	private dispatchedProviderCounts: Record<string, number> = {}
@@ -683,7 +692,7 @@ export class SubagentManager {
 				signal: options.signal,
 				onChunk: handlePiJsonChunk,
 				maxTimeoutMs: 900_000,
-				env: { PI_SUBAGENT_WORKER: '1' },
+				env: workerEnv(),
 				instance
 			})
 			if (!assembledAssistant && piResult.stdout) {
@@ -747,7 +756,7 @@ export class SubagentManager {
 						signal: options.signal,
 						onChunk: handlePiJsonChunk,
 						maxTimeoutMs: 900_000,
-						env: { PI_SUBAGENT_WORKER: '1' },
+						env: workerEnv(),
 						instance
 					})
 					if (piResult.code === 0) {
