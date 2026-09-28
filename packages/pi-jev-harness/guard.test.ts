@@ -1,7 +1,4 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { test } from 'node:test'
 import type { ExtensionContext, ToolCallEvent } from '@earendil-works/pi-coding-agent'
 
@@ -115,19 +112,19 @@ function fixture(opts: { hasUI: boolean; answer?: boolean }): Fixture {
 	return { h, ctx, asked, jevCalls: () => calls }
 }
 
-/** Runs `fn` with no Jev key reachable (empty HOME, no env key). */
+/**
+ * Runs `fn` with no Jev key in the environment. The ~/.keys/jev.env fallback is kept out by the
+ * `test` script, which runs with a temporary HOME (Bun reads HOME once at startup).
+ */
 async function withoutJevKey(fn: () => Promise<void>, extraEnv: Record<string, string> = {}) {
-	const saved = { HOME: process.env.HOME, JEV_API_KEY: process.env.JEV_API_KEY }
-	process.env.HOME = mkdtempSync(join(tmpdir(), 'jev-guard-'))
+	const saved = process.env.JEV_API_KEY
 	delete process.env.JEV_API_KEY
 	Object.assign(process.env, extraEnv)
 	try {
 		await fn()
 	} finally {
-		for (const [k, v] of Object.entries(saved)) {
-			if (v === undefined) delete process.env[k]
-			else process.env[k] = v
-		}
+		if (saved === undefined) delete process.env.JEV_API_KEY
+		else process.env.JEV_API_KEY = saved
 		for (const k of Object.keys(extraEnv)) delete process.env[k]
 	}
 }
@@ -148,6 +145,7 @@ void test('no key + user declines, or no UI: the run stops', async () => {
 		const declined = fixture({ hasUI: true, answer: false })
 		const r1 = await onToolCall(declined.h, bash('bun test'), declined.ctx)
 		assert.deepEqual([r1?.block, r1?.terminate], [true, true])
+		assert.match(r1?.reason ?? '', /No JEV_API_KEY/)
 
 		const headless = fixture({ hasUI: false })
 		const r2 = await onToolCall(headless.h, bash('bun test'), headless.ctx)

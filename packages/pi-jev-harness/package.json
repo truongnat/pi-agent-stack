@@ -19,8 +19,8 @@
 		"format": "prettier --write .",
 		"format:check": "prettier --check .",
 		"typecheck": "tsc --noEmit",
-		"test": "bun test *.test.ts",
-		"check": "bun run typecheck && bun run lint && bun run format:check && bun test *.test.ts",
+		"test": "HOME=\"$(mktemp -d)\" bun test *.test.ts",
+		"check": "bun run typecheck && bun run lint && bun run format:check && bun run test",
 		"bench": "node bench.ts"
 	},
 	"pi": {
