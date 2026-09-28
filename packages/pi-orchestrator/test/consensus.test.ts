@@ -68,3 +68,14 @@ test('the primary does not vote for itself; a reviewer FAIL is not outvoted', ()
 	assert.equal(nobody.verdict, 'disputed')
 	assert.equal(nobody.totalCount, 0)
 })
+
+test('custom reviewer roles vote by VERDICT too, so the coder cannot approve itself', () => {
+	const coder = result('coder', 'Implemented auth middleware.')
+	const security = {
+		...result('security', 'Token logged in plain text.\nVERDICT: FAIL'),
+		id: 'sec'
+	}
+	const c = evaluateConsensus([coder, security], [], { verifierIds: ['sec'] })
+	assert.equal(c.verdict, 'rejected')
+	assert.deepEqual([c.passedCount, c.totalCount], [0, 1])
+})

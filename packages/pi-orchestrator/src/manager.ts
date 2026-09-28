@@ -80,6 +80,8 @@ export type WorkerRequest = {
 	signal?: AbortSignal | undefined
 	onChunk?: ((chunk: string) => void) | undefined
 	maxTimeoutMs: number
+	/** Silence allowed before the first output byte (default 3 min). */
+	firstByteTimeoutMs?: number
 	env?: Record<string, string>
 	instance?: SubagentInstance
 }
@@ -133,7 +135,8 @@ export class SubagentManager {
 					r.onChunk,
 					r.maxTimeoutMs,
 					r.env,
-					r.instance
+					r.instance,
+					r.firstByteTimeoutMs
 				))
 		this.config = { ...loadOrchestratorConfig(), ...config }
 		this.scratchpadRoot =
@@ -428,12 +431,13 @@ export class SubagentManager {
 		onChunk?: (chunk: string) => void,
 		maxTimeoutMs = 600_000,
 		extraEnv: Record<string, string> = {},
-		instance?: SubagentInstance
+		instance?: SubagentInstance,
+		firstByteTimeoutMs = 180_000
 	): Promise<{ stdout: string; stderr: string; code: number | null }> {
 		const envPath = `${homedir()}/.bun/bin:${homedir()}/.local/bin:${process.env.PATH || ''}`
 		const env = { ...process.env, PATH: envPath, ...extraEnv }
 		// 3 min until first byte; 8 min of silence after the worker has streamed (Codex thinking gaps).
-		let idleTimeoutMs = 180_000
+		let idleTimeoutMs = firstByteTimeoutMs
 
 		return new Promise((resolve) => {
 			try {
@@ -792,6 +796,8 @@ export class SubagentManager {
 					signal: options.signal,
 					onChunk: handlePlainChunk,
 					maxTimeoutMs: 600_000,
+					// `claude -p` / `agy --prompt` print nothing until they finish.
+					firstByteTimeoutMs: 600_000,
 					instance
 				})
 				const ok =
@@ -893,7 +899,7 @@ export class SubagentManager {
 		// 2. Spawn independent verification tasks in parallel
 		const verifyTasks: SubagentTask[] = reviewerRoles.map((role) => ({
 			role,
-			prompt: `Review and verify the following output produced by [${primaryTask.role}]:\n\n${primaryResult.output}`,
+			prompt: `Review and verify the following output produced by [${primaryTask.role}]:\n\n${primaryResult.output}\n\nEnd your reply with exactly one line: \`VERDICT: PASS\` or \`VERDICT: FAIL\`.`,
 			name: `${role}_consensus_check`
 		}))
 
@@ -902,7 +908,11 @@ export class SubagentManager {
 		// 3. Evaluate consensus across all participating agents
 		const allResults = [primaryResult, ...verificationResults]
 		const availableProviders = getAvailableProviders()
-		const consensus = evaluateConsensus(allResults, availableProviders, options.consensusOpts)
+		// Every verification task votes by its VERDICT line, whatever its role name.
+		const consensus = evaluateConsensus(allResults, availableProviders, {
+			...options.consensusOpts,
+			verifierIds: verificationResults.map((r) => r.id)
+		})
 
 		return {
 			primaryResult,

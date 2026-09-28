@@ -39,12 +39,15 @@ export interface ConsensusOptions {
 	minDiverseProviders?: number
 	/** Require 100% test pass if any tester agent participated */
 	requireTestPassing?: boolean
+	/** Results that vote by VERDICT line regardless of role (custom reviewer_roles). */
+	verifierIds?: string[]
 }
 
 const DEFAULT_OPTIONS: Required<ConsensusOptions> = {
 	approvalThreshold: 0.66,
 	minDiverseProviders: 2,
-	requireTestPassing: true
+	requireTestPassing: true,
+	verifierIds: []
 }
 
 export const VERIFIER_ROLES = new Set(['reviewer', 'tester'])
@@ -59,7 +62,10 @@ export function parseVerdict(output: string): 'PASS' | 'FAIL' | undefined {
 /**
  * Extracts a structured vote from a subagent execution result.
  */
-export function extractVoteFromResult(result: SubagentExecutionResult): ConsensusVote {
+export function extractVoteFromResult(
+	result: SubagentExecutionResult,
+	isVerifier = VERIFIER_ROLES.has(result.role)
+): ConsensusVote {
 	const output = result.output || ''
 	const error = result.error || ''
 
@@ -76,7 +82,7 @@ export function extractVoteFromResult(result: SubagentExecutionResult): Consensu
 
 	// Reviewers and testers end with `VERDICT: PASS|FAIL` (their system prompts ask for it).
 	// Keyword scans misread "token", "password" or "unclean", so without that line they abstain.
-	if (VERIFIER_ROLES.has(result.role)) {
+	if (isVerifier) {
 		const verdict = parseVerdict(output)
 		return {
 			subagentId: result.id,
@@ -128,15 +134,17 @@ export function evaluateConsensus(
 		}
 	}
 
-	const votes = results.map(extractVoteFromResult)
+	const isVerifier = (r: SubagentExecutionResult) =>
+		VERIFIER_ROLES.has(r.role) || options.verifierIds.includes(r.id)
+	const votes = results.map((r) => extractVoteFromResult(r, isVerifier(r)))
 	// When verifiers took part, the primary's own "I finished" is not a vote on its work; a
 	// failed or killed run still counts against.
-	const hasVerifiers = results.some((r) => VERIFIER_ROLES.has(r.role))
+	const hasVerifiers = results.some(isVerifier)
 	const counted = votes.filter(
 		(v, i) =>
 			!v.abstained &&
 			(!hasVerifiers ||
-				VERIFIER_ROLES.has(v.role) ||
+				(results[i] !== undefined && isVerifier(results[i])) ||
 				results[i]?.status === 'failed' ||
 				results[i]?.status === 'killed')
 	)

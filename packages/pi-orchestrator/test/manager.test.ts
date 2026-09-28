@@ -199,3 +199,10 @@ test('workers inherit the regex-only consent given in the parent session', async
 	assert.equal(calls[1]?.env?.PI_JEV_REGEX_ONLY, '1')
 	shared.piJevRegexOnly = undefined
 })
+
+test('fallback CLIs get the full timeout before their first byte', async () => {
+	const { manager, calls } = fakeManager({}, async () => ({ stdout: '', stderr: 'boom', code: 1 }))
+	await manager.spawnSubagent({ role: 'coder', prompt: 'x' }, process.cwd())
+	assert.equal(calls[0]?.firstByteTimeoutMs, undefined)
+	assert.ok(calls.slice(1).every((c) => c.firstByteTimeoutMs === 600_000))
+})
