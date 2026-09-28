@@ -22,6 +22,7 @@ import { Box, Markdown, Text } from '@earendil-works/pi-tui'
 import { generateAdvisorBriefing, type AdvisorBriefingResult } from './advisor.ts'
 import { compactHistory, verifyCachePrefixIntegrity } from './compactor.ts'
 import { applyThresholdOverrides, ask, choiceOf, goalQuestions, noulOf } from './jev.ts'
+import { automatic } from './model-route.ts'
 import { onBeforeAgentStart } from './route.ts'
 import { onToolCall, onToolResult, withReminder } from './tools.ts'
 import { active, type Config, type Harness, type Stats } from './types.ts'
@@ -46,15 +47,10 @@ const DEFAULTS: Config = {
 	routeMinSchemaChars: 4500,
 	prefetchMaxCandidates: 20,
 	compactionReserveTokens: 32768,
-	contextCompaction: true,
-	compactThresholdChars: 24_000,
 	subscriptionRouting: true,
 	subscriptionMaxLatencyMs: 20_000,
 	subscriptionStatusTtlMs: 5 * 60_000,
-	advisor: true,
-	advisorMaxTokens: 280,
-	advisorSkills: true,
-	advisorVerification: true
+	advisor: true
 }
 
 const CONFIG_FILE = join(homedir(), '.pi', 'agent', 'jev-harness.json')
@@ -384,6 +380,13 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on('agent_end', (_event, ctx) => {
 		h.status(ctx, undefined)
+		// Routing is per turn: put back the model and thinking level the user had.
+		const model = h.restoreModel
+		const thinking = h.restoreThinking
+		h.restoreModel = undefined
+		h.restoreThinking = undefined
+		if (model) void automatic(() => pi.setModel(model))
+		if (thinking) void automatic(() => pi.setThinkingLevel(thinking))
 		if (!h.allTools) return
 		pi.setActiveTools(h.allTools)
 		h.allTools = null

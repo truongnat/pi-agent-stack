@@ -22,15 +22,11 @@
 	"subscriptionMaxLatencyMs": 20000,
 	"subscriptionStatusTtlMs": 300000,
 	"advisor": true,
-	"advisorMaxTokens": 280,
-	"advisorSkills": true,
-	"advisorVerification": true,
 	"thresholds": {
 		"toolNeeded": 0.35,
 		"prefetchFile": 0.55,
 		"dropResult": 0.3,
 		"stuck": 0.7,
-		"secrets": 0.7,
 		"askConfidence": 0.5
 	}
 }

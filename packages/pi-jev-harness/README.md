@@ -79,10 +79,7 @@ Optional `~/.pi/agent/jev-harness.json`:
 	"routeMinHiddenTools": 2,
 	"routeMinSchemaChars": 4500,
 	"compactionReserveTokens": 16384,
-	"advisor": true,
-	"advisorMaxTokens": 150,
-	"advisorSkills": true,
-	"advisorVerification": true
+	"advisor": true
 }
 ```
 

@@ -282,9 +282,11 @@ export async function onToolResult(h: Harness, event: ToolResultEvent, ctx: Exte
 			// Fast offline trimming fallback for large tool outputs to prevent context bloat
 			if (full.length > Math.max(h.config.trimMinChars, 3500)) {
 				const saved = spill(full, event.toolName)
-				const cut = full.length - h.config.keepHeadChars
+				// Keep the tail too: test summaries and final errors live at the end of the output.
+				const tailChars = Math.min(1000, Math.floor(h.config.keepHeadChars / 2))
+				const cut = full.length - h.config.keepHeadChars - tailChars
 				const recover = saved ? spillHint(saved) : 'Re-run with a narrower filter if you need them.'
-				const replacement = `${full.slice(0, h.config.keepHeadChars)}\n[ ✂ JEV Trimmed: cut ${cut} chars to protect context window. ${recover} ]`
+				const replacement = `${full.slice(0, h.config.keepHeadChars)}\n[ ✂ JEV Trimmed: cut ${cut} chars from the middle to protect context window. ${recover} ]\n${full.slice(-tailChars)}`
 				h.stats.trimmed++
 				h.stats.charsSaved += full.length - replacement.length
 				if (h.config.mode !== 'on') return undefined

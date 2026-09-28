@@ -11,7 +11,7 @@ import {
 	redactSubscriptionLog,
 	subscriptionAllowedForKind
 } from './subscription.ts'
-import type { Harness } from './types.ts'
+import type { Harness, ThinkingLevel } from './types.ts'
 
 export { routeModels, toRoutingModel } from './model-candidates.ts'
 
@@ -67,6 +67,7 @@ export async function automatic<T>(change: () => T | Promise<T>): Promise<T> {
 }
 
 async function setRoutedModel(
+	h: Harness,
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 	candidate: RoutingModel
@@ -75,7 +76,16 @@ async function setRoutedModel(
 		candidate.provider,
 		candidate.key.slice(candidate.provider.length + 1)
 	)
-	return !!(model && (await automatic(() => pi.setModel(model))))
+	if (!model) return false
+	// The user's model comes back at agent_end; a routed switch lasts one turn.
+	h.restoreModel ??= ctx.model
+	return await automatic(() => pi.setModel(model))
+}
+
+/** Thinking changes are per turn too; remember the level to restore at agent_end. */
+function setTurnThinking(h: Harness, pi: ExtensionAPI, level: ThinkingLevel): void {
+	h.restoreThinking ??= pi.getThinkingLevel()
+	void automatic(() => pi.setThinkingLevel(level))
 }
 
 async function forceExitSubscription(
@@ -101,7 +111,7 @@ async function forceExitSubscription(
 		h.stats.providerFallbacks++
 		return `subscription exit required for kind=${args.kind} but no native candidate found`
 	}
-	if (!(await setRoutedModel(pi, ctx, preferredNative))) {
+	if (!(await setRoutedModel(h, pi, ctx, preferredNative))) {
 		h.stats.providerFallbacks++
 		return `subscription exit required for kind=${args.kind} but native fallback unavailable`
 	}
@@ -179,7 +189,7 @@ async function tryCheaperSwitch(
 		args.selected.confidence >= h.config.modelSwitchConfidence &&
 		args.target.marginalInputCost + args.target.marginalOutputCost < args.currentCost * 0.95
 	if (!cheaper) return undefined
-	if (!(await setRoutedModel(pi, ctx, args.target))) {
+	if (!(await setRoutedModel(h, pi, ctx, args.target))) {
 		h.stats.providerFallbacks++
 		return 'model kept (candidate unavailable)'
 	}
@@ -223,8 +233,7 @@ function applyThinkingPolicy(h: Harness, pi: ExtensionAPI, answers: Answers): st
 	) {
 		return undefined
 	}
-	const level = thinking.choice
-	void automatic(() => pi.setThinkingLevel(level))
+	setTurnThinking(h, pi, thinking.choice)
 	h.stats.thinkingSwitches++
 	return `thinking ${thinking.choice}`
 }
@@ -267,7 +276,7 @@ export function scaleThinkingForTurn(
 	}
 
 	if (targetLevel !== currentThinking) {
-		void automatic(() => pi.setThinkingLevel(targetLevel))
+		setTurnThinking(h, pi, targetLevel)
 		h.stats.thinkingSwitches++
 		return `thinking scaled ${currentThinking} -> ${targetLevel}`
 	}
@@ -324,6 +333,16 @@ export async function applyModelPolicy(
 	const target = models.find((model) => model.key === selected.choice)
 	const notes: string[] = []
 	h.stats.modelDecisions++
+	const baselineCost = current.cost.input + current.cost.output
+
+	// log: measure what JEV would pick, change nothing.
+	if (h.config.mode !== 'on') {
+		const wouldUse = target
+			? ctx.modelRegistry.find(target.provider, target.key.slice(target.provider.length + 1))
+			: undefined
+		recordShadow(h, wouldUse, { kind: kind.choice, selected, currentKey, baselineCost })
+		return `would use ${selected.choice} (${h.config.mode}, not applied)`
+	}
 
 	if (needsForcedSubscriptionExit(kind.choice, current.provider)) {
 		notes.push(

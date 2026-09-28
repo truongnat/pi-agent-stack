@@ -8,7 +8,6 @@ import type {
 import { isNativeAvailable, searchWorkspace } from 'pi-native-bridge'
 
 import { generateAdvisorBriefing } from './advisor.ts'
-import { compactHistory } from './compactor.ts'
 import { choiceOf, noulOf, relevanceQuestions, routingQuestions, THRESHOLDS } from './jev.ts'
 import { applyModelPolicy, routeModels, scaleThinkingForTurn } from './model-route.ts'
 import { active, short, THRESHOLD_ALWAYS_KEEP, type Candidate, type Harness } from './types.ts'
@@ -423,17 +422,23 @@ export async function onBeforeAgentStart(
 			? generateAdvisorBriefing(h, pi, ctx, event.prompt, candidatePaths)
 			: Promise.resolve(null)
 
-	const [routed, fetched, advised] = await Promise.all([
-		routePromise,
-		prefetchPromise,
-		advisorPromise
-	]).catch((err: unknown) => {
+	// Independent steps: one failing (e.g. prefetch) must not discard the others' results.
+	const settled = await Promise.allSettled([routePromise, prefetchPromise, advisorPromise])
+	const valueOf = <T>(r: PromiseSettledResult<T>): T | null => {
+		if (r.status === 'fulfilled') return r.value
 		h.stats.errors++
-		h.log({ what: 'error', error: err instanceof Error ? err.message : String(err) })
-		return [null, null, null] as const
-	})
+		h.log({ what: 'error', error: r.reason instanceof Error ? r.reason.message : String(r.reason) })
+		return null
+	}
+	const routed = valueOf(settled[0])
+	const fetched = valueOf(settled[1])
+	const advised = valueOf(settled[2])
 
-	if (h.config.modelRouting !== false && !routed?.note?.includes('thinking')) {
+	if (
+		h.config.mode === 'on' &&
+		h.config.modelRouting !== false &&
+		!routed?.note?.includes('thinking')
+	) {
 		const thinkingScaled = scaleThinkingForTurn(
 			h,
 			pi,
@@ -451,26 +456,6 @@ export async function onBeforeAgentStart(
 	if (fetched?.message && ctx.hasUI) ctx.ui.notify(`jev ${fetched.note}`, 'info')
 	h.status(ctx, notes[0] ? `jev: ${notes.join(' · ')}` : `jev ${h.config.mode}`)
 	if (h.config.mode !== 'on') return undefined
-
-	// Automatic Context Compaction on message history when enabled
-	if (
-		h.config.contextCompaction !== false &&
-		(event as any).messages &&
-		Array.isArray((event as any).messages)
-	) {
-		const compactionRes = compactHistory((event as any).messages, {
-			thresholdChars: h.config.compactThresholdChars ?? 24_000
-		})
-		if (compactionRes.compactedCount > 0) {
-			h.stats.compactionRuns++
-			h.stats.compactionCharsSaved += compactionRes.charsSaved
-			h.log({
-				what: 'context_compaction',
-				compactedCount: compactionRes.compactedCount,
-				charsSaved: compactionRes.charsSaved
-			})
-		}
-	}
 
 	const messageParts: string[] = []
 	if (advised?.briefingText) {

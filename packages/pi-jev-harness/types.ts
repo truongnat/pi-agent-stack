@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { ExtensionContext } from '@earendil-works/pi-coding-agent'
+import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 
 import type { Question, Result, ThresholdConfig } from './jev.ts'
 
@@ -27,15 +27,10 @@ export type Config = {
 	routeMinSchemaChars: number
 	prefetchMaxCandidates: number
 	compactionReserveTokens: number
-	contextCompaction: boolean
-	compactThresholdChars: number
 	subscriptionRouting: boolean
 	subscriptionMaxLatencyMs: number
 	subscriptionStatusTtlMs: number
 	advisor: boolean
-	advisorMaxTokens: number
-	advisorSkills: boolean
-	advisorVerification: boolean
 	thresholds?: ThresholdConfig
 }
 
@@ -76,6 +71,8 @@ export type Stats = {
 
 export type RecentCall = { tool: string; key: string; input: unknown }
 
+export type ThinkingLevel = ReturnType<ExtensionAPI['getThinkingLevel']>
+
 export type Block = { block: true; reason: string; terminate?: boolean }
 
 export type Candidate = { path: string; matched: { term: string; line: string; at: number }[] }
@@ -88,6 +85,9 @@ export type Harness = {
 	recent: RecentCall[]
 	sent: Set<string>
 	loopChecked: boolean
+	/** Model / thinking level before JEV's first switch this turn; restored at agent_end. */
+	restoreModel?: ExtensionContext['model'] | undefined
+	restoreThinking?: ThinkingLevel | undefined
 	/** Session answer to "JEV unavailable, guard with regex only?"; undefined until asked. */
 	regexOnly?: boolean | undefined
 	status: (ctx: ExtensionContext, text?: string) => void

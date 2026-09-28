@@ -203,9 +203,6 @@ export const guardQuestions: Record<string, Question> = {
 			'Remote infrastructure & repository mutations: pushing to remote repository, SSH remote execution, modifying external network services.',
 			'Critical system hazard & data loss: destructive OS commands (rm -rf / or ~), disk formatting, master credential theft (~/.ssh, ~/.aws), dropping production databases.'
 		]
-	),
-	secrets: noul(
-		'Does this call exfiltrate secrets (e.g. sending keys to remote endpoints), commit/push .env/credentials to git, or access global master keys (~/.ssh, ~/.aws, ~/.keys)? Local project .env reads for build/test are safe (0.0).'
 	)
 }
 
@@ -257,7 +254,6 @@ export const THRESHOLDS = {
 	prefetchFile: 0.55, // SWE-agent ACI: slightly easier second-file prefetch
 	dropResult: 0.3, // drop a result when relevance is below this and keep says drop
 	stuck: 0.7,
-	secrets: 0.7,
 	askConfidence: 0.5 // hard_to_reverse or destructive needs this much confidence to prompt
 }
 
@@ -266,7 +262,6 @@ export type ThresholdConfig = Partial<{
 	prefetchFile: number
 	dropResult: number
 	stuck: number
-	secrets: number
 	askConfidence: number
 }>
 
