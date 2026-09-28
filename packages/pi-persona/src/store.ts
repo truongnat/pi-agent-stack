@@ -32,6 +32,9 @@ export function loadPersonaConfig(path = CONFIG_PATH): Partial<PersonaConfig> {
   }
 }
 
+/** Highest weight a model-originated persona change can set (defaults sit at 0.85-0.9). */
+export const MODEL_WEIGHT_CAP = 0.8;
+
 export const DEFAULT_CONFIG: PersonaConfig = {
   enabled: true,
   maxInjectedTokens: 100,
@@ -223,11 +226,17 @@ export class PersonaStore {
     return [...list].sort((a, b) => b.weight - a.weight);
   }
 
+  /**
+   * `fromModel`: the change came from a model-callable tool, not from the user. Rules reach
+   * every later session, so such a change never lifts a weight above max(current, 0.8), and a
+   * rewritten rule text drops to 0.8 at most (it must not inherit a default's 0.9).
+   */
   public addOrUpdatePreference(
     category: PreferenceCategory,
     key: string,
     rule: string,
     initialWeight = 0.8,
+    fromModel = false,
   ): UserPreference {
     const existingIndex = this.profile.preferences.findIndex(
       (p) => p.key === key,
@@ -236,6 +245,8 @@ export class PersonaStore {
 
     if (existingIndex >= 0) {
       const existing = this.profile.preferences[existingIndex]!;
+      const rewritten = existing.rule !== rule;
+      const before = existing.weight;
       existing.rule = rule;
       existing.category = category;
       // Reinforcing moves the weight toward 1; averaging pulled a 1.0 rule down to 0.9.
@@ -243,6 +254,11 @@ export class PersonaStore {
         1.0,
         existing.weight + 0.1 * (1 - existing.weight),
       );
+      if (fromModel) {
+        existing.weight = rewritten
+          ? Math.min(before, MODEL_WEIGHT_CAP)
+          : Math.min(existing.weight, Math.max(before, MODEL_WEIGHT_CAP));
+      }
       existing.reinforcements++;
       existing.lastAppliedAt = now;
       this.saveProfile();
@@ -254,7 +270,10 @@ export class PersonaStore {
       category,
       key,
       rule,
-      weight: Math.min(1.0, Math.max(0.1, initialWeight)),
+      weight: Math.min(
+        fromModel ? MODEL_WEIGHT_CAP : 1.0,
+        Math.max(0.1, initialWeight),
+      ),
       reinforcements: 1,
       rejections: 0,
       createdAt: now,
@@ -266,12 +285,16 @@ export class PersonaStore {
     return newPref;
   }
 
-  public recordPositiveReinforcement(keyOrId: string): boolean {
+  public recordPositiveReinforcement(
+    keyOrId: string,
+    fromModel = false,
+  ): boolean {
     const pref = this.profile.preferences.find(
       (p) => p.key === keyOrId || p.id === keyOrId,
     );
     if (!pref) return false;
-    pref.weight = Math.min(1.0, pref.weight + 0.05);
+    const ceiling = fromModel ? Math.max(pref.weight, MODEL_WEIGHT_CAP) : 1.0;
+    pref.weight = Math.min(ceiling, pref.weight + 0.05);
     pref.reinforcements++;
     pref.lastAppliedAt = Date.now();
     this.saveProfile();
@@ -288,7 +311,10 @@ export class PersonaStore {
     if (!pref) return false;
     pref.weight = Math.max(0.1, pref.weight - 0.15);
     pref.rejections++;
-    if (updatedRule) pref.rule = updatedRule;
+    if (updatedRule) {
+      pref.rule = updatedRule;
+      pref.weight = Math.min(pref.weight, MODEL_WEIGHT_CAP);
+    }
     pref.lastAppliedAt = Date.now();
     this.saveProfile();
     return true;

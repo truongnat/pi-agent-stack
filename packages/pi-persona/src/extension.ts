@@ -39,7 +39,7 @@ export function createPersonaExtension(pi: ExtensionAPI) {
       store.listPreferences(category),
     recordFeedback: (key: string, signal: "positive" | "negative") =>
       signal === "positive"
-        ? store.recordPositiveReinforcement(key)
+        ? store.recordPositiveReinforcement(key, true)
         : store.recordNegativeCorrection(key),
   };
 

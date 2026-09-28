@@ -115,7 +115,8 @@ export function createPersonaTools(store: PersonaStore) {
           params.category,
           params.key,
           params.rule,
-          Math.min(0.8, Math.max(0.1, params.initial_weight ?? 0.8)),
+          params.initial_weight ?? 0.8,
+          true,
         );
 
         return {
@@ -143,7 +144,7 @@ export function createPersonaTools(store: PersonaStore) {
       async execute(_toolCallId, params): Promise<any> {
         const ok =
           params.signal === "positive"
-            ? store.recordPositiveReinforcement(params.key_or_id)
+            ? store.recordPositiveReinforcement(params.key_or_id, true)
             : store.recordNegativeCorrection(
                 params.key_or_id,
                 params.updated_rule,
