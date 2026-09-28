@@ -39,7 +39,27 @@ test('summarizeJsonEvent maps thinking, text, and tools to activity lines', () =
 			toolName: 'read',
 			args: { path: 'crates/ui/src/radio.rs' }
 		}).activity || '',
-		/▶ `read`/
+		/Read …\/ui\/src\/radio\.rs/
+	)
+	assert.equal(
+		summarizeJsonEvent({
+			type: 'tool_execution_start',
+			toolName: 'read',
+			args: {
+				path: '/data/dev/work/OPASS/Utils/Report/CsvExportHelper.cs',
+				offset: 200,
+				limit: 30
+			}
+		}).activity,
+		'Read …/Utils/Report/CsvExportHelper.cs · from line 200, 30 lines'
+	)
+	assert.equal(
+		summarizeJsonEvent({
+			type: 'tool_execution_start',
+			toolName: 'bash',
+			args: { command: 'bun test' }
+		}).activity,
+		'Run bun test'
 	)
 	assert.equal(
 		summarizeJsonEvent({
@@ -47,7 +67,7 @@ test('summarizeJsonEvent maps thinking, text, and tools to activity lines', () =
 			toolName: 'edit',
 			isError: false
 		}).activity,
-		'✓ `edit`'
+		'Completed edit'
 	)
 	assert.equal(
 		summarizeJsonEvent({
@@ -55,7 +75,7 @@ test('summarizeJsonEvent maps thinking, text, and tools to activity lines', () =
 			toolName: 'read',
 			isError: true
 		}).activity,
-		'✖ `read` failed'
+		'Failed read'
 	)
 })
 

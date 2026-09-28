@@ -53,6 +53,17 @@ test('SubagentManager invokeBatch supports parallel and sequential modes', async
 	assert.equal(seqResults[1].status, 'completed')
 })
 
+test('spawnSubagent fails when requested tools are outside the role allowlist', async () => {
+	const manager = fakeManager().manager
+	const result = await manager.spawnSubagent(
+		{ role: 'researcher', prompt: 'Survey', tools: ['read', 'bash'] },
+		process.cwd()
+	)
+	assert.equal(result.status, 'failed')
+	assert.match(result.error ?? '', /cannot use tools: bash/)
+	assert.equal(manager.getSubagent(result.id)?.status, 'failed')
+})
+
 test('SubagentManager kill and killAll operations', async () => {
 	const manager = fakeManager().manager
 

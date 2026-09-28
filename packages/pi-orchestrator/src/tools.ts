@@ -5,6 +5,7 @@ import { planDag } from './dag.ts'
 import { checkOrchestratorGuard } from './guard.ts'
 import { SubagentManager } from './manager.ts'
 import type { SubagentExecutionResult, SubagentProgressEvent, SubagentTask } from './types.ts'
+import { publishDashboardAgentUpdate } from './dashboard.ts'
 
 export function getRoleIcon(role: string): string {
 	switch (role.toLowerCase()) {
@@ -58,7 +59,7 @@ const SubagentTaskSchema = t.Object({
 	),
 	role: t.String({
 		description:
-			'Role of the subagent: "researcher" (codebase search & analysis), "coder" (edits & refactorings), "tester" (test execution), "reviewer" (code diff critique), or a custom role.'
+			'Role of the subagent: "researcher" (codebase search & analysis), "coder" (edits, then self-test with bash), "tester" (independent second-pass tests), "reviewer" (code diff critique), or a custom role.'
 	}),
 	prompt: t.String({
 		description: 'Detailed and actionable instruction for what this subagent should accomplish.'
@@ -76,7 +77,8 @@ const SubagentTaskSchema = t.Object({
 	),
 	tools: t.Optional(
 		t.Array(t.String(), {
-			description: 'Optional list of allowed tools (defaults to the role definition).'
+			description:
+				'Optional subset of the role allowlist (defaults to the full role list). Names outside the allowlist are rejected, not dropped.'
 		})
 	),
 	isolate_workspace: t.Optional(
@@ -139,7 +141,10 @@ const SendSubagentMessageSchema = t.Object({
 	})
 })
 
-export function createOrchestratorTools(manager: SubagentManager) {
+export function createOrchestratorTools(
+	manager: SubagentManager,
+	getDashboardSessionId: () => string = () => ''
+) {
 	const invokeSubagentTool: ToolDefinition<typeof InvokeSubagentSchema> = defineTool({
 		name: 'invoke_subagent',
 		label: 'Invoke Subagents',
@@ -220,6 +225,13 @@ export function createOrchestratorTools(manager: SubagentManager) {
 					existing.durationMs = p.elapsedMs ?? Date.now() - existing.startedAt
 				}
 				progressMap.set(p.id, existing)
+				publishDashboardAgentUpdate(
+					getDashboardSessionId(),
+					Array.from(progressMap, ([id, task]) => ({ id, ...task })),
+					manager.lastDag.nodes.flatMap((node) =>
+						node.dependsOn.map((from) => ({ from, to: node.id }))
+					)
+				)
 
 				if (_onUpdate) {
 					_onUpdate({

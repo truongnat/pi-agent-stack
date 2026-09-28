@@ -10,6 +10,8 @@ import { SubagentManager } from './manager.ts'
 import { DEFAULT_ROSTER } from './roster.ts'
 import { renderDag } from './dag.ts'
 import { createOrchestratorTools, getRoleIcon } from './tools.ts'
+import { attachDashboard } from './dashboard.ts'
+import { summarizeJsonEvent } from './json-stream.ts'
 
 export function createOrchestratorExtension(pi: ExtensionAPI) {
 	// If running as a spawned subagent worker, disable recursive orchestrator registration
@@ -20,14 +22,85 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 	}
 
 	const manager = new SubagentManager()
+	let dashboard: ReturnType<typeof attachDashboard> | undefined
+	let dashboardSessionId = ''
 
-	pi.on('session_start', () => {
+	pi.on('session_start', (_event, ctx) => {
 		manager.config = loadOrchestratorConfig()
+		dashboard?.close()
+		const sessionId = ctx.sessionManager.getSessionId() || `${process.pid}-${Date.now()}`
+		const events = ctx.sessionManager
+			.getBranch()
+			.filter((entry) => entry.type === 'message')
+			.flatMap((entry) => {
+				const message = entry.message as any
+				const text = Array.isArray(message.content)
+					? message.content
+							.filter((part: any) => part.type === 'text')
+							.map((part: any) => part.text)
+							.join('')
+					: typeof message.content === 'string'
+						? message.content
+						: ''
+				return text.trim()
+					? [{ type: message.role, text: text.slice(-3000), at: Date.parse(entry.timestamp) }]
+					: []
+			})
+			.slice(-40)
+		dashboard = attachDashboard(
+			{
+				id: sessionId,
+				title: ctx.sessionManager.getSessionName() || `Pi · ${process.pid}`,
+				cwd: ctx.cwd,
+				events
+			},
+			(id) => {
+				dashboardSessionId = id
+			}
+		)
 	})
+	pi.on('session_info_changed', (event) =>
+		dashboard?.update({ title: event.name || `Pi · ${process.pid}` })
+	)
+	pi.on('input', (event) => {
+		dashboard?.event('user', { text: event.text.slice(0, 4000) })
+		dashboard?.event('status', { value: 'working' })
+	})
+	pi.on('message_update', (event) => {
+		if (event.message.role !== 'assistant') return
+		const text = Array.isArray(event.message.content)
+			? event.message.content
+					.filter((part: any) => part.type === 'text')
+					.map((part: any) => part.text)
+					.join('')
+			: ''
+		if (text) dashboard?.update({ preview: text.slice(-3000) } as any)
+	})
+	pi.on('tool_execution_start', (event) => {
+		const summary = summarizeJsonEvent({
+			type: 'tool_execution_start',
+			toolName: event.toolName,
+			args: event.args
+		})
+		dashboard?.event('tool', {
+			name: event.toolName,
+			text: summary.activity || String(event.toolName)
+		})
+	})
+	pi.on('tool_execution_end', (event) =>
+		dashboard?.event(event.isError ? 'error' : 'tool_done', {
+			name: event.toolName,
+			text: event.isError ? 'Tool failed' : 'Completed'
+		})
+	)
+	pi.on('agent_settled', () => dashboard?.event('status', { value: 'idle' }))
 
 	// Workers run detached in their own process groups; without this they outlive Pi.
 	pi.on('session_shutdown', () => {
 		manager.killAll()
+		dashboard?.close()
+		dashboard = undefined
+		dashboardSessionId = ''
 	})
 
 	function updateStatus(ctx: ExtensionContext) {
@@ -42,7 +115,7 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 
 	// 1. Register Tools
 	const { invokeSubagentTool, manageSubagentsTool, sendSubagentMessageTool } =
-		createOrchestratorTools(manager)
+		createOrchestratorTools(manager, () => dashboardSessionId)
 
 	pi.registerTool(invokeSubagentTool)
 	pi.registerTool(manageSubagentsTool)
@@ -134,12 +207,12 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 			'2. **ROLE ROSTER**:',
 			'   - 📚 `researcher`: Read-only file inspection, repository discovery, code excerpts, and architecture investigation.',
 			'   - 🔍 `debugger`: Isolates runtime crashes, error logs, trace lines, and root-cause analysis.',
-			'   - 🧑‍💻 `coder`: Precise multi-file implementations, edits, and refactorings.',
-			'   - 🧪 `tester`: Executes test suites, linters, and verification checks.',
+			'   - 🧑‍💻 `coder`: Implementations and edits. Has bash. MUST self-test (compile/unit tests) in the named worktree before returning.',
+			'   - 🧪 `tester`: Independent second-pass: re-run tests/linters. Does not replace the coder self-test.',
 			'   - 🔍 `reviewer`: Audits git diffs, security standards, and code quality.',
 			'3. **END-TO-END EXECUTION LIFECYCLE (DO NOT STALL)**:',
 			'   - When the user asks to fix/handle/implement an issue (e.g. "xử lý", "fix", "sửa", "làm"), DO NOT just analyze and stop!',
-			'   - Research is only Step 1. You MUST immediately dispatch a `coder` subagent (or apply edits) to implement the fix, followed by a `tester` subagent to verify.',
+			'   - Research is only Step 1. You MUST immediately dispatch a `coder` subagent to implement AND self-test. Dispatch a `tester` only as a second pass (`depends_on` the coder, or `require_consensus: true`). Do not withhold bash from the coder or ask it to skip compile.',
 			'   - NEVER end your turn saying "Chưa sửa mã nguồn..." when asked to fix or handle a task.',
 			'   - Do NOT run redundant serial read/find/grep calls on files that subagents have already analyzed in their scratchpads.',
 			'4. **CONCURRENCY & CONSENSUS**:',

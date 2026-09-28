@@ -29,9 +29,9 @@ flowchart TD
     
     subgraph "Worker Pool (Isolated Subagents)"
         W_Research[Research Agent\nModel: Flash / Haiku\nTools: search, view, read_url]
-        W_Coder[Coding Specialist\nModel: Sonnet / Cursor-Agent\nTools: replace_file, write_file, patch]
-        W_Reviewer[Reviewer / Critic\nModel: Pro / Opus\nTools: lint, diff, test]
-        W_Tester[UT & Verification Agent\nModel: Fast / Local\nTools: run_command, pytest, npm test]
+        W_Coder[Coding Specialist\nModel: Sonnet / Cursor-Agent\nTools: edit, write, bash self-test]
+        W_Reviewer[Reviewer / Critic\nModel: Pro / Opus\nTools: lint, diff]
+        W_Tester[Independent second-pass tests\nModel: Fast / Local\nTools: bash, pytest, npm test]
     end
     
     Master -->|1. invoke_subagent / dispatch| W_Research
@@ -67,8 +67,8 @@ flowchart TD
 | Agent Role | Primary Focus | Scoped Tools | Default Model Class |
 | :--- | :--- | :--- | :--- |
 | **`researcher`** | Codebase navigation, docs lookup, web search | `view_file`, `search_web`, `read_url`, `read_codebase` | `flash` |
-| **`coder`** | File editing, refactoring, bug fixing | `write_to_file`, `replace_file_content`, `patch` | `cursor-agent` / `sonnet` |
-| **`tester`** | Build execution, test suites, coverage reporting | `run_command` (restricted), `read_test_report` | `local` / `mini` |
+| **`coder`** | Edits + self-test (compile/unit tests) before return | `read`, `edit`, `write`, `grep`, `find`, `ls`, `bash` | `cursor-agent` / `sonnet` |
+| **`tester`** | Independent second-pass tests, coverage, lint | `read`, `bash`, `grep`, `find`, `ls` | `local` / `mini` |
 | **`reviewer`** | Code diff review, clean code standards, security check | `git_diff`, `read_spec`, `lint_check` | `pro` / `opus` |
 
 ### 3.2 Master Agent Tools

@@ -16,7 +16,12 @@ import {
 import { type DagNode, promptWithDependencies } from './dag.ts'
 import { createWorktree } from './worktree.ts'
 import { consumeJsonl, summarizeJsonEvent } from './json-stream.ts'
-import { generateAgentCodename, getRoleDefinition, withModelSuffix } from './roster.ts'
+import {
+	generateAgentCodename,
+	getRoleDefinition,
+	resolveRoleTools,
+	withModelSuffix
+} from './roster.ts'
 import type {
 	SubagentExecutionResult,
 	SubagentInstance,
@@ -266,10 +271,54 @@ export class SubagentManager {
 		this.pruneOldScratchpads()
 		const id = `subagent_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
 		const roleDef = getRoleDefinition(task.role)
-		// The tools a task asks for, capped by what its role may use.
-		const tools = task.tools
-			? roleDef.allowedTools.filter((t) => task.tools?.includes(t))
-			: roleDef.allowedTools
+		let tools: string[]
+		try {
+			tools = resolveRoleTools(roleDef, task.tools)
+		} catch (err) {
+			const errMsg = err instanceof Error ? err.message : String(err)
+			const name = generateAgentCodename(task.role, task.name, task.prompt)
+			const scratchpadDir = join(this.scratchpadRoot, id)
+			mkdirSync(scratchpadDir, { recursive: true })
+			const instance: SubagentInstance = {
+				id,
+				role: task.role,
+				name,
+				status: 'failed',
+				prompt: task.prompt,
+				model: '',
+				startedAt: Date.now(),
+				completedAt: Date.now(),
+				tokensUsed: 0,
+				scratchpadDir,
+				logs: [],
+				error: errMsg
+			}
+			this.instances.set(id, instance)
+			this.logToScratchpad(instance, {
+				timestamp: Date.now(),
+				type: 'error',
+				message: errMsg
+			})
+			options.onProgress?.({
+				id,
+				role: task.role,
+				name,
+				status: 'failed',
+				currentActivity: errMsg.slice(0, 80)
+			})
+			return {
+				id,
+				role: task.role,
+				name,
+				prompt: task.prompt,
+				status: 'failed',
+				output: '',
+				error: errMsg,
+				tokensUsed: 0,
+				durationMs: 0,
+				scratchpadDir
+			}
+		}
 		const requiresTools = requiresNativeTools(tools)
 		const modelSelection = selectOptimalModelForTask(
 			task,

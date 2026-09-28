@@ -1,5 +1,34 @@
 import type { AgentRoleDefinition, AgentRoleName } from './types.ts'
 
+/** Parent asked for a tool the role cannot use. Callers must fail the task, not drop the tool. */
+export class ToolsNotAllowedError extends Error {
+	readonly role: string
+	readonly extra: string[]
+
+	constructor(role: string, extra: string[], allowlist: string[]) {
+		super(
+			`Role "${role}" cannot use tools: ${extra.join(', ')}. Allowlist: [${allowlist.join(', ')}]`
+		)
+		this.name = 'ToolsNotAllowedError'
+		this.role = role
+		this.extra = extra
+	}
+}
+
+/**
+ * Default = full role allowlist. A requested list may only subset it.
+ * Names outside the allowlist throw — they are not silently dropped.
+ */
+export function resolveRoleTools(roleDef: AgentRoleDefinition, requested?: string[]): string[] {
+	if (!requested || requested.length === 0) return [...roleDef.allowedTools]
+	const allow = new Set(roleDef.allowedTools)
+	const extra = [...new Set(requested)].filter((t) => !allow.has(t))
+	if (extra.length > 0) {
+		throw new ToolsNotAllowedError(roleDef.name, extra, roleDef.allowedTools)
+	}
+	return roleDef.allowedTools.filter((t) => requested.includes(t))
+}
+
 const LANGUAGE_DIRECTIVE =
 	'CRITICAL: Always respond and synthesize reports in the exact same language as the task prompt (default to Vietnamese or English as used in the prompt). Never produce output in unrelated foreign languages (e.g. Mongolian, Russian, etc.).'
 
@@ -21,25 +50,29 @@ export const DEFAULT_ROSTER: Record<AgentRoleName, AgentRoleDefinition> = {
 		name: 'coder',
 		label: 'Coding & Refactoring Specialist',
 		description:
-			'Specialized in code generation, targeted file edits, multi-file refactoring, and bug fixing.',
+			'Implements edits, then self-tests (compile, unit tests, targeted commands) with bash before returning. Tester is a second pass, not the first compile.',
 		defaultModelTier: 'sonnet',
-		allowedTools: ['read', 'edit', 'write', 'grep', 'find', 'ls'],
+		allowedTools: ['read', 'edit', 'write', 'grep', 'find', 'ls', 'bash'],
 		systemPrompt: `You are a specialized Senior Software Engineering Subagent. Your mission is to implement features, perform refactorings, and fix bugs precisely as instructed. Maintain existing codebase architecture, formatting, and docstrings. Produce clean, robust code.
 CRITICAL EDIT RULES:
 - Always read the target file with 'read' before calling 'edit' to inspect the exact current lines.
 - In 'edit', 'oldText' must match character-by-character (including exact spaces, tabs, and newlines).
 - Make focused, single edits or small contiguous blocks to avoid mismatch errors.
 - If modifying large sections or replacing files, use 'write' instead of multi-chunk edits that can drift.
+SELF-TEST (required before you return):
+- You have bash. After edits, run the compile/test command for the files you changed (e.g. dotnet test, bun test, cargo test). Use the worktree/cwd named in the task, not a sibling checkout.
+- If tests cannot run, report the exact command and error. Do not claim verification you did not execute.
+- A separate tester subagent may re-run tests later. That does not replace your self-test.
 ${LANGUAGE_DIRECTIVE}`
 	},
 	tester: {
 		name: 'tester',
 		label: 'Test & Verification Engineer',
 		description:
-			'Executes test suites, linters, and typechecks, analyzing error traces and verifying regressions.',
+			'Independent second-pass verification: re-run tests, linters, and typechecks on work the coder already self-tested.',
 		defaultModelTier: 'mini',
 		allowedTools: ['read', 'bash', 'grep', 'find', 'ls'],
-		systemPrompt: `You are a specialized Test & Verification Subagent. Your mission is to run test commands (e.g. npm test, pytest, cargo test), linters, and builds. Analyze failure outputs, extract stack traces, and summarize verification status clearly (e.g. 100% pass vs failing test locations). ${VERDICT_DIRECTIVE} ${LANGUAGE_DIRECTIVE}`
+		systemPrompt: `You are a specialized Test & Verification Subagent. You are the independent second pass, not the implementer. The coder should already have self-tested; you re-run the relevant compile/test/lint commands (e.g. npm test, pytest, cargo test, dotnet test) on the named worktree, analyze failure outputs, extract stack traces, and summarize verification status clearly (e.g. 100% pass vs failing test locations). Do not edit source files. ${VERDICT_DIRECTIVE} ${LANGUAGE_DIRECTIVE}`
 	},
 	debugger: {
 		name: 'debugger',

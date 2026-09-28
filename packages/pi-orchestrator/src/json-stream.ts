@@ -60,13 +60,12 @@ export function summarizeJsonEvent(evt: Record<string, unknown>): {
 	}
 	if (type === 'tool_execution_start') {
 		const name = String(evt.toolName ?? 'tool')
-		const args = clip(JSON.stringify(evt.args ?? {}), 70)
-		return { activity: `▶ \`${name}\` ${args}` }
+		return { activity: formatToolActivity(name, evt.args) }
 	}
 	if (type === 'tool_execution_end') {
 		const name = String(evt.toolName ?? 'tool')
-		if (evt.isError) return { activity: `✖ \`${name}\` failed` }
-		return { activity: `✓ \`${name}\`` }
+		if (evt.isError) return { activity: `Failed ${name}` }
+		return { activity: `Completed ${name}` }
 	}
 	if (type === 'message_end') {
 		const msg = evt.message as Record<string, unknown> | undefined
@@ -84,6 +83,53 @@ export function summarizeJsonEvent(evt: Record<string, unknown>): {
 		return { activity: '⏳ new turn' }
 	}
 	return {}
+}
+
+export function formatToolActivity(name: string, args: unknown): string {
+	const input =
+		args && typeof args === 'object' && !Array.isArray(args)
+			? (args as Record<string, unknown>)
+			: {}
+	const path = typeof input.path === 'string' ? shortPath(input.path) : ''
+	const location = [
+		typeof input.offset === 'number' ? `from line ${input.offset}` : '',
+		typeof input.limit === 'number' ? `${input.limit} lines` : ''
+	]
+		.filter(Boolean)
+		.join(', ')
+
+	switch (name) {
+		case 'read':
+			return `Read ${path || 'file'}${location ? ` · ${location}` : ''}`
+		case 'write':
+			return `Write ${path || 'file'}`
+		case 'edit':
+			return `Edit ${path || 'file'}`
+		case 'bash':
+			return `Run ${clip(String(input.command ?? 'command'), 100)}`
+		case 'grep':
+		case 'find':
+			return `${name === 'grep' ? 'Search' : 'Find'} ${clip(String(input.pattern ?? 'files'), 70)}${path ? ` in ${path}` : ''}`
+		case 'ls':
+			return `List ${path || 'files'}`
+		default: {
+			const details = Object.entries(input)
+				.filter(
+					([key, value]) =>
+						!['content', 'oldText', 'newText', 'prompt'].includes(key) &&
+						value != null &&
+						typeof value !== 'object'
+				)
+				.slice(0, 2)
+				.map(([key, value]) => `${key}: ${clip(String(value), 48)}`)
+			return `${name}${details.length ? ` · ${details.join(' · ')}` : ''}`
+		}
+	}
+}
+
+function shortPath(value: string): string {
+	const parts = value.replace(/\\/g, '/').split('/').filter(Boolean)
+	return parts.length > 3 ? `…/${parts.slice(-3).join('/')}` : value
 }
 
 function firstHeadline(content: string): string {

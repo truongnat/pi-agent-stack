@@ -4,6 +4,8 @@ import {
 	DEFAULT_ROSTER,
 	generateAgentCodename,
 	getRoleDefinition,
+	resolveRoleTools,
+	ToolsNotAllowedError,
 	withModelSuffix
 } from '../src/roster.ts'
 
@@ -27,7 +29,24 @@ test('DEFAULT_ROSTER defines standard 4 agent roles with proper tool scoping', (
 		'redmine_search_issues'
 	])
 	assert.ok(DEFAULT_ROSTER.coder.allowedTools.includes('edit'))
+	assert.ok(DEFAULT_ROSTER.coder.allowedTools.includes('bash'))
+	assert.match(DEFAULT_ROSTER.coder.systemPrompt, /SELF-TEST/)
 	assert.ok(DEFAULT_ROSTER.tester.allowedTools.includes('bash'))
+	assert.match(DEFAULT_ROSTER.tester.systemPrompt, /second pass/)
+})
+
+test('resolveRoleTools keeps the full allowlist, subsets, and rejects extras', () => {
+	const coder = getRoleDefinition('coder')
+	assert.deepEqual(resolveRoleTools(coder), coder.allowedTools)
+	assert.deepEqual(resolveRoleTools(coder, ['read', 'bash']), ['read', 'bash'])
+	assert.throws(
+		() => resolveRoleTools(getRoleDefinition('researcher'), ['read', 'bash']),
+		(err: unknown) => {
+			assert.ok(err instanceof ToolsNotAllowedError)
+			assert.deepEqual(err.extra, ['bash'])
+			return true
+		}
+	)
 })
 
 test('getRoleDefinition returns existing or fallback custom role', () => {
