@@ -1,6 +1,7 @@
 import { defineTool, getMarkdownTheme, type ToolDefinition } from '@earendil-works/pi-coding-agent'
 import { Box, Markdown, Text } from '@earendil-works/pi-tui'
 import * as t from 'typebox'
+import { planDag } from './dag.ts'
 import { checkOrchestratorGuard } from './guard.ts'
 import { SubagentManager } from './manager.ts'
 import type { SubagentExecutionResult, SubagentProgressEvent, SubagentTask } from './types.ts'
@@ -44,6 +45,17 @@ export function getColoredRoleBadge(role: string, theme: any): string {
 }
 
 const SubagentTaskSchema = t.Object({
+	id: t.Optional(
+		t.String({
+			description: 'Id other tasks can list in depends_on (default t1, t2, … by position).'
+		})
+	),
+	depends_on: t.Optional(
+		t.Array(t.String(), {
+			description:
+				'Ids of tasks that must complete first. Their outputs are appended to this prompt; if one fails, this task is skipped.'
+		})
+	),
 	role: t.String({
 		description:
 			'Role of the subagent: "researcher" (codebase search & analysis), "coder" (edits & refactorings), "tester" (test execution), "reviewer" (code diff critique), or a custom role.'
@@ -156,6 +168,8 @@ export function createOrchestratorTools(manager: SubagentManager) {
 			}
 
 			const tasks: SubagentTask[] = params.subagents.map((s) => ({
+				...(s.id ? { id: s.id } : {}),
+				...(s.depends_on ? { dependsOn: s.depends_on } : {}),
 				role: s.role,
 				prompt: s.prompt,
 				name: s.name,
@@ -243,10 +257,26 @@ export function createOrchestratorTools(manager: SubagentManager) {
 				}
 			}
 
-			const results: SubagentExecutionResult[] = await manager.invokeBatch(tasks, cwd, parallel, {
-				signal,
-				onProgress: reportProgress
-			})
+			let results: SubagentExecutionResult[]
+			if (tasks.some((task) => task.dependsOn?.length)) {
+				const planned = planDag(tasks)
+				if ('error' in planned) {
+					return {
+						content: [{ type: 'text', text: `Invalid task graph: ${planned.error}` }],
+						isError: true,
+						details: undefined
+					}
+				}
+				results = await manager.invokeDag(planned.nodes, cwd, {
+					signal,
+					onProgress: reportProgress
+				})
+			} else {
+				results = await manager.invokeBatch(tasks, cwd, parallel, {
+					signal,
+					onProgress: reportProgress
+				})
+			}
 
 			const sections = results.map((r) => {
 				const statusIcon = r.status === 'completed' ? '✅' : '❌'

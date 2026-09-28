@@ -8,6 +8,7 @@ import { loadOrchestratorConfig, type OrchestratorConfig } from './config.ts'
 import { evaluateConsensus, type ConsensusOptions, type ConsensusResult } from './consensus.ts'
 import { getAvailableProviders } from './guard.ts'
 import { getAvailableModelPool, selectOptimalModelForTask } from './pool.ts'
+import { type DagNode, promptWithDependencies } from './dag.ts'
 import { consumeJsonl, summarizeJsonEvent } from './json-stream.ts'
 import { generateAgentCodename, getRoleDefinition, withModelSuffix } from './roster.ts'
 import type {
@@ -859,6 +860,80 @@ export class SubagentManager {
 		const workers = Array.from({ length: Math.min(maxConcurrent, tasks.length) }, () => worker())
 		await Promise.all(workers)
 		return results.filter(Boolean)
+	}
+
+	/** Last task graph and each node's status, for /agents dag. */
+	public lastDag: { nodes: DagNode[]; status: Map<string, string> } = {
+		nodes: [],
+		status: new Map()
+	}
+
+	/**
+	 * Runs tasks as a dependency graph: a task starts once everything in its dependsOn has
+	 * completed (up to maxConcurrentSubagents at a time) and gets their outputs in its prompt.
+	 * If a dependency fails, is killed or is skipped, its dependents are skipped, not run.
+	 */
+	public async invokeDag(
+		nodes: DagNode[],
+		cwd: string,
+		options: { signal?: AbortSignal; onProgress?: (p: SubagentProgressEvent) => void } = {}
+	): Promise<SubagentExecutionResult[]> {
+		const status = new Map<string, string>(nodes.map((n) => [n.id, 'pending']))
+		this.lastDag = { nodes, status }
+		const done = new Map<string, SubagentExecutionResult>()
+		const results = new Map<string, SubagentExecutionResult>()
+		const maxConcurrent = Math.max(1, this.config.maxConcurrentSubagents ?? 4)
+		const running = new Map<string, Promise<void>>()
+
+		const skip = (n: DagNode, why: string) => {
+			status.set(n.id, 'skipped')
+			results.set(n.id, {
+				id: n.id,
+				role: n.role,
+				name: n.name ?? n.id,
+				prompt: n.prompt,
+				status: 'skipped',
+				output: '',
+				error: why,
+				tokensUsed: 0,
+				durationMs: 0,
+				scratchpadDir: ''
+			})
+		}
+
+		for (;;) {
+			// Settle what can no longer run, then start what is ready.
+			for (const n of nodes) {
+				if (status.get(n.id) !== 'pending') continue
+				const blocker = n.dependsOn.find((d) => {
+					const s = status.get(d)
+					return s === 'failed' || s === 'killed' || s === 'skipped'
+				})
+				if (blocker) skip(n, `Skipped: dependency "${blocker}" ${status.get(blocker)}.`)
+				else if (options.signal?.aborted) skip(n, 'Skipped: aborted.')
+			}
+			const ready = nodes.filter(
+				(n) =>
+					status.get(n.id) === 'pending' && n.dependsOn.every((d) => status.get(d) === 'completed')
+			)
+			for (const n of ready) {
+				if (running.size >= maxConcurrent) break
+				status.set(n.id, 'running')
+				const task: SubagentTask = { ...n, prompt: promptWithDependencies(n, done) }
+				running.set(
+					n.id,
+					this.spawnSubagent(task, cwd, options).then((r) => {
+						status.set(n.id, r.status)
+						results.set(n.id, r)
+						if (r.status === 'completed') done.set(n.id, r)
+						running.delete(n.id)
+					})
+				)
+			}
+			if (running.size === 0) break
+			await Promise.race(running.values())
+		}
+		return nodes.map((n) => results.get(n.id)!).filter(Boolean)
 	}
 
 	/**

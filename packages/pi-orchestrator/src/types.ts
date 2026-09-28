@@ -12,6 +12,10 @@ export interface AgentRoleDefinition {
 }
 
 export interface SubagentTask {
+	/** Graph id other tasks can name in dependsOn (auto `t1`, `t2`, … when missing). */
+	id?: string
+	/** Ids of tasks that must complete first; their outputs are appended to this prompt. */
+	dependsOn?: string[]
 	role: AgentRoleName
 	prompt: string
 	name?: string
@@ -21,7 +25,7 @@ export interface SubagentTask {
 	timeoutMs?: number
 }
 
-export type SubagentStatus = 'idle' | 'running' | 'completed' | 'failed' | 'killed'
+export type SubagentStatus = 'idle' | 'running' | 'completed' | 'failed' | 'killed' | 'skipped'
 
 export interface SubagentLogEntry {
 	timestamp: number

@@ -8,6 +8,7 @@ import { loadOrchestratorConfig, saveOrchestratorConfig } from './config.ts'
 import { checkOrchestratorGuard } from './guard.ts'
 import { SubagentManager } from './manager.ts'
 import { DEFAULT_ROSTER } from './roster.ts'
+import { renderDag } from './dag.ts'
 import { createOrchestratorTools, getRoleIcon } from './tools.ts'
 
 export function createOrchestratorExtension(pi: ExtensionAPI) {
@@ -196,35 +197,10 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 				const providers = guard.providers.length > 0 ? guard.providers.join(', ') : 'none'
 				const running = manager.listSubagents().filter((s) => s.status === 'running')
 				const dagTree = [
-					'┌─[ 🤖 Multi-Agent DAG Supervisor (Ember UX) ]────────────────────────┐',
-					'│                                                                     │',
-					'│                      ┌───────────────────────┐                      │',
-					'│                      │   JEV Supervisor      │                      │',
-					'│                      │ (Orchestrator Leader) │                      │',
-					'│                      └──────────┬────────────┘                      │',
-					'│                                 │                                   │',
-					'│                  ┌──────────────┴──────────────┐                    │',
-					'│                  ▼                             ▼                    │',
-					'│       ┌──────────────────────┐      ┌──────────────────────┐        │',
-					'│       │ Worker 1: Researcher │      │ Worker 2: Debugger   │        │',
-					'│       │ [Background Search]  │      │ [Trace & TDD Root]   │        │',
-					'│       └──────────┬───────────┘      └──────────┬───────────┘        │',
-					'│                  │                             │                    │',
-					'│                  └──────────────┬──────────────┘                    │',
-					'│                                 ▼                                   │',
-					'│                      ┌──────────────────────┐                       │',
-					'│                      │ Worker 3: Reviewer   │                       │',
-					'│                      │ [Invariant Verifier] │                       │',
-					'│                      └──────────────────────┘                       │',
-					'│                                                                     │',
-					'├─────────────────────────────────────────────────────────────────────┤',
-					`│ • Provider Diversity Guard: ${guard.allowed ? '● ACTIVE (≥2 Backends)' : '○ BLOCKED (<2 Backends)'}             │`,
-					`│ • Discovered Providers (${guard.providers.length}): [${providers}]`.padEnd(70) + '│',
-					`│ • Active Workers: ${running.length} running, ${manager.listSubagents().length} total in session`.padEnd(
-						70
-					) + '│',
-					'└─────────────────────────────────────────────────────────────────────┘'
-				].join('\n')
+					`### 🤖 Task graph (last run)`,
+					renderDag(manager.lastDag.nodes, manager.lastDag.status),
+					`Providers: ${providers} · running now: ${running.length}`
+				].join('\n\n')
 				sendOrchestratorMessage(ctx, dagTree, { action: 'dag' })
 				return
 			}
@@ -351,36 +327,12 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 
 			if (picked.startsWith('📊 Visual DAG')) {
 				const providers = guard.providers.length > 0 ? guard.providers.join(', ') : 'none'
+				const running = manager.listSubagents().filter((s) => s.status === 'running')
 				const dagTree = [
-					'┌─[ 🤖 Multi-Agent DAG Supervisor (Ember UX) ]────────────────────────┐',
-					'│                                                                     │',
-					'│                      ┌───────────────────────┐                      │',
-					'│                      │   JEV Supervisor      │                      │',
-					'│                      │ (Orchestrator Leader) │                      │',
-					'│                      └──────────┬────────────┘                      │',
-					'│                                 │                                   │',
-					'│                  ┌──────────────┴──────────────┐                    │',
-					'│                  ▼                             ▼                    │',
-					'│       ┌──────────────────────┐      ┌──────────────────────┐        │',
-					'│       │ Worker 1: Researcher │      │ Worker 2: Debugger   │        │',
-					'│       │ [Background Search]  │      │ [Trace & TDD Root]   │        │',
-					'│       └──────────┬───────────┘      └──────────┬───────────┘        │',
-					'│                  │                             │                    │',
-					'│                  └──────────────┬──────────────┘                    │',
-					'│                                 ▼                                   │',
-					'│                      ┌──────────────────────┐                       │',
-					'│                      │ Worker 3: Reviewer   │                       │',
-					'│                      │ [Invariant Verifier] │                       │',
-					'│                      └──────────────────────┘                       │',
-					'│                                                                     │',
-					'├─────────────────────────────────────────────────────────────────────┤',
-					`│ • Provider Diversity Guard: ${guard.allowed ? '● ACTIVE (≥2 Backends)' : '○ BLOCKED (<2 Backends)'}             │`,
-					`│ • Discovered Providers (${guard.providers.length}): [${providers}]`.padEnd(70) + '│',
-					`│ • Active Workers: ${running.length} running, ${list.length} total in session`.padEnd(
-						70
-					) + '│',
-					'└─────────────────────────────────────────────────────────────────────┘'
-				].join('\n')
+					`### 🤖 Task graph (last run)`,
+					renderDag(manager.lastDag.nodes, manager.lastDag.status),
+					`Providers: ${providers} · running now: ${running.length}`
+				].join('\n\n')
 				sendOrchestratorMessage(ctx, dagTree, { action: 'dag' })
 			} else if (picked.startsWith('📋 List')) {
 				if (list.length === 0) {
