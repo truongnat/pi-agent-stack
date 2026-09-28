@@ -4,6 +4,7 @@ import {
 	buildPiWorkerArgs,
 	describeIdleTimeout,
 	formatActivityMarkdown,
+	isTimeoutOrCapStderr,
 	shellJoin,
 	SubagentManager
 } from '../src/manager.ts'
@@ -98,6 +99,12 @@ test('describeIdleTimeout explains empty stream vs quota', () => {
 		stderr: 'API error: RESOURCE_EXHAUSTED (code 429): Individual quota reached'
 	})
 	assert.match(quota, /quota\/rate-limit/)
+})
+
+test('isTimeoutOrCapStderr catches both the CLI wording and the orchestrator hard cap', () => {
+	assert.equal(isTimeoutOrCapStderr('antigravity timed out after 120000ms'), true)
+	assert.equal(isTimeoutOrCapStderr('Process reached maximum execution limit of 180s'), true)
+	assert.equal(isTimeoutOrCapStderr('boom: unrelated crash'), false)
 })
 
 test('buildPiWorkerArgs uses a session dir so SoL-Pi can start', () => {

@@ -7,7 +7,12 @@ import { killProcessGroup } from 'pi-native-bridge'
 import { loadOrchestratorConfig, type OrchestratorConfig } from './config.ts'
 import { evaluateConsensus, type ConsensusOptions, type ConsensusResult } from './consensus.ts'
 import { getAvailableProviders } from './guard.ts'
-import { getAvailableModelPool, selectOptimalModelForTask } from './pool.ts'
+import {
+	getAvailableModelPool,
+	NATIVE_TOOL_NAMES,
+	requiresNativeTools,
+	selectOptimalModelForTask
+} from './pool.ts'
 import { type DagNode, promptWithDependencies } from './dag.ts'
 import { createWorktree } from './worktree.ts'
 import { consumeJsonl, summarizeJsonEvent } from './json-stream.ts'
@@ -22,6 +27,17 @@ import type {
 
 const QUOTA_RE =
 	/RESOURCE_EXHAUSTED|individual quota reached|quota reached|quota exhausted|rate.?limit exceeded|HTTP 429\b|status(?:\s+code)?\s*429/i
+
+/**
+ * Recognizes a worker run that didn't finish normally: either the antigravity/cursor/
+ * claude-code CLI's own wording ("timed out after Xms"), or the orchestrator's hard
+ * wall-clock cap ("reached maximum execution limit of Xs") in `this.runner`'s
+ * `maxTimeoutMs`. Both mean the same thing to the caller — retry on a different model
+ * instead of trusting whatever partial output came back.
+ */
+export function isTimeoutOrCapStderr(stderr: string): boolean {
+	return /timed out after|reached maximum execution limit/i.test(stderr)
+}
 
 export function describeIdleTimeout(opts: {
 	idleSec: number
@@ -254,10 +270,12 @@ export class SubagentManager {
 		const tools = task.tools
 			? roleDef.allowedTools.filter((t) => task.tools?.includes(t))
 			: roleDef.allowedTools
+		const requiresTools = requiresNativeTools(tools)
 		const modelSelection = selectOptimalModelForTask(
 			task,
 			getAvailableModelPool(),
-			this.dispatchedProviderCounts
+			this.dispatchedProviderCounts,
+			requiresTools
 		)
 		const model = modelSelection.fullModelName
 		this.dispatchedProviderCounts[modelSelection.provider] =
@@ -312,6 +330,13 @@ export class SubagentManager {
 			type: 'info',
 			message: `Subagent "${name}" (${task.role}) started with model "${model}".`
 		})
+		if (requiresTools && !modelSelection.supportsTools) {
+			this.logToScratchpad(instance, {
+				timestamp: Date.now(),
+				type: 'error',
+				message: `No tool-capable model was available for [${task.role}]; "${modelSelection.provider}" runs in CLI compatibility mode and cannot execute ${tools.join(', ')}. ${modelSelection.rationale}`
+			})
+		}
 
 		options.onProgress?.({
 			id: instance.id,
@@ -634,9 +659,8 @@ export class SubagentManager {
 		}
 
 		const fullPrompt = `${systemPrompt}\n\nTask:\n${instance.prompt}`
-		const builtInAllowed = allowedTools.filter((t) =>
-			['read', 'edit', 'write', 'bash', 'grep', 'find', 'ls'].includes(t)
-		)
+		const builtInAllowed = allowedTools.filter((t) => NATIVE_TOOL_NAMES.includes(t))
+		const requiresTools = requiresNativeTools(builtInAllowed)
 
 		// 1. Try Native Pi Subagent Execution (Primary & Most Capable)
 		// Crucial: Load extensions so custom providers (antigravity, cursor, claude) are available,
@@ -787,13 +811,17 @@ export class SubagentManager {
 				})
 			}
 
-			const timedOut = /timed out after/i.test(piResult.stderr || '')
+			const timedOut = isTimeoutOrCapStderr(piResult.stderr || '')
 			const quotaHit = QUOTA_RE.test(piResult.stderr || '')
+			const primaryFailureReason = (piResult.stderr || 'unknown error').trim().slice(0, 200)
+			const degradedNote = (source: string): string =>
+				`> ⏱️ **Lưu ý:** lần chạy gốc (model \`${instance.model}\`) không hoàn tất bình thường (${primaryFailureReason}). Câu trả lời dưới đây đến từ ${source} — kiểm tra lại trước khi coi là kết luận cuối.\n\n`
 			if ((timedOut || quotaHit) && instance.model && instance.model !== 'default') {
 				const fallback = selectOptimalModelForTask(
 					{ role: instance.role, prompt: instance.prompt },
 					getAvailableModelPool().filter((m) => m.fullModelName !== instance.model),
-					this.dispatchedProviderCounts
+					this.dispatchedProviderCounts,
+					requiresTools
 				)
 				if (fallback.fullModelName !== instance.model && fallback.fullModelName !== 'default') {
 					this.dispatchedProviderCounts[fallback.provider] =
@@ -839,7 +867,10 @@ export class SubagentManager {
 							})
 						}
 						const output = assembledAssistant.trim() || '(worker finished with no assistant text)'
-						return { output, tokensUsed: tokensFor(output) }
+						return {
+							output: degradedNote(`model dự phòng \`${instance.model}\``) + output,
+							tokensUsed: tokensFor(output)
+						}
 					}
 					stopped()
 				}
@@ -873,7 +904,7 @@ export class SubagentManager {
 					!/failed to authenticate|oauth session expired|login required/i.test(fallback.stdout)
 				if (ok) {
 					return {
-						output: fallback.stdout,
+						output: degradedNote(`fallback CLI (\`${worker.command}\`)`) + fallback.stdout,
 						tokensUsed: Math.max(150, Math.round(fallback.stdout.length / 4))
 					}
 				}

@@ -5,6 +5,37 @@ import type { SubagentTask } from './types.ts'
 
 export type ModelCostTier = 'flash' | 'standard' | 'pro'
 
+/** Built-in tool names a subagent task can request (see runSubagentTask's builtInAllowed). */
+export const FS_TOOLS = ['read', 'edit', 'write', 'bash', 'grep', 'find', 'ls']
+
+/**
+ * Custom extension tools a subagent may also request, beyond the built-ins. The native pi
+ * worker loads extensions (see runSubagentTask's comment on custom providers), so these are
+ * actually callable once passed through `--tools` — they just aren't in FS_TOOLS since
+ * they're not built-in.
+ */
+export const EXTENSION_TOOLS = ['redmine_get_issue', 'redmine_search_issues']
+
+/** Every tool name a subagent is allowed to request, built-in or extension. */
+export const NATIVE_TOOL_NAMES = [...FS_TOOLS, ...EXTENSION_TOOLS]
+
+/** True if any of these tools needs a model that can actually execute tool calls. */
+export function requiresNativeTools(tools: string[]): boolean {
+	return tools.some((t) => NATIVE_TOOL_NAMES.includes(t))
+}
+
+/**
+ * Providers wired through pi-subscription-providers' CLI compatibility mode: they stream
+ * assistant text only, with no native Pi tool-call wire (see
+ * packages/pi-subscription-providers/src/transcript.ts:buildCliPrompt). A task that needs
+ * read/grep/find/etc. cannot actually use tools on these, no matter what allowedTools says.
+ */
+const TOOL_INCAPABLE_PROVIDERS = new Set(['cursor', 'antigravity', 'claude-code'])
+
+export function supportsNativeTools(provider: string): boolean {
+	return !TOOL_INCAPABLE_PROVIDERS.has(provider.toLowerCase())
+}
+
 export interface AvailableModel {
 	provider: string
 	id: string
@@ -15,6 +46,8 @@ export interface AvailableModel {
 	reasoning: boolean
 	contextWindow?: number
 	ready: boolean
+	/** False for CLI-subscription providers that cannot execute native tool calls. */
+	supportsTools: boolean
 }
 
 export interface ModelSelectionResult {
@@ -23,6 +56,7 @@ export interface ModelSelectionResult {
 	modelId: string
 	tier: ModelCostTier
 	rationale: string
+	supportsTools: boolean
 }
 
 /**
@@ -87,7 +121,8 @@ export function getAvailableModelPool(): AvailableModel[] {
 				costScore: classified.costScore,
 				reasoning: forcedReasoning !== undefined ? forcedReasoning : classified.reasoning,
 				contextWindow,
-				ready: true
+				ready: true,
+				supportsTools: supportsNativeTools(provider)
 			})
 		}
 	}
@@ -205,7 +240,8 @@ export function getAvailableModelPool(): AvailableModel[] {
 export function selectOptimalModelForTask(
 	task: SubagentTask,
 	pool: AvailableModel[] = getAvailableModelPool(),
-	dispatchedCounts: Record<string, number> = {}
+	dispatchedCounts: Record<string, number> = {},
+	requiresTools = false
 ): ModelSelectionResult {
 	if (pool.length === 0) {
 		return {
@@ -213,7 +249,8 @@ export function selectOptimalModelForTask(
 			provider: 'system',
 			modelId: 'default',
 			tier: 'standard',
-			rationale: 'No external pool discovered; using system runner default.'
+			rationale: 'No external pool discovered; using system runner default.',
+			supportsTools: true
 		}
 	}
 
@@ -232,12 +269,17 @@ export function selectOptimalModelForTask(
 			pool.find((m) => words(m.id).includes(requested)) ??
 			pool.find((m) => m.tier === requested)
 		if (exact) {
+			const warning =
+				requiresTools && !exact.supportsTools
+					? ` WARNING: "${exact.provider}" runs in CLI compatibility mode and cannot execute read/grep/find; this task will get text only.`
+					: ''
 			return {
 				fullModelName: exact.fullModelName,
 				provider: exact.provider,
 				modelId: exact.id,
 				tier: exact.tier,
-				rationale: `Matched explicit override: "${task.modelOverride}".`
+				rationale: `Matched explicit override: "${task.modelOverride}".${warning}`,
+				supportsTools: exact.supportsTools
 			}
 		}
 	}
@@ -280,7 +322,27 @@ export function selectOptimalModelForTask(
 		candidates = pool
 	}
 
-	// 4. Multi-Provider Load Balancing
+	// 4. Tool-capable filter: a task that needs real filesystem/shell tools cannot run on a
+	// CLI-subscription provider (cursor/antigravity/claude-code) — those stream text only,
+	// with no native Pi tool wire. Prefer a tool-capable model, searching the whole pool
+	// (not just this tier) before accepting a compat-mode one.
+	let toolFallback = false
+	if (requiresTools) {
+		const toolCapable = candidates.filter((m) => m.supportsTools)
+		if (toolCapable.length > 0) {
+			candidates = toolCapable
+		} else {
+			const anyToolCapable = pool.filter((m) => m.supportsTools)
+			if (anyToolCapable.length > 0) {
+				candidates = anyToolCapable
+				toolFallback = true
+			}
+			// else: no tool-capable model anywhere in the pool; proceed with what's left and
+			// flag it below so the caller can log/degrade the prompt instead of failing silently.
+		}
+	}
+
+	// 5. Multi-Provider Load Balancing
 	// Pick the candidate from the provider with the lowest current load in this batch
 	candidates.sort((a, b) => {
 		const loadA = dispatchedCounts[a.provider] || 0
@@ -290,11 +352,18 @@ export function selectOptimalModelForTask(
 	})
 
 	const selected = candidates[0]!
+	const toolWarning =
+		requiresTools && !selected.supportsTools
+			? ` WARNING: no tool-capable model available in the pool; "${selected.provider}" cannot execute read/grep/find — this task will get text only.`
+			: toolFallback
+				? ' (used an off-tier model to keep tool support.)'
+				: ''
 	return {
 		fullModelName: selected.fullModelName,
 		provider: selected.provider,
 		modelId: selected.id,
 		tier: selected.tier,
-		rationale: `Selected ${selected.tier} tier model (${selected.fullModelName}) for [${role}] based on task fitness and provider load.`
+		supportsTools: selected.supportsTools,
+		rationale: `Selected ${selected.tier} tier model (${selected.fullModelName}) for [${role}] based on task fitness and provider load.${toolWarning}`
 	}
 }

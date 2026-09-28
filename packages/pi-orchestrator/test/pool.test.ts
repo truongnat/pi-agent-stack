@@ -4,6 +4,7 @@ import {
 	classifyModelTier,
 	getAvailableModelPool,
 	selectOptimalModelForTask,
+	supportsNativeTools,
 	type AvailableModel
 } from '../src/pool.ts'
 
@@ -27,7 +28,8 @@ test('selectOptimalModelForTask selects flash-tier model for researcher, tester,
 			tier: 'flash',
 			costScore: 1,
 			reasoning: true,
-			ready: true
+			ready: true,
+			supportsTools: true
 		},
 		{
 			provider: 'openai-codex',
@@ -36,7 +38,8 @@ test('selectOptimalModelForTask selects flash-tier model for researcher, tester,
 			tier: 'standard',
 			costScore: 2,
 			reasoning: false,
-			ready: true
+			ready: true,
+			supportsTools: true
 		},
 		{
 			provider: 'antigravity',
@@ -45,7 +48,8 @@ test('selectOptimalModelForTask selects flash-tier model for researcher, tester,
 			tier: 'pro',
 			costScore: 3,
 			reasoning: true,
-			ready: true
+			ready: true,
+			supportsTools: true
 		}
 	]
 
@@ -72,7 +76,8 @@ test('selectOptimalModelForTask selects standard code-tier model for coder', () 
 			tier: 'flash',
 			costScore: 1,
 			reasoning: true,
-			ready: true
+			ready: true,
+			supportsTools: true
 		},
 		{
 			provider: 'openai-codex',
@@ -81,7 +86,8 @@ test('selectOptimalModelForTask selects standard code-tier model for coder', () 
 			tier: 'standard',
 			costScore: 2,
 			reasoning: false,
-			ready: true
+			ready: true,
+			supportsTools: true
 		}
 	]
 
@@ -102,7 +108,8 @@ test('selectOptimalModelForTask selects pro-tier model for reviewer', () => {
 			tier: 'flash',
 			costScore: 1,
 			reasoning: true,
-			ready: true
+			ready: true,
+			supportsTools: true
 		},
 		{
 			provider: 'antigravity',
@@ -111,7 +118,8 @@ test('selectOptimalModelForTask selects pro-tier model for reviewer', () => {
 			tier: 'pro',
 			costScore: 3,
 			reasoning: true,
-			ready: true
+			ready: true,
+			supportsTools: true
 		}
 	]
 
@@ -132,7 +140,8 @@ test('selectOptimalModelForTask load balances across providers in multi-agent ba
 			tier: 'flash',
 			costScore: 1,
 			reasoning: true,
-			ready: true
+			ready: true,
+			supportsTools: true
 		},
 		{
 			provider: 'gemini',
@@ -141,7 +150,8 @@ test('selectOptimalModelForTask load balances across providers in multi-agent ba
 			tier: 'flash',
 			costScore: 1,
 			reasoning: false,
-			ready: true
+			ready: true,
+			supportsTools: true
 		}
 	]
 
@@ -167,7 +177,8 @@ test('"gemini" is not a mini model, and overrides match whole words or tiers', (
 		id,
 		fullModelName: `${provider}/${id}`,
 		...classifyModelTier(id),
-		ready: true
+		ready: true,
+		supportsTools: true
 	})
 	const pool = [model('gemini', 'gemini-2.5-pro'), model('openai', 'gpt-5-mini')]
 	const pick = (override: string) =>
@@ -176,4 +187,114 @@ test('"gemini" is not a mini model, and overrides match whole words or tiers', (
 	assert.equal(pick('mini'), 'openai/gpt-5-mini')
 	assert.equal(pick('pro'), 'gemini/gemini-2.5-pro')
 	assert.equal(pick('flash'), 'openai/gpt-5-mini')
+})
+
+test('supportsNativeTools flags CLI-subscription providers as text-only', () => {
+	assert.equal(supportsNativeTools('cursor'), false)
+	assert.equal(supportsNativeTools('antigravity'), false)
+	assert.equal(supportsNativeTools('claude-code'), false)
+	assert.equal(supportsNativeTools('Antigravity'), false)
+	assert.equal(supportsNativeTools('anthropic'), true)
+	assert.equal(supportsNativeTools('openai-codex'), true)
+	assert.equal(supportsNativeTools('gemini'), true)
+})
+
+test('a task that requires tools skips a compat-mode-only provider for a tool-capable one', () => {
+	const mockPool: AvailableModel[] = [
+		{
+			provider: 'antigravity',
+			id: 'gemini-3.8-flash-high',
+			fullModelName: 'antigravity/gemini-3.8-flash-high',
+			tier: 'flash',
+			costScore: 1,
+			reasoning: true,
+			ready: true,
+			supportsTools: false
+		},
+		{
+			provider: 'anthropic',
+			id: 'claude-3-5-haiku',
+			fullModelName: 'anthropic/claude-3-5-haiku',
+			tier: 'flash',
+			costScore: 1,
+			reasoning: false,
+			ready: true,
+			supportsTools: true
+		}
+	]
+
+	// Without tools, load balancing (equal cost, no dispatch load) picks the first flash model.
+	const noTools = selectOptimalModelForTask({ role: 'researcher', prompt: 'x' }, mockPool)
+	assert.equal(noTools.provider, 'antigravity')
+
+	// A researcher that needs read/grep/find must not land on the text-only CLI provider.
+	const withTools = selectOptimalModelForTask(
+		{ role: 'researcher', prompt: 'x' },
+		mockPool,
+		{},
+		true
+	)
+	assert.equal(withTools.provider, 'anthropic')
+	assert.equal(withTools.supportsTools, true)
+})
+
+test('a tools-requiring task widens the search across tiers before accepting a compat-mode model', () => {
+	const mockPool: AvailableModel[] = [
+		{
+			provider: 'antigravity',
+			id: 'gemini-3.8-flash-high',
+			fullModelName: 'antigravity/gemini-3.8-flash-high',
+			tier: 'flash',
+			costScore: 1,
+			reasoning: true,
+			ready: true,
+			supportsTools: false
+		},
+		{
+			provider: 'anthropic',
+			id: 'claude-3-7-sonnet',
+			fullModelName: 'anthropic/claude-3-7-sonnet',
+			tier: 'standard',
+			costScore: 2,
+			reasoning: false,
+			ready: true,
+			supportsTools: true
+		}
+	]
+
+	// No flash-tier tool-capable model exists, but a standard-tier one does — prefer it
+	// over the flash-tier compat-mode model.
+	const selection = selectOptimalModelForTask(
+		{ role: 'researcher', prompt: 'x' },
+		mockPool,
+		{},
+		true
+	)
+	assert.equal(selection.provider, 'anthropic')
+	assert.equal(selection.supportsTools, true)
+})
+
+test('a tools-requiring task with no tool-capable model anywhere still returns a selection, flagged', () => {
+	const mockPool: AvailableModel[] = [
+		{
+			provider: 'antigravity',
+			id: 'gemini-3.8-flash-high',
+			fullModelName: 'antigravity/gemini-3.8-flash-high',
+			tier: 'flash',
+			costScore: 1,
+			reasoning: true,
+			ready: true,
+			supportsTools: false
+		}
+	]
+
+	const selection = selectOptimalModelForTask(
+		{ role: 'researcher', prompt: 'x' },
+		mockPool,
+		{},
+		true
+	)
+	assert.equal(selection.provider, 'antigravity')
+	assert.equal(selection.supportsTools, false)
+	assert.match(selection.rationale, /WARNING/)
 })
