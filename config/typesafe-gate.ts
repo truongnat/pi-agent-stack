@@ -119,7 +119,7 @@ export default function typesafeGate(pi: {
 			ui.ui?.notify?.(`Jev deny: ${reason}`, "error");
 			return { block: true, reason: reason || "jev deny", terminate: true };
 		}
-		const why = `Jev did not answer (${reason || "gate failed"}).`;
+		const why = `Jev did not answer (${reason || "gate failed"}); key: API_KEY in ~/.keys/typesafe.env.`;
 		if (jevUnavailable(result, reason) && !(await consentRegexOnly(ui, why))) {
 			const who = ui.hasUI
 				? "the user declined regex-only mode."

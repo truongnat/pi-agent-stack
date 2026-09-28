@@ -216,7 +216,6 @@ export async function onToolCall(
 			const local = evaluateRisk(event, ctx.cwd)
 			if (local.level > 0) return await guardVerdict(h, local, event, ctx)
 		}
-		if (isRead) return undefined
 
 		const hasKey = !!ensureJevApiKey()
 		const key = callKey(event.toolName, event.input)

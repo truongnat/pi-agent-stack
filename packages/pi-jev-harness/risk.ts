@@ -210,6 +210,28 @@ export function stagesSecretFile(words: string[]): boolean {
 	return words.slice(2).some((w) => SECRET_FILE.test(w) && !SAFE_ENV_FILE.test(w))
 }
 
+const IDENTITY_FLAGS = new Set(['-i', '--identity', '-e', '--rsh'])
+
+/**
+ * Words that name a credential store, minus SSH identity files handed to `-i`/`-e`/`--rsh`
+ * (`scp -i ~/.ssh/deploy_key`) and public keys: those authenticate, they do not leak.
+ */
+export function credentialWords(segments: string[][]): string[] {
+	const found: string[] = []
+	for (const words of segments) {
+		for (let i = 0; i < words.length; i++) {
+			const word = words[i] ?? ''
+			if (IDENTITY_FLAGS.has(word)) {
+				i++
+				continue
+			}
+			if (/^(-i\S|--(identity|rsh)=)/.test(word) || word.endsWith('.pub')) continue
+			if (CREDENTIAL_PATH.test(word)) found.push(word)
+		}
+	}
+	return found
+}
+
 const isOutbound = (words: string[]): boolean =>
 	NETWORK_TOOLS.has(words[0] ?? '') && !words.some((w) => LOCAL_HOST.test(w))
 
@@ -273,7 +295,8 @@ export function detectCriticalHazards(event: ToolCallEvent, cwd: string): RiskEv
 
 		// 2. Credential files piped or uploaded to a non-local host
 		const outbound = segments.filter(isOutbound)
-		if (outbound.length > 0 && CREDENTIAL_PATH.test(raw)) {
+		const credentials = credentialWords(segments)
+		if (outbound.length > 0 && credentials.length > 0) {
 			return hazard('Credential file sent to a network command', 'credential_leak', true)
 		}
 
@@ -305,7 +328,7 @@ export function detectCriticalHazards(event: ToolCallEvent, cwd: string): RiskEv
 		}
 
 		// 6. Reading credential stores into the conversation: same rule as the read tool
-		if (CREDENTIAL_PATH.test(raw)) {
+		if (credentials.length > 0) {
 			return hazard('Reading a credential store outside the workspace', 'credential_leak', false)
 		}
 	}
