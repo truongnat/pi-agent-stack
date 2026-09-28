@@ -97,14 +97,21 @@ export class LessonStore {
 	public getLessons(repo: string): LessonEntry[] {
 		const file = this.getRepoFilePath(repo)
 		if (!existsSync(file)) return []
+		let text: string
 		try {
-			const lines = readFileSync(file, 'utf8')
-				.split('\n')
-				.filter((l) => l.trim().length > 0)
-			return lines.map((l) => JSON.parse(l) as LessonEntry)
+			text = readFileSync(file, 'utf8')
 		} catch {
 			return []
 		}
+		// One torn line (crash mid-append) must not hide every other lesson, or let deleteLesson wipe them.
+		return text.split('\n').flatMap((line) => {
+			if (!line.trim()) return []
+			try {
+				return [JSON.parse(line) as LessonEntry]
+			} catch {
+				return []
+			}
+		})
 	}
 
 	public deleteLesson(repo: string, lessonId: string): boolean {

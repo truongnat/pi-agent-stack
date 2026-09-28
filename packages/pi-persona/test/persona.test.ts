@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { existsSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -244,4 +251,23 @@ test("createPersonaExtension lifecycle: learns from prompt and injects persona i
     "task",
   );
   assert.ok(globalPrompt);
+});
+
+test("a corrupt persona.json is moved aside, not overwritten with defaults", () => {
+  const dir = mkdtempSync(join(tmpdir(), "persona-corrupt-"));
+  const storePath = join(dir, "persona.json");
+  writeFileSync(storePath, '{"preferences": [{"id": "learned"');
+  const store = new PersonaStore({
+    storePath,
+    markdownPath: join(dir, "p.md"),
+  });
+  assert.ok(store.listPreferences().length >= 4);
+  const backup = readdirSync(dir).find((f) =>
+    f.startsWith("persona.json.corrupt-"),
+  );
+  assert.ok(backup, "corrupt copy kept");
+  assert.equal(
+    readFileSync(join(dir, backup), "utf8"),
+    '{"preferences": [{"id": "learned"',
+  );
 });

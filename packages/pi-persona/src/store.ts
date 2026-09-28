@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type {
@@ -125,7 +131,15 @@ export class PersonaStore {
         }
       }
     } catch {
-      // Fallback to defaults on corrupt/missing file
+      // Unparseable: handled below by moving it aside
+    }
+    if (existsSync(this.storePath)) {
+      // Keep the learned habits recoverable instead of overwriting them with defaults.
+      try {
+        renameSync(this.storePath, `${this.storePath}.corrupt-${Date.now()}`);
+      } catch {
+        return { version: "1.0.0", updatedAt: Date.now(), preferences: [] };
+      }
     }
 
     const initialProfile: PersonaProfile = {
@@ -141,7 +155,10 @@ export class PersonaStore {
     try {
       mkdirSync(dirname(this.storePath), { recursive: true });
       profile.updatedAt = Date.now();
-      writeFileSync(this.storePath, JSON.stringify(profile, null, 2), "utf8");
+      // Temp file + rename: a crash mid-write must not truncate the profile.
+      const tmp = `${this.storePath}.${process.pid}.tmp`;
+      writeFileSync(tmp, JSON.stringify(profile, null, 2), "utf8");
+      renameSync(tmp, this.storePath);
 
       // Render human-readable persona.md
       this.exportMarkdown(profile);

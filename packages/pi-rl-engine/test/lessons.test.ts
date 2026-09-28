@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -128,6 +128,36 @@ test('LessonStore supports deletion, clearing, and enhanced semantic ranking', (
 		const cleared = store.clearLessons(repo)
 		assert.equal(cleared, true)
 		assert.equal(store.getLessons(repo).length, 0)
+	} finally {
+		rmSync(tempDir, { recursive: true, force: true })
+	}
+})
+
+test('a torn line hides only itself, and deleting a lesson keeps the rest', () => {
+	const tempDir = mkdtempSync(join(tmpdir(), 'pi-lessons-torn-'))
+	try {
+		const store = new LessonStore(tempDir)
+		const repo = 'torn'
+		const make = (prompt: string) =>
+			synthesizeLessonFromTrajectory({
+				taskType: 'fix',
+				prompt,
+				repo,
+				modifiedFiles: ['src/db/query.ts'],
+				verificationPassed: true,
+				customNote: prompt
+			})
+		const a = make('Fix database query timeout on large user tables')
+		const b = make('Fix connection pool leak under concurrent load')
+		store.saveLesson(a)
+		appendFileSync(store.getRepoFilePath(repo), '{"id": "half-writ\n')
+		store.saveLesson(b)
+		assert.equal(store.getLessons(repo).length, 2)
+		store.deleteLesson(repo, a.id)
+		assert.deepEqual(
+			store.getLessons(repo).map((l) => l.id),
+			[b.id]
+		)
 	} finally {
 		rmSync(tempDir, { recursive: true, force: true })
 	}
