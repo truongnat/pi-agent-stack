@@ -9,8 +9,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
-    "test": "bun test",
-    "check": "bun run typecheck && bun run lint && bun run format:check && bun test"
+    "test": "HOME=\"$(mktemp -d)\" bun test",
+    "check": "bun run typecheck && bun run lint && bun run format:check && bun run test"
   },
   "dependencies": {
     "typebox": "^1.1.2"
