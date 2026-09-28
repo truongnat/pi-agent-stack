@@ -64,16 +64,36 @@ const cliPath: Record<'claude-code' | 'cursor', (p: Paths) => string> = {
 	cursor: (p) => join(p.home, '.config', 'cursor', 'auth.json')
 }
 
-function readJson(path: string): unknown {
+/** A JSON file exists but cannot be parsed; callers must not overwrite it. */
+export class CorruptJsonError extends Error {}
+
+/**
+ * A missing file reads as undefined. A corrupt one does too for plain reads, but `strict`
+ * callers (read-modify-write) get an error instead: writing `{}` back would erase the file.
+ */
+function readJson(path: string, strict = false): unknown {
+	let text: string
 	try {
-		return JSON.parse(readFileSync(path, 'utf8'))
-	} catch {
-		return undefined
+		text = readFileSync(path, 'utf8')
+	} catch (error) {
+		if (!strict || (error as { code?: string }).code === 'ENOENT') return undefined
+		throw error
+	}
+	try {
+		return JSON.parse(text)
+	} catch (error) {
+		if (!strict) return undefined
+		throw new CorruptJsonError(
+			`${path} is not valid JSON; fix or remove it (it was not overwritten)`,
+			{
+				cause: error
+			}
+		)
 	}
 }
 
-function readObject(path: string): Record<string, unknown> | undefined {
-	const value = readJson(path)
+function readObject(path: string, strict = false): Record<string, unknown> | undefined {
+	const value = readJson(path, strict)
 	return value && typeof value === 'object' ? (value as Record<string, unknown>) : undefined
 }
 
@@ -87,7 +107,7 @@ function writeSecret(path: string, value: unknown): void {
 }
 
 export function readStore(p: Paths = defaultPaths()): AccountStore {
-	const raw = (readObject(storePath(p)) as AccountStore | undefined) ?? {}
+	const raw = (readObject(storePath(p), true) as AccountStore | undefined) ?? {}
 	const sanitized: AccountStore = {}
 	for (const [pool, pData] of Object.entries(raw)) {
 		if (!pData || typeof pData !== 'object' || !pData.accounts) {
@@ -288,7 +308,7 @@ export function writeLive(pool: PoolId, credential: unknown, p: Paths = defaultP
 	if (pool.startsWith('pi:')) {
 		const file = authPath(p)
 		withFileLock(file, () => {
-			writeSecret(file, { ...readObject(file), [pool.slice(3)]: credential })
+			writeSecret(file, { ...readObject(file, true), [pool.slice(3)]: credential })
 		})
 		return
 	}
@@ -297,10 +317,12 @@ export function writeLive(pool: PoolId, credential: unknown, p: Paths = defaultP
 		return
 	}
 	const { oauthAccount, ...tokens } = credential as Record<string, unknown>
+	// Read ~/.claude.json before writing anything, so a corrupt copy cannot leave a half switch.
+	const config = oauthAccount ? readObject(claudeConfigPath(p), true) : undefined
 	writeSecret(cliPath['claude-code'](p), tokens)
 	if (oauthAccount) {
 		// Patch only the account block; the rest of ~/.claude.json belongs to Claude Code.
-		writeSecret(claudeConfigPath(p), { ...readObject(claudeConfigPath(p)), oauthAccount })
+		writeSecret(claudeConfigPath(p), { ...config, oauthAccount })
 	}
 }
 

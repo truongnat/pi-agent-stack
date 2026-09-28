@@ -324,7 +324,8 @@ async function refreshUsageStatus(
 	usageProvider = provider
 	// Pooled providers show the account Pi is actually using, not the CLI's own login.
 	const pool = provider ? USAGE_POOL[provider] : undefined
-	const entry = pool ? readStore()[pool] : undefined
+	// A corrupt store is reported by the account commands; the footer just shows no account.
+	const entry = pool ? tryReadStore()[pool] : undefined
 	const activeAccount = entry?.active ? entry.accounts[entry.active] : undefined
 	const count = entry ? Object.keys(entry.accounts).length : 0
 	const found = pool && activeAccount ? await accountQuota(pool, activeAccount) : undefined
@@ -381,6 +382,14 @@ async function accountQuota(pool: PoolId, account: Account): Promise<QuotaResult
 	return quota
 		? { quota: { ...base, windows: quota.windows } }
 		: { quota: base, error: 'quota unavailable' }
+}
+
+const tryReadStore = (): AccountStore => {
+	try {
+		return readStore()
+	} catch {
+		return {}
+	}
 }
 
 /** One row per saved account when a provider has several (active account marked). */

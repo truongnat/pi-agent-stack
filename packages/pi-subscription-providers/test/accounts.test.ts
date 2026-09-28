@@ -205,3 +205,20 @@ test('resend after a switch only when the failed reply showed nothing', () => {
 	assert.equal(failedBeforeOutput({ content: [{ type: 'thinking', thinking: 'plan' }] }), false)
 	assert.equal(failedBeforeOutput({ content: [{ type: 'toolCall' }] }), false)
 })
+
+test('a corrupt store or CLI config is never overwritten', () => {
+	const p = paths()
+	const store = join(p.agentDir, 'accounts.json')
+	writeFileSync(store, '{"pi:openai-codex": {"accounts":')
+	assert.throws(() => updateStore((current) => current, p), /not valid JSON/)
+	assert.equal(readFileSync(store, 'utf8'), '{"pi:openai-codex": {"accounts":')
+
+	const config = join(p.home, '.claude.json')
+	const tokens = join(p.home, '.claude', '.credentials.json')
+	writeFileSync(config, '{"projects": {')
+	writeFileSync(tokens, '{"claudeAiOauth":{"accessToken":"old"}}')
+	const next = { claudeAiOauth: { accessToken: 'new' }, oauthAccount: { accountUuid: 'u-2' } }
+	assert.throws(() => writeLive('claude-code', next, p), /not valid JSON/)
+	assert.equal(readFileSync(config, 'utf8'), '{"projects": {')
+	assert.match(readFileSync(tokens, 'utf8'), /old/)
+})

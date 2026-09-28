@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { getModels } from '@earendil-works/pi-ai/compat'
 
@@ -353,7 +353,10 @@ export function readStatus(path = STATUS_PATH): StatusSnapshot | null {
 export function writeStatus(snapshot: StatusSnapshot, path = STATUS_PATH): void {
 	try {
 		mkdirSync(dirname(path), { recursive: true })
-		writeFileSync(path, `${JSON.stringify(snapshot, null, 2)}\n`, { mode: 0o600 })
+		// Temp file + rename: JEV and ember-ui read this file while it is rewritten.
+		const tmp = `${path}.${process.pid}.tmp`
+		writeFileSync(tmp, `${JSON.stringify(snapshot, null, 2)}\n`, { mode: 0o600 })
+		renameSync(tmp, path)
 	} catch {
 		// Status persistence must never break startup.
 	}
