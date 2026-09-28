@@ -58,6 +58,45 @@ pub fn search_workspace(dir_path: String, query: String, max_results: u32) -> Re
     ))
 }
 
+pub struct SearchTask {
+    dir_path: String,
+    query: String,
+    max_results: u32,
+}
+
+impl Task for SearchTask {
+    type Output = Vec<scanner::SearchMatch>;
+    /// JSON text: `Value` is not a Task result type; the bridge parses it.
+    type JsValue = String;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        Ok(scanner::search_workspace(
+            Path::new(&self.dir_path),
+            &self.query,
+            self.max_results as usize,
+        ))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        serde_json::to_string(&output).map_err(|e| Error::from_reason(e.to_string()))
+    }
+}
+
+/// Same search on the libuv threadpool: a full-repo walk for a missing term takes 100-500 ms,
+/// which must not freeze Pi's event loop.
+#[napi]
+pub fn search_workspace_async(
+    dir_path: String,
+    query: String,
+    max_results: u32,
+) -> AsyncTask<SearchTask> {
+    AsyncTask::new(SearchTask {
+        dir_path,
+        query,
+        max_results,
+    })
+}
+
 #[napi]
 pub fn skeletonize_code(source: String, language: String) -> Result<Value> {
     json(&ast::skeletonize_code(&source, &language))

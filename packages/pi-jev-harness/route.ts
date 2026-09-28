@@ -5,7 +5,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext
 } from '@earendil-works/pi-coding-agent'
-import { isNativeAvailable, searchWorkspace } from 'pi-native-bridge'
+import { isNativeAvailable, searchWorkspaceAsync } from 'pi-native-bridge'
 
 import { generateAdvisorBriefing } from './advisor.ts'
 import { choiceOf, noulOf, relevanceQuestions, routingQuestions, THRESHOLDS } from './jev.ts'
@@ -116,32 +116,42 @@ async function hasNamedFile(
 	return false
 }
 
-export function nativeSearchCandidates(
+/** Same budget as the rg fallback: prefetch is an optimisation and must not hold the turn. */
+const NATIVE_SEARCH_BUDGET_MS = 2000
+
+export async function nativeSearchCandidates(
 	cwd: string,
 	terms: string[],
 	sent: Set<string>,
 	maxFiles: number
-): Candidate[] {
+): Promise<Candidate[]> {
 	if (!isNativeAvailable() || terms.length === 0) return []
+	const searched = terms.filter((term) => term.length >= 3)
+	// All terms in parallel on the addon's threadpool; a term still running at the deadline
+	// counts as no hits.
+	let timer: ReturnType<typeof setTimeout> | undefined
+	const deadline = new Promise<'late'>((resolve) => {
+		timer = setTimeout(() => resolve('late'), NATIVE_SEARCH_BUDGET_MS)
+	})
+	const results = await Promise.all(
+		searched.map((term) =>
+			Promise.race([searchWorkspaceAsync(cwd, term, 24), deadline]).then((hits) =>
+				hits === 'late' ? [] : hits
+			)
+		)
+	)
+	clearTimeout(timer)
 	const files = new Map<string, Candidate['matched']>()
-	for (const term of terms) {
-		if (files.size >= maxFiles) break
-		if (term.length < 3) continue
-		let hits: ReturnType<typeof searchWorkspace> = []
-		try {
-			hits = searchWorkspace(cwd, term, 24)
-		} catch {
-			continue
-		}
-		for (const hit of hits) {
-			if (files.size >= maxFiles) break
+	searched.forEach((term, i) => {
+		for (const hit of results[i] ?? []) {
+			if (files.size >= maxFiles && !files.has(hit.path)) break
 			if (sent.has(hit.path)) continue
 			files.set(hit.path, [
 				...(files.get(hit.path) ?? []),
 				{ term, line: hit.line_text.slice(0, 120), at: hit.line_number }
 			])
 		}
-	}
+	})
 	return [...files.entries()].map(([path, matched]) => ({ path, matched }))
 }
 
@@ -152,7 +162,7 @@ async function candidateFiles(
 	terms: string[],
 	sent: Set<string>
 ): Promise<Candidate[]> {
-	const native = nativeSearchCandidates(ctx.cwd, terms, sent, h.config.prefetchMaxCandidates)
+	const native = await nativeSearchCandidates(ctx.cwd, terms, sent, h.config.prefetchMaxCandidates)
 	if (native.length > 0) return native
 
 	const files = new Map<string, Candidate['matched']>()

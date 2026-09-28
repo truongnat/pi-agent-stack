@@ -235,7 +235,7 @@ test('scanRepoMap detects packages and frameworks in workspace', () => {
 
 test('nativeSearchCandidates finds terms in this package', async () => {
 	const { nativeSearchCandidates } = await import('./route.ts')
-	const hits = nativeSearchCandidates(process.cwd(), ['scanRepoMap'], new Set(), 8)
+	const hits = await nativeSearchCandidates(process.cwd(), ['scanRepoMap'], new Set(), 8)
 	if (hits.length === 0) return
 	assert.ok(
 		hits.some((h) => h.path.includes('repomap') || h.matched.some((m) => m.term === 'scanRepoMap'))

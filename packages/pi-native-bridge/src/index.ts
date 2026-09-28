@@ -253,6 +253,7 @@ interface Addon {
 	hashPrompt(text: string): string
 	scanDirectory(dirPath: string, maxDepth: number): FileEntry[]
 	searchWorkspace(dirPath: string, query: string, maxResults: number): SearchMatch[]
+	searchWorkspaceAsync(dirPath: string, query: string, maxResults: number): Promise<string>
 	skeletonizeCode(source: string, language: string): SkeletonResult
 	spawnSupervised(
 		cmd: string,
@@ -358,6 +359,23 @@ export function scanDirectory(dirPath: string, maxDepth = 6): FileEntry[] {
 
 export function searchWorkspace(dirPath: string, query: string, maxResults = 50): SearchMatch[] {
 	return call((a) => a.searchWorkspace(dirPath, query, maxResults), fallbackSearchWorkspace)
+}
+
+/**
+ * Off the event loop: a repo walk for a term that matches nothing takes 100-500 ms on a
+ * large checkout. Without the addon it resolves to [] like the sync version.
+ */
+export async function searchWorkspaceAsync(
+	dirPath: string,
+	query: string,
+	maxResults = 50
+): Promise<SearchMatch[]> {
+	if (!addon) return fallbackSearchWorkspace()
+	try {
+		return JSON.parse(await addon.searchWorkspaceAsync(dirPath, query, maxResults)) as SearchMatch[]
+	} catch {
+		return fallbackSearchWorkspace()
+	}
 }
 
 export function skeletonizeCode(source: string, language = 'ts'): SkeletonResult {
