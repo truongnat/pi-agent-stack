@@ -22,6 +22,10 @@ export type Config = {
 	showStatus: boolean
 	modelRouting: boolean
 	modelSwitchConfidence: number
+	/** Switch to a no-more-expensive model whose verified RL outcomes are clearly better. */
+	banditRouting?: boolean
+	/** Share of turns that try an unproven no-more-expensive candidate (default 0: never). */
+	banditEpsilon?: number
 	thinkingSwitchConfidence: number
 	routeMinHiddenTools: number
 	routeMinSchemaChars: number

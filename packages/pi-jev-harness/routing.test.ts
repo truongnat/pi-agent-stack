@@ -72,3 +72,54 @@ void test('a routed switch remembers the user model so agent_end can restore it'
 	assert.deepEqual(setModel, ['gpt-6-luna'])
 	assert.equal(h.restoreModel?.id, 'claude-opus-5-5')
 })
+
+void test('bandit routing: only a clearly better, no-more-expensive, proven arm', async () => {
+	const { banditChoice } = await import('./model-route.ts')
+	const arm = (
+		key: string,
+		cost: number,
+		q?: number,
+		trials = 10,
+		toolMode: 'native' | 'compatibility' = 'native'
+	) => ({
+		...target,
+		key,
+		provider: key.split('/')[0]!,
+		marginalInputCost: cost,
+		marginalOutputCost: 0,
+		toolMode,
+		...(q === undefined ? {} : { history: { trials, successRate: q, qValue: q } })
+	})
+	const cur = arm('a/cur', 10, 0.3)
+	assert.equal(banditChoice([cur, arm('b/better', 5, 0.8)], 'a/cur', 10, 'change')?.key, 'b/better')
+	assert.equal(
+		banditChoice([cur, arm('b/pricier', 20, 0.9)], 'a/cur', 10, 'change'),
+		undefined,
+		'never pay more'
+	)
+	assert.equal(
+		banditChoice([cur, arm('b/close', 5, 0.4)], 'a/cur', 10, 'change'),
+		undefined,
+		'needs margin'
+	)
+	assert.equal(
+		banditChoice([cur, arm('b/new', 5, 0.9, 2)], 'a/cur', 10, 'change'),
+		undefined,
+		'needs trials'
+	)
+	assert.equal(
+		banditChoice([cur, arm('b/sub', 0, 0.9, 10, 'compatibility')], 'a/cur', 10, 'change'),
+		undefined,
+		'native tools'
+	)
+	assert.equal(
+		banditChoice([arm('a/cur', 10), arm('b/better', 5, 0.8)], 'a/cur', 10, 'change'),
+		undefined,
+		'current unproven'
+	)
+	const explored = banditChoice([cur, arm('b/unproven', 5)], 'a/cur', 10, 'change', {
+		epsilon: 1,
+		random: () => 0
+	})
+	assert.equal(explored?.key, 'b/unproven')
+})

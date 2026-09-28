@@ -213,7 +213,7 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 		return undefined
 	})
 
-	pi.on('agent_end', (_event, ctx) => {
+	pi.on('agent_end', (event, ctx) => {
 		if (ctx.hasUI) {
 			ctx.ui.setStatus('pi-rl', undefined)
 		}
@@ -237,7 +237,13 @@ export function registerRLExtension(pi: ExtensionAPI): void {
 			weights: config.rewardWeights,
 			changedFiles
 		}
-		const currentModel = ctx.model
+		// The model that produced the run, not ctx.model: jev-harness restores the user's model at
+		// agent_end, so ctx.model can already name a different one.
+		const lastReply = [...event.messages].reverse().find((m) => m.role === 'assistant')
+		const currentModel =
+			lastReply?.role === 'assistant'
+				? { provider: lastReply.provider, id: lastReply.model }
+				: ctx.model
 		const thinking = pi.getThinkingLevel()
 		// Tests take up to 30 s; by then the next prompt may have replaced these.
 		const taskType = currentTaskType

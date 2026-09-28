@@ -318,6 +318,40 @@ export function recordShadow(
 	})
 }
 
+/**
+ * Learned routing from the RL engine's verified outcomes (candidate `history`, read from
+ * rl-qtable.json). Exploitation only by default: among ready candidates that cost no more than
+ * the current model, pick the best Q-value when it beats the current model's by `margin` and both
+ * have at least `minTrials`. `epsilon` > 0 also tries an unproven cheaper-or-equal candidate.
+ */
+export function banditChoice(
+	models: RoutingModel[],
+	currentKey: string,
+	currentCost: number,
+	kind: string,
+	opts: { minTrials?: number; margin?: number; epsilon?: number; random?: () => number } = {}
+): RoutingModel | undefined {
+	const { minTrials = 5, margin = 0.2, epsilon = 0, random = Math.random } = opts
+	const needsNativeTools = kind !== 'answer'
+	const eligible = models.filter(
+		(m) =>
+			m.key !== currentKey &&
+			m.readiness &&
+			m.quotaAvailable !== false &&
+			!(needsNativeTools && m.toolMode === 'compatibility') &&
+			m.marginalInputCost + m.marginalOutputCost <= currentCost
+	)
+	if (epsilon > 0 && eligible.length > 0 && random() < epsilon) {
+		return eligible[Math.floor(random() * eligible.length)]
+	}
+	const current = models.find((m) => m.key === currentKey)?.history
+	if (!current || current.trials < minTrials) return undefined
+	const best = eligible
+		.filter((m) => (m.history?.trials ?? 0) >= minTrials)
+		.sort((a, b) => (b.history?.qValue ?? 0) - (a.history?.qValue ?? 0))[0]
+	return best && (best.history?.qValue ?? 0) >= current.qValue + margin ? best : undefined
+}
+
 export async function applyModelPolicy(
 	h: Harness,
 	pi: ExtensionAPI,
@@ -370,6 +404,21 @@ export async function applyModelPolicy(
 		}
 	} else {
 		notes.push(`model kept (${selected.choice}, ${selected.confidence.toFixed(2)})`)
+	}
+
+	// Jev kept the model: let verified outcomes move it to a no-more-expensive, better arm.
+	const stillCurrent = ctx.model && `${ctx.model.provider}/${ctx.model.id}` === currentKey
+	if (h.config.banditRouting !== false && stillCurrent) {
+		const learned = banditChoice(models, currentKey, baselineCost, kind.choice, {
+			epsilon: h.config.banditEpsilon ?? 0
+		})
+		if (learned && (await setRoutedModel(h, pi, ctx, learned))) {
+			h.stats.modelSwitches++
+			h.log({ what: 'bandit-switch', from: currentKey, to: learned.key, history: learned.history })
+			notes.push(
+				`model ${learned.key} (verified history Q=${learned.history?.qValue.toFixed(2) ?? 'n/a'})`
+			)
+		}
 	}
 
 	const thinkingNote = applyThinkingPolicy(h, pi, answers)

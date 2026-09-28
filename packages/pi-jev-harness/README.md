@@ -75,6 +75,8 @@ Optional `~/.pi/agent/jev-harness.json`:
 	"showStatus": true,
 	"modelRouting": true,
 	"modelSwitchConfidence": 0.82,
+	"banditRouting": true,
+	"banditEpsilon": 0,
 	"thinkingSwitchConfidence": 0.75,
 	"routeMinHiddenTools": 2,
 	"routeMinSchemaChars": 4500,
