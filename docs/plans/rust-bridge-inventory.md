@@ -4,6 +4,8 @@ Audit: 2026-09-27. Rule: move **inner loops over bytes/files/tokens**, not polic
 
 Already in `crates/pi-core` + `pi-native-bridge`: tokens (BPE/o200k), scan, search, skeleton, xxhash, spawn/kill, trigram, rank, cosine.
 
+**How it loads (2026-09-28).** Pi runs on Node. The earlier bridge used Bun FFI only, so none of this ran inside Pi. `crates/pi-core-napi` is a Node-API addon over `pi-core`; `install.sh` builds it (installing Rust when missing) and copies it to `packages/pi-native-bridge/native/pi_core.node`. The bridge loads it with `process.dlopen` in Node and Bun alike, then falls back to TypeScript per call. `scripts/doctor.sh` probes it with `node`. Native and fallback hashes differ (xxhash vs a polynomial hash); nothing persists them across processes.
+
 ---
 
 ## Keep in TypeScript / do not port

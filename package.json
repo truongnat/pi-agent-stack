@@ -18,7 +18,7 @@
 		"typescript": "^5.9.0"
 	},
 	"scripts": {
-		"build:native": "cargo build --release --manifest-path crates/pi-core/Cargo.toml",
+		"build:native": "cargo build --release -p pi-core-napi --manifest-path crates/Cargo.toml --target-dir crates/target",
 		"setup": "bash scripts/install.sh",
 		"check": "bun run --filter '*' check",
 		"typecheck": "bun run --filter '*' typecheck",

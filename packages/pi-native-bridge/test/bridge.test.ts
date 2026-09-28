@@ -81,10 +81,7 @@ test('scanDirectory scans filesystem paths and filters ignored folders with Ripg
 		assert.ok(paths.some((p) => p.includes('package.json') || p.includes('packages')))
 		assert.ok(
 			!paths.some(
-				(p) =>
-					p.startsWith('node_modules') ||
-					p.startsWith('.git') ||
-					p.startsWith('crates/pi-core/target')
+				(p) => p.startsWith('node_modules') || p.startsWith('.git') || p.startsWith('crates/target')
 			)
 		)
 	}

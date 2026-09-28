@@ -48,7 +48,8 @@ rsync -a --delete \
 	--exclude '__pycache__' \
 	--exclude 'cache.json' \
 	--exclude 'decisions.jsonl' \
-	--exclude '/crates/pi-core/target' \
+	--exclude '/crates/target' \
+	--exclude '/packages/pi-native-bridge/native' \
 	"$ROOT_DIR/" "$AGENT_DIR/pi-agent-stack/"
 
 # Native Rust core (pi-core): installs the Rust toolchain when missing, then builds into the
@@ -64,11 +65,22 @@ ensure_cargo() {
 	fi
 	export PATH="$HOME/.cargo/bin:$PATH"
 }
-PI_CORE_DIR="$AGENT_DIR/pi-agent-stack/crates/pi-core"
+CRATES_DIR="$AGENT_DIR/pi-agent-stack/crates"
+ADDON_DIR="$AGENT_DIR/pi-agent-stack/packages/pi-native-bridge/native"
 if [[ "${PI_SKIP_NATIVE:-0}" != 1 ]]; then
 	ensure_cargo
-	echo "Building native Rust core engine (pi-core)..."
-	cargo build --release --manifest-path "$PI_CORE_DIR/Cargo.toml" --target-dir "$PI_CORE_DIR/target"
+	echo "Building native Rust core engine (pi-core Node-API addon)..."
+	cargo build --release -p pi-core-napi --manifest-path "$CRATES_DIR/Cargo.toml" --target-dir "$CRATES_DIR/target"
+	addon=""
+	for name in libpi_core_napi.so libpi_core_napi.dylib pi_core_napi.dll; do
+		[[ -f "$CRATES_DIR/target/release/$name" ]] && addon="$CRATES_DIR/target/release/$name"
+	done
+	if [[ -z "$addon" ]]; then
+		echo "pi-core addon build produced no library" >&2
+		exit 1
+	fi
+	mkdir -p "$ADDON_DIR"
+	cp "$addon" "$ADDON_DIR/pi_core.node"
 fi
 
 # Link workspaces and dependencies

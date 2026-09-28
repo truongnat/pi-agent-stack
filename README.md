@@ -22,7 +22,7 @@ A modular, production-ready extension stack for the [Pi coding agent](https://pi
 | Package | Purpose |
 | :--- | :--- |
 | [`crates/pi-core`](crates/pi-core) | High-performance native Rust core: BPE tokenization, Ripgrep search, Tree-Sitter AST skeletonizer, POSIX process supervisor, and SIMD vector ranker. |
-| [`packages/pi-native-bridge`](packages/pi-native-bridge) | Bun FFI bridge with zero-dependency TypeScript fallbacks for seamless native execution. |
+| [`packages/pi-native-bridge`](packages/pi-native-bridge) | Loads the pi-core Node-API addon (`crates/pi-core-napi`, built by `install.sh`) in Node and Bun; TypeScript fallbacks when it is missing. |
 | [`packages/pi-jev-harness`](packages/pi-jev-harness) | JEV reasoning, model routing, strategic briefings, result trimming, and safety guard. |
 | [`packages/pi-subscription-providers`](packages/pi-subscription-providers) | CLI adapters (`cursor-agent`, `agy`, `claude`), quota tracking, and multi-account pool. |
 | [`packages/pi-stitch`](packages/pi-stitch) | Google Stitch MCP bridge, Ember TUI theme tokens, and Markdown styling utilities. |

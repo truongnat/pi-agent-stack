@@ -27,13 +27,13 @@ jobs:
           components: rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: crates/pi-core
+          workspaces: crates
       - name: Check Rust Formatting
-        run: cargo fmt --manifest-path crates/pi-core/Cargo.toml --check
+        run: cargo fmt --manifest-path crates/Cargo.toml --all --check
       - name: Test Rust Core
-        run: cargo test --manifest-path crates/pi-core/Cargo.toml
+        run: cargo test --manifest-path crates/Cargo.toml -p pi-core
       - name: Build Release dylib
-        run: cargo build --release --manifest-path crates/pi-core/Cargo.toml
+        run: cargo build --release --manifest-path crates/Cargo.toml -p pi-core-napi
 
   packages:
     name: ${{ matrix.package }}
@@ -58,9 +58,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: crates/pi-core
+          workspaces: crates
       - name: Build Rust Core (for native FFI)
-        run: cargo build --release --manifest-path crates/pi-core/Cargo.toml
+        run: cargo build --release --manifest-path crates/Cargo.toml -p pi-core-napi
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest

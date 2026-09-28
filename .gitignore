@@ -27,3 +27,6 @@ typesafe.env
 # Rust target artifacts
 target/
 crates/**/target/
+# Native builds (cargo workspace output, installed addon)
+crates/target/
+packages/pi-native-bridge/native/

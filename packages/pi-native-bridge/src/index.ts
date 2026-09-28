@@ -244,127 +244,75 @@ function fallbackRankDocuments(
 	return scored.slice(0, topK)
 }
 
-// Locate native library
-function findNativeLibrary(): string | null {
-	const currentDir = dirname(fileURLToPath(import.meta.url))
-	const candidatePaths = [
-		// In-repo development build
-		join(
-			currentDir,
-			'..',
-			'..',
-			'..',
-			'crates',
-			'pi-core',
-			'target',
-			'release',
-			'libpi_core.dylib'
-		),
-		join(currentDir, '..', '..', '..', 'crates', 'pi-core', 'target', 'debug', 'libpi_core.dylib'),
-		join(currentDir, '..', '..', '..', 'crates', 'pi-core', 'target', 'release', 'libpi_core.so'),
-		join(currentDir, '..', '..', '..', 'crates', 'pi-core', 'target', 'debug', 'libpi_core.so'),
-		join(currentDir, '..', '..', '..', 'crates', 'pi-core', 'target', 'release', 'pi_core.dll'),
-		// Installed runtime path
-		join(
-			process.env.HOME || '',
-			'.pi',
-			'agent',
-			'pi-agent-stack',
-			'crates',
-			'pi-core',
-			'target',
-			'release',
-			'libpi_core.dylib'
-		),
-		join(process.env.HOME || '', '.pi', 'agent', 'pi-agent-stack', 'crates', 'pi-core', 'target', 'release', 'libpi_core.so')
-	]
+/** The pi-core Node-API addon (crates/pi-core-napi). Loads in Node (Pi) and Bun alike. */
+interface Addon {
+	version(): string
+	countTokens(text: string, modelFamily: string): number
+	countTokensBpe(text: string, encoding: string): number
+	hashToolSignature(toolName: string, canonicalArgs: string): string
+	hashPrompt(text: string): string
+	scanDirectory(dirPath: string, maxDepth: number): FileEntry[]
+	searchWorkspace(dirPath: string, query: string, maxResults: number): SearchMatch[]
+	skeletonizeCode(source: string, language: string): SkeletonResult
+	spawnSupervised(
+		cmd: string,
+		cwd: string,
+		timeoutMs: number,
+		maxOutputBytes: number
+	): ProcessExecutionResult
+	cosineSimilarity(a: number[], b: number[]): number
+	trigramSimilarity(a: string, b: string): number
+	rankDocuments(query: string, documents: DocumentItem[], topK: number): RankedDocument[]
+	killProcessGroup(pgid: number, signal: number): number
+	isProcessAlive(pid: number): boolean
+}
 
-	for (const p of candidatePaths) {
-		if (existsSync(p)) return p
+/**
+ * `native/pi_core.node` is where install.sh puts the built addon; the cargo outputs cover
+ * development in the repo (crates/target, or CARGO_TARGET_DIR when set).
+ */
+function addonCandidates(): string[] {
+	const here = dirname(fileURLToPath(import.meta.url))
+	const repo = join(here, '..', '..', '..')
+	const targets = [
+		join(repo, 'crates', 'target'),
+		...(process.env.CARGO_TARGET_DIR ? [process.env.CARGO_TARGET_DIR] : [])
+	]
+	const names = ['libpi_core_napi.so', 'libpi_core_napi.dylib', 'pi_core_napi.dll']
+	return [
+		join(here, '..', 'native', 'pi_core.node'),
+		...targets.flatMap((t) =>
+			['release', 'debug'].flatMap((profile) => names.map((n) => join(t, profile, n)))
+		)
+	]
+}
+
+function loadAddon(): Addon | null {
+	for (const path of addonCandidates()) {
+		if (!existsSync(path)) continue
+		try {
+			const mod = { exports: {} as Addon }
+			process.dlopen(mod, path)
+			return mod.exports
+		} catch {
+			// Wrong platform or stale build: try the next one, then the TS fallbacks.
+		}
 	}
 	return null
 }
 
-let nativeLib: any = null
-let isNative = false
-let nativeVersion = '0.5.0-ts-fallback'
+const addon = loadAddon()
+const isNative = addon !== null
+const nativeVersion = addon ? addon.version() : '0.5.0-ts-fallback'
 
-try {
-	const libPath = findNativeLibrary()
-	if (libPath && typeof (globalThis as any).Bun !== 'undefined') {
-		const { dlopen, CString } = (globalThis as any).Bun.FFI
-		nativeLib = dlopen(libPath, {
-			pi_core_version: {
-				args: [],
-				returns: 'ptr'
-			},
-			pi_count_tokens: {
-				args: ['ptr', 'ptr'],
-				returns: 'u32'
-			},
-			pi_count_tokens_bpe: {
-				args: ['ptr', 'ptr'],
-				returns: 'u32'
-			},
-			pi_hash_tool_signature: {
-				args: ['ptr', 'ptr'],
-				returns: 'u64'
-			},
-			pi_hash_prompt: {
-				args: ['ptr'],
-				returns: 'u64'
-			},
-			pi_scan_directory: {
-				args: ['ptr', 'u32'],
-				returns: 'ptr'
-			},
-			pi_search_workspace: {
-				args: ['ptr', 'ptr', 'u32'],
-				returns: 'ptr'
-			},
-			pi_skeletonize_code: {
-				args: ['ptr', 'ptr'],
-				returns: 'ptr'
-			},
-			pi_spawn_supervised: {
-				args: ['ptr', 'ptr', 'u64', 'usize'],
-				returns: 'ptr'
-			},
-			pi_vector_cosine_similarity: {
-				args: ['ptr', 'ptr', 'usize'],
-				returns: 'f32'
-			},
-			pi_trigram_similarity: {
-				args: ['ptr', 'ptr'],
-				returns: 'f32'
-			},
-			pi_rank_documents: {
-				args: ['ptr', 'ptr', 'usize'],
-				returns: 'ptr'
-			},
-			pi_kill_process_group: {
-				args: ['i32', 'i32'],
-				returns: 'i32'
-			},
-			pi_is_process_alive: {
-				args: ['i32'],
-				returns: 'bool'
-			},
-			pi_free_string: {
-				args: ['ptr'],
-				returns: 'void'
-			}
-		})
-
-		const verPtr = nativeLib.symbols.pi_core_version()
-		if (verPtr) {
-			nativeVersion = new CString(verPtr).toString()
-			nativeLib.symbols.pi_free_string(verPtr)
-			isNative = true
-		}
+/** Native when the addon loaded, else (or if it throws) the TypeScript fallback. */
+function call<T>(native: (a: Addon) => T, fallback: () => T): T {
+	if (!addon) return fallback()
+	try {
+		return native(addon)
+	} catch {
+		return fallback()
 	}
-} catch {
-	isNative = false
 }
 
 export function isNativeAvailable(): boolean {
@@ -376,120 +324,47 @@ export function getNativeVersion(): string {
 }
 
 export function countTokens(text: string, modelFamily = 'generic'): number {
-	if (!isNative || !nativeLib) {
-		return fallbackCountTokens(text)
-	}
-
-	try {
-		const textBuf = Buffer.from(`${text}\0`, 'utf8')
-		const familyBuf = Buffer.from(`${modelFamily}\0`, 'utf8')
-		const { ptr } = (globalThis as any).Bun.FFI
-		return nativeLib.symbols.pi_count_tokens(ptr(textBuf), ptr(familyBuf))
-	} catch {
-		return fallbackCountTokens(text)
-	}
+	return call(
+		(a) => a.countTokens(text, modelFamily),
+		() => fallbackCountTokens(text)
+	)
 }
 
 export function countTokensBPE(text: string, encoding = 'cl100k_base'): number {
-	if (!isNative || !nativeLib) {
-		return fallbackCountTokens(text)
-	}
-
-	try {
-		const textBuf = Buffer.from(`${text}\0`, 'utf8')
-		const encBuf = Buffer.from(`${encoding}\0`, 'utf8')
-		const { ptr } = (globalThis as any).Bun.FFI
-		return nativeLib.symbols.pi_count_tokens_bpe(ptr(textBuf), ptr(encBuf))
-	} catch {
-		return fallbackCountTokens(text)
-	}
+	return call(
+		(a) => a.countTokensBpe(text, encoding),
+		() => fallbackCountTokens(text)
+	)
 }
 
 export function hashToolSignature(toolName: string, canonicalArgs: string): string {
-	if (!isNative || !nativeLib) {
-		return fallbackHashToolSignature(toolName, canonicalArgs)
-	}
-
-	try {
-		const nameBuf = Buffer.from(`${toolName}\0`, 'utf8')
-		const argsBuf = Buffer.from(`${canonicalArgs}\0`, 'utf8')
-		const { ptr } = (globalThis as any).Bun.FFI
-		const hashVal: bigint = nativeLib.symbols.pi_hash_tool_signature(ptr(nameBuf), ptr(argsBuf))
-		return hashVal.toString(16)
-	} catch {
-		return fallbackHashToolSignature(toolName, canonicalArgs)
-	}
+	return call(
+		(a) => a.hashToolSignature(toolName, canonicalArgs),
+		() => fallbackHashToolSignature(toolName, canonicalArgs)
+	)
 }
 
 export function fingerprintPrompt(text: string): string {
 	if (!text) return '0'
-	if (!isNative || !nativeLib) {
-		return fallbackHashToolSignature('prompt', text)
-	}
-	try {
-		const buf = Buffer.from(`${text}\0`, 'utf8')
-		const { ptr } = (globalThis as any).Bun.FFI
-		const hashVal: bigint = nativeLib.symbols.pi_hash_prompt(ptr(buf))
-		return hashVal.toString(16)
-	} catch {
-		return fallbackHashToolSignature('prompt', text)
-	}
+	return call(
+		(a) => a.hashPrompt(text),
+		() => fallbackHashToolSignature('prompt', text)
+	)
 }
 
 export function scanDirectory(dirPath: string, maxDepth = 6): FileEntry[] {
-	if (!isNative || !nativeLib) {
-		return fallbackScanDirectory()
-	}
-
-	try {
-		const pathBuf = Buffer.from(`${dirPath}\0`, 'utf8')
-		const { ptr, CString } = (globalThis as any).Bun.FFI
-		const resPtr = nativeLib.symbols.pi_scan_directory(ptr(pathBuf), maxDepth)
-		if (!resPtr) return []
-		const jsonStr = new CString(resPtr).toString()
-		nativeLib.symbols.pi_free_string(resPtr)
-		return JSON.parse(jsonStr)
-	} catch {
-		return fallbackScanDirectory()
-	}
+	return call((a) => a.scanDirectory(dirPath, maxDepth), fallbackScanDirectory)
 }
 
 export function searchWorkspace(dirPath: string, query: string, maxResults = 50): SearchMatch[] {
-	if (!isNative || !nativeLib) {
-		return fallbackSearchWorkspace()
-	}
-
-	try {
-		const pathBuf = Buffer.from(`${dirPath}\0`, 'utf8')
-		const queryBuf = Buffer.from(`${query}\0`, 'utf8')
-		const { ptr, CString } = (globalThis as any).Bun.FFI
-		const resPtr = nativeLib.symbols.pi_search_workspace(ptr(pathBuf), ptr(queryBuf), maxResults)
-		if (!resPtr) return []
-		const jsonStr = new CString(resPtr).toString()
-		nativeLib.symbols.pi_free_string(resPtr)
-		return JSON.parse(jsonStr)
-	} catch {
-		return fallbackSearchWorkspace()
-	}
+	return call((a) => a.searchWorkspace(dirPath, query, maxResults), fallbackSearchWorkspace)
 }
 
 export function skeletonizeCode(source: string, language = 'ts'): SkeletonResult {
-	if (!isNative || !nativeLib) {
-		return fallbackSkeletonizeCode(source, language)
-	}
-
-	try {
-		const srcBuf = Buffer.from(`${source}\0`, 'utf8')
-		const langBuf = Buffer.from(`${language}\0`, 'utf8')
-		const { ptr, CString } = (globalThis as any).Bun.FFI
-		const resPtr = nativeLib.symbols.pi_skeletonize_code(ptr(srcBuf), ptr(langBuf))
-		if (!resPtr) return fallbackSkeletonizeCode(source, language)
-		const jsonStr = new CString(resPtr).toString()
-		nativeLib.symbols.pi_free_string(resPtr)
-		return JSON.parse(jsonStr)
-	} catch {
-		return fallbackSkeletonizeCode(source, language)
-	}
+	return call(
+		(a) => a.skeletonizeCode(source, language),
+		() => fallbackSkeletonizeCode(source, language)
+	)
 }
 
 export function spawnSupervised(
@@ -498,62 +373,27 @@ export function spawnSupervised(
 	timeoutMs = 180000,
 	maxOutputBytes = 10485760
 ): ProcessExecutionResult {
-	if (!isNative || !nativeLib) {
-		return fallbackSpawnSupervised(cmd, cwd, timeoutMs, maxOutputBytes)
-	}
-
-	try {
-		const cmdBuf = Buffer.from(`${cmd}\0`, 'utf8')
-		const cwdBuf = Buffer.from(`${cwd}\0`, 'utf8')
-		const { ptr, CString } = (globalThis as any).Bun.FFI
-		const resPtr = nativeLib.symbols.pi_spawn_supervised(
-			ptr(cmdBuf),
-			ptr(cwdBuf),
-			BigInt(timeoutMs),
-			maxOutputBytes
-		)
-		if (!resPtr) return fallbackSpawnSupervised(cmd, cwd, timeoutMs, maxOutputBytes)
-		const jsonStr = new CString(resPtr).toString()
-		nativeLib.symbols.pi_free_string(resPtr)
-		return JSON.parse(jsonStr)
-	} catch {
-		return fallbackSpawnSupervised(cmd, cwd, timeoutMs, maxOutputBytes)
-	}
+	return call(
+		(a) => a.spawnSupervised(cmd, cwd, timeoutMs, maxOutputBytes),
+		() => fallbackSpawnSupervised(cmd, cwd, timeoutMs, maxOutputBytes)
+	)
 }
 
 export function vectorCosineSimilarity(
 	a: Float32Array | number[],
 	b: Float32Array | number[]
 ): number {
-	if (!isNative || !nativeLib) {
-		return fallbackVectorCosineSimilarity(a, b)
-	}
-
-	try {
-		// Rust reads `len` floats from both pointers: mismatched lengths would read past `b`.
-		if (!a.length || a.length !== b.length) return 0
-		const bufA = a instanceof Float32Array ? a : new Float32Array(a)
-		const bufB = b instanceof Float32Array ? b : new Float32Array(b)
-		const { ptr } = (globalThis as any).Bun.FFI
-		return nativeLib.symbols.pi_vector_cosine_similarity(ptr(bufA), ptr(bufB), bufA.length)
-	} catch {
-		return fallbackVectorCosineSimilarity(a, b)
-	}
+	return call(
+		(n) => n.cosineSimilarity(Array.from(a), Array.from(b)),
+		() => fallbackVectorCosineSimilarity(a, b)
+	)
 }
 
 export function trigramSimilarity(a: string, b: string): number {
-	if (!isNative || !nativeLib) {
-		return fallbackTrigramSimilarity(a, b)
-	}
-
-	try {
-		const aBuf = Buffer.from(`${a}\0`, 'utf8')
-		const bBuf = Buffer.from(`${b}\0`, 'utf8')
-		const { ptr } = (globalThis as any).Bun.FFI
-		return nativeLib.symbols.pi_trigram_similarity(ptr(aBuf), ptr(bBuf))
-	} catch {
-		return fallbackTrigramSimilarity(a, b)
-	}
+	return call(
+		(n) => n.trigramSimilarity(a, b),
+		() => fallbackTrigramSimilarity(a, b)
+	)
 }
 
 export function rankDocuments(
@@ -561,46 +401,24 @@ export function rankDocuments(
 	documents: DocumentItem[],
 	topK = 5
 ): RankedDocument[] {
-	if (!isNative || !nativeLib) {
-		return fallbackRankDocuments(query, documents, topK)
-	}
-
-	try {
-		const qBuf = Buffer.from(`${query}\0`, 'utf8')
-		const docsBuf = Buffer.from(`${JSON.stringify(documents)}\0`, 'utf8')
-		const { ptr, CString } = (globalThis as any).Bun.FFI
-		const resPtr = nativeLib.symbols.pi_rank_documents(ptr(qBuf), ptr(docsBuf), topK)
-		if (!resPtr) return fallbackRankDocuments(query, documents, topK)
-		const jsonStr = new CString(resPtr).toString()
-		nativeLib.symbols.pi_free_string(resPtr)
-		return JSON.parse(jsonStr)
-	} catch {
-		return fallbackRankDocuments(query, documents, topK)
-	}
+	return call(
+		(a) => a.rankDocuments(query, documents, topK),
+		() => fallbackRankDocuments(query, documents, topK)
+	)
 }
 
 export function killProcessGroup(pgid: number, signal = 9): number {
-	if (!isNative || !nativeLib) {
-		return fallbackKillProcessGroup(pgid, signal)
-	}
-
-	try {
-		return nativeLib.symbols.pi_kill_process_group(pgid, signal)
-	} catch {
-		return fallbackKillProcessGroup(pgid, signal)
-	}
+	return call(
+		(a) => a.killProcessGroup(pgid, signal),
+		() => fallbackKillProcessGroup(pgid, signal)
+	)
 }
 
 export function isProcessAlive(pid: number): boolean {
-	if (!isNative || !nativeLib) {
-		return fallbackIsProcessAlive(pid)
-	}
-
-	try {
-		return nativeLib.symbols.pi_is_process_alive(pid)
-	} catch {
-		return fallbackIsProcessAlive(pid)
-	}
+	return call(
+		(a) => a.isProcessAlive(pid),
+		() => fallbackIsProcessAlive(pid)
+	)
 }
 
 export const bridge: NativeBridge = {

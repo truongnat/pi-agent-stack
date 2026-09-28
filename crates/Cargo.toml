@@ -1,0 +1,3 @@
+[workspace]
+members = ["pi-core", "pi-core-napi"]
+resolver = "2"
