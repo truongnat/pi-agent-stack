@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { appendFileSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -25,6 +26,7 @@ import {
 } from './roster.ts'
 import type {
 	SubagentExecutionResult,
+	SubagentBatchRun,
 	SubagentInstance,
 	SubagentLogEntry,
 	SubagentProgressEvent,
@@ -151,6 +153,9 @@ export function workerEnv(): Record<string, string> {
 
 export class SubagentManager {
 	private instances = new Map<string, SubagentInstance>()
+	private batches = new Map<string, SubagentBatchRun>()
+	private batchControllers = new Map<string, AbortController>()
+	private batchPromises = new Map<string, Promise<void>>()
 	private dispatchedProviderCounts: Record<string, number> = {}
 	private runner: WorkerRunner
 	public config: OrchestratorConfig
@@ -181,7 +186,90 @@ export class SubagentManager {
 		for (const [id, instance] of this.instances) {
 			if (instance.status !== 'running') this.instances.delete(id)
 		}
+		for (const [id, batch] of this.batches) {
+			if (batch.status !== 'running') {
+				this.batches.delete(id)
+				this.batchControllers.delete(id)
+				this.batchPromises.delete(id)
+			}
+		}
 		this.dispatchedProviderCounts = {}
+	}
+
+	public getBatch(id: string): SubagentBatchRun | undefined {
+		const batch = this.batches.get(id)
+		return batch
+			? { ...batch, subagentIds: [...batch.subagentIds], results: [...batch.results] }
+			: undefined
+	}
+
+	public listBatches(): SubagentBatchRun[] {
+		return Array.from(this.batches.keys(), (id) => this.getBatch(id)!).filter(Boolean)
+	}
+
+	public async waitBatch(id: string): Promise<SubagentBatchRun | undefined> {
+		await this.batchPromises.get(id)
+		return this.getBatch(id)
+	}
+
+	public cancelBatch(id: string): boolean {
+		const batch = this.batches.get(id)
+		const controller = this.batchControllers.get(id)
+		if (!batch || batch.status !== 'running' || !controller) return false
+		controller.abort()
+		for (const subagentId of batch.subagentIds) this.killSubagent(subagentId)
+		return true
+	}
+
+	public startBatch(
+		execute: (
+			signal: AbortSignal,
+			onProgress: (event: SubagentProgressEvent) => void
+		) => Promise<SubagentExecutionResult[]>,
+		onProgress?: (event: SubagentProgressEvent) => void
+	): SubagentBatchRun {
+		if (Array.from(this.batches.values()).some((batch) => batch.status === 'running')) {
+			throw new Error(
+				'A subagent batch is already running; manage or wait for it before starting another.'
+			)
+		}
+
+		const id = randomUUID()
+		const controller = new AbortController()
+		const batch: SubagentBatchRun = {
+			id,
+			status: 'running',
+			startedAt: Date.now(),
+			subagentIds: [],
+			results: []
+		}
+		this.batches.set(id, batch)
+		this.batchControllers.set(id, controller)
+
+		const promise = Promise.resolve()
+			.then(() =>
+				execute(controller.signal, (event) => {
+					if (!batch.subagentIds.includes(event.id)) batch.subagentIds.push(event.id)
+					onProgress?.(event)
+				})
+			)
+			.then((results) => {
+				batch.results = results
+				batch.status = controller.signal.aborted
+					? 'cancelled'
+					: results.some((result) => result.status === 'failed')
+						? 'failed'
+						: 'completed'
+			})
+			.catch((error: unknown) => {
+				batch.status = controller.signal.aborted ? 'cancelled' : 'failed'
+				batch.error = error instanceof Error ? error.message : String(error)
+			})
+			.finally(() => {
+				batch.completedAt = Date.now()
+			})
+		this.batchPromises.set(id, promise)
+		return this.getBatch(id)!
 	}
 
 	public killSubagent(id: string): boolean {
@@ -210,6 +298,7 @@ export class SubagentManager {
 
 	public killAll(): number {
 		let count = 0
+		for (const controller of this.batchControllers.values()) controller.abort()
 		for (const instance of this.instances.values()) {
 			if (instance.status === 'running') {
 				instance.status = 'killed'
@@ -397,6 +486,7 @@ export class SubagentManager {
 			id: instance.id,
 			role: instance.role,
 			name: instance.name,
+			model: instance.model,
 			status: 'running',
 			currentActivity: `Starting with model ${model}...`
 		})

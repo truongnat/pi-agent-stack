@@ -382,12 +382,9 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on('agent_end', (_event, ctx) => {
 		h.status(ctx, undefined)
-		// Routing is per turn: put back the model and thinking level the user had.
-		const model = h.restoreModel
+		// Thinking-level changes are per turn; the user's selected model is never routed.
 		const thinking = h.restoreThinking
-		h.restoreModel = undefined
 		h.restoreThinking = undefined
-		if (model) void automatic(() => pi.setModel(model))
 		if (thinking) void automatic(() => pi.setThinkingLevel(thinking))
 		if (!h.allTools) return
 		pi.setActiveTools(h.allTools)

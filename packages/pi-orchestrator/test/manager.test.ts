@@ -54,6 +54,40 @@ test('SubagentManager invokeBatch supports parallel and sequential modes', async
 	assert.equal(seqResults[1].status, 'completed')
 })
 
+test('startBatch returns immediately and retains final results for later inspection', async () => {
+	let markStarted = () => {}
+	let releaseWorker = () => {}
+	const started = new Promise<void>((resolve) => {
+		markStarted = resolve
+	})
+	const gate = new Promise<void>((resolve) => {
+		releaseWorker = resolve
+	})
+	const { manager } = fakeManager({}, async (request) => {
+		markStarted()
+		await gate
+		return await piReply('done')(request)
+	})
+	const run = manager.startBatch((signal, onProgress) =>
+		manager.invokeBatch(
+			[{ role: 'researcher', prompt: 'Inspect one module' }],
+			process.cwd(),
+			true,
+			{ signal, onProgress }
+		)
+	)
+
+	await started
+	assert.equal(run.status, 'running')
+	assert.equal(manager.getBatch(run.id)?.status, 'running')
+	assert.equal(manager.getBatch(run.id)?.subagentIds.length, 1)
+
+	releaseWorker()
+	const completed = await manager.waitBatch(run.id)
+	assert.equal(completed?.status, 'completed')
+	assert.equal(completed?.results[0]?.output, 'done')
+})
+
 test('spawnSubagent fails when requested tools are outside the role allowlist', async () => {
 	const manager = fakeManager().manager
 	const result = await manager.spawnSubagent(

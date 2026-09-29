@@ -18,11 +18,32 @@ export interface SubagentTask {
 	dependsOn?: string[]
 	role: AgentRoleName
 	prompt: string
+	/** Stable target/concern keys; duplicate keys in one batch are rejected before dispatch. */
+	scope?: string[]
 	name?: string
 	modelOverride?: string
 	tools?: string[]
 	isolateWorkspace?: boolean
 	timeoutMs?: number
+}
+
+export function findTaskScopeConflicts(
+	tasks: SubagentTask[]
+): Array<{ scope: string; taskIds: string[] }> {
+	const owners = new Map<string, Set<string>>()
+	for (const [index, task] of tasks.entries()) {
+		const taskId = task.id ?? `t${index + 1}`
+		for (const value of task.scope ?? []) {
+			const scope = value.trim().toLocaleLowerCase('en-US')
+			if (!scope) continue
+			const taskIds = owners.get(scope) ?? new Set<string>()
+			taskIds.add(taskId)
+			owners.set(scope, taskIds)
+		}
+	}
+	return Array.from(owners, ([scope, taskIds]) => ({ scope, taskIds: [...taskIds] })).filter(
+		(conflict) => conflict.taskIds.length > 1
+	)
 }
 
 export type SubagentStatus = 'idle' | 'running' | 'completed' | 'failed' | 'killed' | 'skipped'
@@ -67,10 +88,23 @@ export interface SubagentExecutionResult {
 	scratchpadDir: string
 }
 
+export type SubagentBatchStatus = 'running' | 'completed' | 'failed' | 'cancelled'
+
+export interface SubagentBatchRun {
+	id: string
+	status: SubagentBatchStatus
+	startedAt: number
+	completedAt?: number
+	subagentIds: string[]
+	results: SubagentExecutionResult[]
+	error?: string
+}
+
 export interface SubagentProgressEvent {
 	id: string
 	role: AgentRoleName
 	name: string
+	model?: string
 	status: 'running' | 'streaming' | 'completed' | 'failed' | 'killed'
 	currentActivity?: string
 	/** Streaming assistant markdown so the TUI can render it live. */

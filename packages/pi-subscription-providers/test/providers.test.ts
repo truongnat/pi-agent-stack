@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { test } from 'node:test'
 import type { TranscriptContext } from '@earendil-works/pi-ai'
 
@@ -555,7 +556,83 @@ test('claude-code stream: text/thinking deltas, usage, prompt on stdin, tools of
 	assert.ok(events.some((e) => e.type === 'thinking_delta'))
 	assert.ok(seen?.args.includes('--no-session-persistence'))
 	assert.equal(seen?.args[seen.args.indexOf('--tools') + 1], '', 'tools disabled')
+	assert.ok(seen?.args.includes('--strict-mcp-config'))
+	assert.equal(seen?.args.includes('--mcp-config'), false, 'no MCP bridge without orchestrator')
 	assert.match(String(seen?.stdin), /hi/, 'prompt goes through stdin')
+})
+
+test('claude-code exposes only the orchestrator MCP tools and removes its temp config', async () => {
+	const oldBridge = globalThis.piOrchestratorMcpBridge
+	globalThis.piOrchestratorMcpBridge = {
+		serverPath: '/tmp/pi-agent-stack/mcp-server.ts',
+		cwd: '/tmp/workspace',
+		sessionId: 'session-123'
+	}
+	let configPath = ''
+	let capturedArgs: string[] = []
+	let capturedConfig: Record<string, unknown> | undefined
+	let capturedMode = 0
+	const readiness: Readiness = {
+		provider: 'claude-code',
+		ready: true,
+		reason: 'ready',
+		command: '/bin/claude',
+		billingMode: 'subscription',
+		latencyEstimateMs: 1000,
+		marginalInputCost: 1,
+		marginalOutputCost: 2,
+		models: [{ id: 'sonnet', name: 'Sonnet', reasoning: false }],
+		checkedAt: Date.now(),
+		toolMode: 'compatibility'
+	}
+	const model = {
+		id: 'sonnet',
+		name: 'Sonnet',
+		api: 'claude-code-cli-compat',
+		provider: 'claude-code',
+		baseUrl: 'cli://claude',
+		reasoning: false,
+		input: ['text'] as ('text' | 'image')[],
+		cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 200000,
+		maxTokens: 8192
+	}
+	try {
+		const stream = streamClaudeCodeCli(model, fakeContext(), {}, readiness, async (request) => {
+			capturedArgs = request.args
+			const index = request.args.indexOf('--mcp-config')
+			assert.ok(index >= 0)
+			configPath = request.args[index + 1] ?? ''
+			capturedConfig = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>
+			capturedMode = statSync(configPath).mode & 0o777
+			for (const line of [
+				JSON.stringify({ type: 'result', result: 'delegated', is_error: false })
+			]) {
+				request.onLine(line)
+			}
+			return { code: 0, timedOut: false, aborted: false, stderr: '' }
+		})
+		for await (const _event of stream) {
+		}
+		assert.equal(capturedArgs[capturedArgs.indexOf('--tools') + 1], '')
+		assert.ok(capturedArgs.includes('--strict-mcp-config'))
+		assert.deepEqual(capturedConfig, {
+			mcpServers: {
+				'pi-orchestrator': {
+					command: 'bun',
+					args: ['run', '/tmp/pi-agent-stack/mcp-server.ts'],
+					env: {
+						PI_ORCHESTRATOR_MCP_CWD: '/tmp/workspace',
+						PI_ORCHESTRATOR_MCP_SESSION: 'session-123'
+					}
+				}
+			}
+		})
+		assert.equal(capturedMode, 0o600)
+		assert.equal(existsSync(configPath), false)
+	} finally {
+		globalThis.piOrchestratorMcpBridge = oldBridge
+	}
 })
 
 test('claude-code readiness: logged in vs logged out', async () => {

@@ -27,6 +27,7 @@ type Session = {
 	cwd: string
 	updatedAt: number
 	status: string
+	model?: string
 	events: any[]
 	agents: any[]
 	edges: any[]
@@ -40,9 +41,7 @@ let sessions = new Map<string, Session>()
 let viewers = new Set<ServerResponse>()
 let hostStarting: Promise<void> | undefined
 /** Live attach handle; agent patches must reuse this socket (a new connect fails if the sock file was unlinked). */
-let attachedPublisher:
-	| ((data: Partial<Pick<Session, 'agents' | 'edges'>>) => void)
-	| undefined
+let attachedPublisher: ((data: Partial<Pick<Session, 'agents' | 'edges'>>) => void) | undefined
 
 function httpHostUp(): Promise<boolean> {
 	return new Promise((resolve) => {
@@ -309,7 +308,7 @@ export async function openDashboardInBrowser(
 
 export function attachDashboard(
 	session: Pick<Session, 'id' | 'title' | 'cwd'> &
-		Partial<Pick<Session, 'events' | 'agents' | 'edges' | 'preview'>>,
+		Partial<Pick<Session, 'model' | 'events' | 'agents' | 'edges' | 'preview' | 'currentActivity'>>,
 	onAttach?: (id: string) => void
 ) {
 	let socket: Socket | undefined

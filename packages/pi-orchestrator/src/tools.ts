@@ -2,10 +2,15 @@ import { defineTool, type ToolDefinition } from '@earendil-works/pi-coding-agent
 import { Box, Text } from '@earendil-works/pi-tui'
 import { renderMarkdown } from './tui-markdown.ts'
 import * as t from 'typebox'
-import { planDag } from './dag.ts'
+import { planDag, type DagNode } from './dag.ts'
 import { checkOrchestratorGuard } from './guard.ts'
 import { SubagentManager } from './manager.ts'
-import type { SubagentExecutionResult, SubagentProgressEvent, SubagentTask } from './types.ts'
+import {
+	findTaskScopeConflicts,
+	type SubagentExecutionResult,
+	type SubagentProgressEvent,
+	type SubagentTask
+} from './types.ts'
 import { publishDashboardAgentUpdate } from './dashboard.ts'
 
 export function getRoleIcon(role: string): string {
@@ -65,6 +70,10 @@ const SubagentTaskSchema = t.Object({
 	prompt: t.String({
 		description: 'Detailed and actionable instruction for what this subagent should accomplish.'
 	}),
+	scope: t.Array(t.String({ minLength: 1 }), {
+		description:
+			'Required unique work-unit keys (target plus concern, e.g. "screen:ac12001/frontend-naming"). Do not assign one key to multiple agents.'
+	}),
 	name: t.Optional(
 		t.String({
 			description:
@@ -122,6 +131,8 @@ const ManageSubagentsSchema = t.Object({
 	action: t.Union([
 		t.Literal('list', { description: 'List all running and completed subagents.' }),
 		t.Literal('status', { description: 'Get detailed status and logs of a specific subagent.' }),
+		t.Literal('batch_status', { description: 'Get batch progress and completed task outputs.' }),
+		t.Literal('cancel_batch', { description: 'Cancel a running batch and stop its workers.' }),
 		t.Literal('kill', { description: 'Kill a running subagent.' }),
 		t.Literal('kill_all', { description: 'Kill all running subagents.' }),
 		t.Literal('clear', { description: 'Clear history of completed/failed subagents.' })
@@ -130,7 +141,8 @@ const ManageSubagentsSchema = t.Object({
 		t.String({
 			description: 'Subagent ID (required for "status" or "kill" action).'
 		})
-	)
+	),
+	batch_id: t.Optional(t.String({ description: 'Batch ID returned by invoke_subagent.' }))
 })
 
 const SendSubagentMessageSchema = t.Object({
@@ -142,6 +154,152 @@ const SendSubagentMessageSchema = t.Object({
 	})
 })
 
+type InvokeSubagentParams = Parameters<ToolDefinition<typeof InvokeSubagentSchema>['execute']>[1]
+
+export async function executeInvokeSubagent(
+	manager: SubagentManager,
+	params: InvokeSubagentParams,
+	cwd: string,
+	getDashboardSessionId: () => string = () => ''
+) {
+	const guardCheck = checkOrchestratorGuard(manager.config)
+	if (!guardCheck.allowed) {
+		return {
+			content: [
+				{
+					type: 'text' as const,
+					text: guardCheck.reason ?? 'Multi-Agent Orchestrator guard blocked execution.'
+				}
+			],
+			isError: true,
+			details: {
+				guardBlocked: true,
+				providers: guardCheck.providers,
+				minRequired: manager.config.minProvidersRequired
+			}
+		}
+	}
+	if (!params.subagents.length) {
+		return {
+			content: [{ type: 'text' as const, text: 'No subagent tasks provided.' }],
+			isError: true,
+			details: undefined
+		}
+	}
+
+	const tasks: SubagentTask[] = params.subagents.map((task) => ({
+		...(task.id ? { id: task.id } : {}),
+		...(task.depends_on ? { dependsOn: task.depends_on } : {}),
+		role: task.role,
+		prompt: task.prompt,
+		scope: task.scope,
+		name: task.name,
+		modelOverride: task.model_override,
+		tools: task.tools,
+		...(task.isolate_workspace !== undefined ? { isolateWorkspace: task.isolate_workspace } : {}),
+		...(task.timeout_ms ? { timeoutMs: task.timeout_ms } : {})
+	}))
+	const parallel = params.parallel ?? true
+	const scopeConflicts = findTaskScopeConflicts(tasks)
+	if (scopeConflicts.length) {
+		const conflictText = scopeConflicts
+			.map((conflict) => `- \`${conflict.scope}\`: ${conflict.taskIds.join(', ')}`)
+			.join('\n')
+		return {
+			content: [
+				{
+					type: 'text' as const,
+					text: `Cannot dispatch tasks with overlapping scope:\n${conflictText}\nSplit the responsibilities or assign distinct target/concern keys.`
+				}
+			],
+			isError: true,
+			details: { scopeConflicts }
+		}
+	}
+
+	let dagNodes: DagNode[] | undefined
+	if (tasks.some((task) => task.dependsOn?.length)) {
+		const planned = planDag(tasks)
+		if ('error' in planned) {
+			return {
+				content: [{ type: 'text' as const, text: `Invalid task graph: ${planned.error}` }],
+				isError: true,
+				details: undefined
+			}
+		}
+		dagNodes = planned.nodes
+	}
+
+	const progressMap = new Map<
+		string,
+		{
+			role: string
+			name: string
+			model?: string
+			status: string
+			currentActivity?: string
+			previewMarkdown?: string
+			startedAt: number
+			durationMs?: number
+		}
+	>()
+	const reportProgress = (event: SubagentProgressEvent) => {
+		const existing = progressMap.get(event.id) || {
+			role: event.role,
+			name: event.name,
+			model: event.model,
+			status: event.status,
+			currentActivity: event.currentActivity,
+			previewMarkdown: event.previewMarkdown,
+			startedAt: Date.now()
+		}
+		existing.model = event.model ?? existing.model
+		existing.status = event.status
+		if (event.currentActivity) existing.currentActivity = event.currentActivity
+		if (event.previewMarkdown !== undefined) existing.previewMarkdown = event.previewMarkdown
+		if (event.status === 'completed' || event.status === 'failed' || event.status === 'killed') {
+			existing.durationMs = event.elapsedMs ?? Date.now() - existing.startedAt
+		}
+		progressMap.set(event.id, existing)
+		publishDashboardAgentUpdate(
+			getDashboardSessionId(),
+			Array.from(progressMap, ([id, task]) => ({ id, ...task })),
+			manager.lastDag.nodes.flatMap((node) => node.dependsOn.map((from) => ({ from, to: node.id })))
+		)
+	}
+
+	const batch = manager.startBatch(async (signal, onProgress) => {
+		if (params.require_consensus && tasks.length === 1) {
+			const execution = await manager.invokeWithConsensus(
+				tasks[0]!,
+				params.reviewer_roles || ['reviewer', 'tester'],
+				cwd,
+				{ signal, onProgress }
+			)
+			return [
+				{
+					...execution.primaryResult,
+					output: `${execution.consensus.summary}\n\n${execution.primaryResult.output}`
+				},
+				...execution.verificationResults
+			]
+		}
+		if (dagNodes) return manager.invokeDag(dagNodes, cwd, { signal, onProgress })
+		return manager.invokeBatch(tasks, cwd, parallel, { signal, onProgress })
+	}, reportProgress)
+
+	const text = [
+		`# 🤖 Started subagent batch \`${batch.id}\` (${tasks.length} task(s), ${parallel ? 'Parallel' : 'Sequential'})`,
+		'',
+		...batch.subagentIds.map((id) => `- \`${id}\``),
+		'Use manage_subagents with action "batch_status" to inspect results; actions remain available while workers run.'
+	].join('\n')
+	return {
+		content: [{ type: 'text' as const, text }],
+		details: { batchId: batch.id, status: batch.status, subagentIds: batch.subagentIds }
+	}
+}
+
 export function createOrchestratorTools(
 	manager: SubagentManager,
 	getDashboardSessionId: () => string = () => ''
@@ -150,181 +308,13 @@ export function createOrchestratorTools(
 		name: 'invoke_subagent',
 		label: 'Invoke Subagents',
 		description:
-			'Spawn specialized subagents (researcher, coder, tester, reviewer) with private scratchpads and role-scoped tools, returning synthesized artifacts to the Master Orchestrator.',
+			'Spawn specialized subagents with private scratchpads and role-scoped tools. Give every task unique scope keys; split overlapping responsibilities before dispatch.',
 		promptSnippet:
-			'invoke_subagent({ subagents: [{ role: "researcher", prompt: "..." }], parallel: true, require_consensus: false }) — spawn subagents',
+			'invoke_subagent({ subagents: [{ role: "researcher", prompt: "...", scope: ["screen:ac12001/frontend-naming"] }], parallel: true }) — start a manageable batch',
 		parameters: InvokeSubagentSchema,
 		executionMode: 'sequential',
-		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const guardCheck = checkOrchestratorGuard(manager.config)
-			if (!guardCheck.allowed) {
-				return {
-					content: [
-						{
-							type: 'text',
-							text: guardCheck.reason ?? 'Multi-Agent Orchestrator guard blocked execution.'
-						}
-					],
-					isError: true,
-					details: {
-						guardBlocked: true,
-						providers: guardCheck.providers,
-						minRequired: manager.config.minProvidersRequired
-					}
-				}
-			}
-
-			if (!params.subagents || params.subagents.length === 0) {
-				return {
-					content: [{ type: 'text', text: 'No subagent tasks provided.' }],
-					isError: true,
-					details: undefined
-				}
-			}
-
-			const tasks: SubagentTask[] = params.subagents.map((s) => ({
-				...(s.id ? { id: s.id } : {}),
-				...(s.depends_on ? { dependsOn: s.depends_on } : {}),
-				role: s.role,
-				prompt: s.prompt,
-				name: s.name,
-				modelOverride: s.model_override,
-				tools: s.tools,
-				...(s.isolate_workspace !== undefined ? { isolateWorkspace: s.isolate_workspace } : {}),
-				...(s.timeout_ms ? { timeoutMs: s.timeout_ms } : {})
-			}))
-
-			const cwd = ctx.cwd || process.cwd()
-			const parallel = params.parallel ?? true
-
-			const progressMap = new Map<
-				string,
-				{
-					role: string
-					name: string
-					model?: string
-					status: string
-					currentActivity?: string
-					previewMarkdown?: string
-					startedAt: number
-					durationMs?: number
-				}
-			>()
-
-			const reportProgress = (p: SubagentProgressEvent) => {
-				const existing = progressMap.get(p.id) || {
-					role: p.role,
-					name: p.name,
-					model: manager.getSubagent(p.id)?.model,
-					status: p.status,
-					currentActivity: p.currentActivity,
-					previewMarkdown: p.previewMarkdown,
-					startedAt: Date.now()
-				}
-				existing.model = manager.getSubagent(p.id)?.model ?? existing.model
-				existing.status = p.status
-				if (p.currentActivity) existing.currentActivity = p.currentActivity
-				if (p.previewMarkdown !== undefined) existing.previewMarkdown = p.previewMarkdown
-				if (p.status === 'completed' || p.status === 'failed' || p.status === 'killed') {
-					existing.durationMs = p.elapsedMs ?? Date.now() - existing.startedAt
-				}
-				progressMap.set(p.id, existing)
-				publishDashboardAgentUpdate(
-					getDashboardSessionId(),
-					Array.from(progressMap, ([id, task]) => ({ id, ...task })),
-					manager.lastDag.nodes.flatMap((node) =>
-						node.dependsOn.map((from) => ({ from, to: node.id }))
-					)
-				)
-
-				if (_onUpdate) {
-					_onUpdate({
-						content: [{ type: 'text', text: 'Executing subagents...' }],
-						details: {
-							running: true,
-							parallel,
-							tasks: Array.from(progressMap.values())
-						}
-					})
-				}
-			}
-
-			// If require_consensus is requested on a single primary task
-			if (params.require_consensus && tasks.length === 1) {
-				const primary = tasks[0]!
-				const reviewerRoles = params.reviewer_roles || ['reviewer', 'tester']
-				const consensusExecution = await manager.invokeWithConsensus(primary, reviewerRoles, cwd, {
-					signal,
-					onProgress: reportProgress
-				})
-
-				const primarySection = `## 🧑‍💻 Primary Task: \`${consensusExecution.primaryResult.name}\` (${consensusExecution.primaryResult.role})\n${consensusExecution.primaryResult.output}`
-				const consensusSection = consensusExecution.consensus.summary
-				// The model needs the reviewers' actual findings, not only the tally.
-				const verifierSections = consensusExecution.verificationResults.map(
-					(r) => `## 🔍 ${r.role}: \`${r.name}\`\n${r.output || r.error || '(no output)'}`
-				)
-
-				const text = [
-					`# 🏛 Orchestrator: Multi-Agent Consensus Verification Tree`,
-					'',
-					consensusSection,
-					'',
-					primarySection,
-					...verifierSections
-				].join('\n\n')
-
-				return {
-					content: [{ type: 'text', text }],
-					details: {
-						consensus: consensusExecution.consensus,
-						primaryResult: consensusExecution.primaryResult,
-						verificationResults: consensusExecution.verificationResults
-					}
-				}
-			}
-
-			let results: SubagentExecutionResult[]
-			if (tasks.some((task) => task.dependsOn?.length)) {
-				const planned = planDag(tasks)
-				if ('error' in planned) {
-					return {
-						content: [{ type: 'text', text: `Invalid task graph: ${planned.error}` }],
-						isError: true,
-						details: undefined
-					}
-				}
-				results = await manager.invokeDag(planned.nodes, cwd, {
-					signal,
-					onProgress: reportProgress
-				})
-			} else {
-				results = await manager.invokeBatch(tasks, cwd, parallel, {
-					signal,
-					onProgress: reportProgress
-				})
-			}
-
-			const sections = results.map((r) => {
-				const statusIcon = r.status === 'completed' ? '✅' : '❌'
-				const errorSection = r.error ? `\n> **Error**: ${r.error}` : ''
-				const taskSection = r.prompt ? `\n- **Task**: ${r.prompt}` : ''
-				return `## ${statusIcon} Subagent: \`${r.name}\` (${r.role})\n- **ID**: \`${r.id}\`\n- **Status**: \`${r.status}\` | **Duration**: ${r.durationMs}ms | **Tokens**: ${r.tokensUsed}${taskSection}\n- **Scratchpad**: \`${r.scratchpadDir}\`${errorSection}\n\n${r.output}`
-			})
-
-			const text = [
-				`# 🤖 Orchestrator: Dispatched ${results.length} Subagent(s) (${parallel ? 'Parallel' : 'Sequential'})`,
-				'',
-				...sections
-			].join('\n\n')
-
-			return {
-				content: [{ type: 'text', text }],
-				details: {
-					count: results.length,
-					results
-				}
-			}
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			return executeInvokeSubagent(manager, params, ctx.cwd || process.cwd(), getDashboardSessionId)
 		},
 		renderCall(args, theme) {
 			const count = args?.subagents?.length || 0
@@ -478,15 +468,17 @@ export function createOrchestratorTools(
 	const manageSubagentsTool: ToolDefinition<typeof ManageSubagentsSchema, any> = defineTool({
 		name: 'manage_subagents',
 		label: 'Manage Subagents',
-		description: 'List, inspect, or kill subagents managed by the Multi-Agent Orchestrator.',
-		promptSnippet: 'manage_subagents({ action: "list" | "status" | "kill", subagent_id })',
+		description: 'List, inspect, steer, cancel, or kill managed subagent batches and workers.',
+		promptSnippet:
+			'manage_subagents({ action: "list" | "batch_status" | "cancel_batch" | "status" | "kill", batch_id, subagent_id })',
 		parameters: ManageSubagentsSchema,
 		executionMode: 'sequential',
 		async execute(_toolCallId, params): Promise<any> {
 			switch (params.action) {
 				case 'list': {
 					const list = manager.listSubagents()
-					if (list.length === 0) {
+					const batches = manager.listBatches()
+					if (list.length === 0 && batches.length === 0) {
 						return {
 							content: [{ type: 'text', text: 'No active or recent subagents.' }],
 							details: { count: 0, subagents: [] }
@@ -501,14 +493,75 @@ export function createOrchestratorTools(
 						'| --- | --- | --- | --- | --- | --- |',
 						...rows
 					].join('\n')
+					const batchRows = batches.map(
+						(batch) =>
+							`- \`${batch.id}\` — **${batch.status}** (${batch.subagentIds.length} worker(s))`
+					)
 					return {
 						content: [
 							{
 								type: 'text',
-								text: `### 📋 Managed Subagents (Total: ${list.length})\n\n${table}`
+								text: `### 📋 Managed Subagents (Total: ${list.length})\n\n${list.length ? table : 'No subagents yet.'}\n\n### Batches\n${batchRows.length ? batchRows.join('\n') : 'No batches yet.'}`
 							}
 						],
-						details: { count: list.length, subagents: list }
+						details: { count: list.length, subagents: list, batches }
+					}
+				}
+
+				case 'batch_status': {
+					if (!params.batch_id) {
+						return {
+							content: [{ type: 'text', text: 'Error: batch_id is required for batch_status.' }],
+							isError: true,
+							details: undefined
+						}
+					}
+					const batch = manager.getBatch(params.batch_id)
+					if (!batch) {
+						return {
+							content: [{ type: 'text', text: `Batch not found: "${params.batch_id}".` }],
+							isError: true,
+							details: undefined
+						}
+					}
+					const tasks = batch.subagentIds.map((id) => {
+						const subagent = manager.getSubagent(id)
+						return `- \`${id}\`: ${subagent?.status ?? 'unknown'} — ${subagent?.name ?? ''}`
+					})
+					const outputs = batch.results.map(
+						(result) =>
+							`## ${result.name} (${result.status})\n${result.error ? `Error: ${result.error}\n` : ''}${result.output || '(no output)'}`
+					)
+					return {
+						content: [
+							{
+								type: 'text',
+								text: [`### Batch ${batch.id}: ${batch.status}`, ...tasks, ...outputs].join('\n\n')
+							}
+						],
+						details: batch
+					}
+				}
+
+				case 'cancel_batch': {
+					if (!params.batch_id) {
+						return {
+							content: [{ type: 'text', text: 'Error: batch_id is required for cancel_batch.' }],
+							isError: true,
+							details: undefined
+						}
+					}
+					const cancelled = manager.cancelBatch(params.batch_id)
+					return {
+						content: [
+							{
+								type: 'text',
+								text: cancelled
+									? `Cancelled batch "${params.batch_id}".`
+									: `Batch "${params.batch_id}" was not running or does not exist.`
+							}
+						],
+						details: { cancelled }
 					}
 				}
 

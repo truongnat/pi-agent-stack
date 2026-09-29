@@ -37,34 +37,27 @@ import {
 import { marked } from "marked";
 import { Background } from "@vue-flow/background";
 import { Handle, Position, VueFlow } from "@vue-flow/core";
+import {
+  activityFeedEvents,
+  providerBadge,
+  type ActivityAgent,
+  type ActivityEvent,
+  type ActivitySession,
+} from "./activity-feed";
 import "@vue-flow/core/dist/style.css";
 
-type Agent = {
-  id: string;
-  name?: string;
-  role?: string;
-  model?: string;
-  status: string;
-  currentActivity?: string;
-  previewMarkdown?: string;
+type Agent = ActivityAgent & {
   prompt?: string;
 };
-type Activity = {
-  type: string;
-  text?: string;
-  name?: string;
-  value?: string;
-  at: number;
-};
-type Session = {
+type Activity = ActivityEvent;
+type Session = ActivitySession & {
   id: string;
   title: string;
   cwd: string;
   status: string;
-  events: Activity[];
+  model?: string;
   agents: Agent[];
   edges: { from: string; to: string }[];
-  preview?: string;
   currentActivity?: string;
 };
 
@@ -101,31 +94,11 @@ const detailOpen = computed(
   () => selectedIsSupervisor.value || !!selectedAgent.value,
 );
 const feed = ref<HTMLElement | null>(null);
+const detailWidth = ref(460);
 const nearBottom = ref(true);
-const feedEvents = computed(() => {
-  const items = [...(selected.value?.events ?? [])];
-  const agent = selectedAgent.value;
-  if (agent?.currentActivity)
-    items.push({
-      type: "tool",
-      name: agent.role,
-      text: agent.currentActivity,
-      at: Date.now(),
-    });
-  if (agent?.previewMarkdown)
-    items.push({
-      type: "assistant",
-      text: agent.previewMarkdown,
-      at: Date.now(),
-    });
-  else if (selected.value?.preview)
-    items.push({
-      type: "assistant",
-      text: selected.value.preview,
-      at: Date.now(),
-    });
-  return items;
-});
+const feedEvents = computed(() =>
+  activityFeedEvents(selected.value, selectedNodeId.value || "supervisor"),
+);
 function nodePosition(id: string, fallback: { x: number; y: number }) {
   return nodePositions.value[id] ?? fallback;
 }
@@ -147,7 +120,7 @@ const graphNodes = computed(() => {
         y: 28,
       }),
       style: { width: `${supervisorWidth}px` },
-      data: { title: session.title, status: session.status },
+      data: { title: session.title, status: session.status, model: session.model },
       sourcePosition: Position.Bottom,
       draggable: true,
       selectable: true,
@@ -192,6 +165,11 @@ const graphEdges = computed(() =>
 let source: EventSource | undefined;
 function updateViewportWidth() {
   viewportWidth.value = window.innerWidth;
+}
+
+function resizeDetailPanel(event: PointerEvent) {
+  if (event.buttons === 0) return;
+  detailWidth.value = Math.max(320, Math.min(window.innerWidth * 0.8, window.innerWidth - event.clientX - 12));
 }
 
 function renderMarkdown(value: string) {
@@ -321,19 +299,7 @@ function agentGivenName(agent: Agent) {
 }
 
 function agentProviderName(agent: Agent) {
-  const provider = agent.model?.split("/", 1)[0]?.trim();
-  if (!provider) return "";
-  const labels: Record<string, string> = {
-    "openai-codex": "OpenAI Codex",
-    "claude-code": "Claude Code",
-    antigravity: "Antigravity",
-  };
-  return (
-    labels[provider.toLowerCase()] ??
-    provider
-      .replace(/[-_]+/g, " ")
-      .replace(/\b\w/g, (letter) => letter.toUpperCase())
-  );
+  return providerBadge(agent.model, agent.name);
 }
 
 function agentAriaLabel(agent: Agent) {
@@ -536,6 +502,13 @@ onUnmounted(() => {
                         :position="Position.Bottom"
                         :connectable="false"
                       />
+                      <span
+                        v-if="providerBadge(data.model)"
+                        class="agent-provider-badge"
+                        :class="`badge-${providerBadge(data.model).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`"
+                        :title="data.model"
+                        >{{ providerBadge(data.model) }}</span
+                      >
                       <span class="agent-node-mark" aria-hidden="true"
                         ><Workflow :size="16" :stroke-width="1.75" /><i
                           class="status-pip"
@@ -562,6 +535,7 @@ onUnmounted(() => {
                       <span
                         v-if="agentProviderName(data.agent)"
                         class="agent-provider-badge"
+                        :class="`badge-${agentProviderName(data.agent).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`"
                         :title="data.agent.model"
                         >{{ agentProviderName(data.agent) }}</span
                       >
@@ -609,10 +583,22 @@ onUnmounted(() => {
             <aside
               v-if="detailOpen"
               class="detail-panel"
+              :style="{ width: `${detailWidth}px` }"
               :aria-label="
                 selectedAgent ? agentLabel(selectedAgent) : 'Activity'
               "
             >
+              <div
+                class="detail-resize-handle"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize activity panel"
+                tabindex="0"
+                @pointerdown="($event.target as HTMLElement).setPointerCapture($event.pointerId)"
+                @pointermove="resizeDetailPanel"
+                @keydown.left.prevent="detailWidth = Math.min(window.innerWidth * 0.8, detailWidth + 24)"
+                @keydown.right.prevent="detailWidth = Math.max(320, detailWidth - 24)"
+              />
               <header class="detail-head">
                 <span class="graph-icon"
                   ><component
@@ -1419,7 +1405,7 @@ a {
   bottom: 51px;
   z-index: 6;
   display: grid;
-  width: min(400px, 44%);
+  width: min(460px, 52%);
   min-width: 0;
   max-width: calc(100% - 24px);
   min-height: 0;
@@ -1437,6 +1423,39 @@ a {
   height: 100%;
   overflow-x: hidden;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #566173 transparent;
+}
+.detail-panel .activity-feed::-webkit-scrollbar {
+  width: 5px;
+}
+.detail-panel .activity-feed::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  background: #566173;
+}
+.detail-resize-handle {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  bottom: 8px;
+  left: -3px;
+  width: 7px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.detail-resize-handle::after {
+  position: absolute;
+  top: 35%;
+  bottom: 35%;
+  left: 3px;
+  width: 2px;
+  border-radius: 2px;
+  background: transparent;
+  content: "";
+}
+.detail-resize-handle:hover::after,
+.detail-resize-handle:focus-visible::after {
+  background: #c99a58;
 }
 .detail-head {
   display: flex;
@@ -1664,23 +1683,41 @@ a {
 .agent-node:not(.supervisor) {
   padding-top: 17px;
 }
+.agent-node.supervisor:has(.agent-provider-badge) {
+  padding-top: 17px;
+}
 .agent-provider-badge {
   position: absolute;
+  z-index: 3;
   display: block;
-  top: 3px;
-  right: 6px;
-  max-width: 92px;
+  top: -8px;
+  right: -8px;
+  max-width: 110px;
   overflow: hidden;
-  padding: 2px 5px;
-  border: 1px solid #343d4b;
+  padding: 4px 8px;
+  border: 1px solid #ffffff35;
   border-radius: 999px;
-  background: #1b202a;
-  color: #aeb9c8;
-  font-size: 9px;
-  font-weight: 600;
-  line-height: 1;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  color: #fff;
+  box-shadow: 0 3px 12px #080b14a8;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.045em;
+  line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.agent-provider-badge.badge-codex {
+  background: linear-gradient(135deg, #087e8b, #2563eb);
+  box-shadow: 0 3px 14px #0e749055;
+}
+.agent-provider-badge.badge-claude {
+  background: linear-gradient(135deg, #c2410c, #db2777);
+  box-shadow: 0 3px 14px #c2410c55;
+}
+.agent-provider-badge.badge-antigravity {
+  background: linear-gradient(135deg, #15803d, #0d9488);
+  box-shadow: 0 3px 14px #15803d55;
 }
 .agent-node:hover {
   border-color: #3d4656;
@@ -1947,7 +1984,7 @@ a {
     grid-template-columns: 52px minmax(0, 1fr);
   }
   .detail-panel {
-    width: min(340px, 48%);
+    width: min(460px, 56%);
   }
   .workspace {
     grid-template-columns: minmax(0, 1fr);
@@ -1970,6 +2007,9 @@ a {
   .detail-panel {
     width: calc(100% - 24px);
     min-width: 0;
+  }
+  .detail-resize-handle {
+    display: none;
   }
 }
 @media (max-width: 760px) {

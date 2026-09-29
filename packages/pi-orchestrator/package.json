@@ -29,7 +29,9 @@
 		]
 	},
 	"dependencies": {
-		"pi-native-bridge": "workspace:*"
+		"@modelcontextprotocol/sdk": "^1.25.2",
+		"pi-native-bridge": "workspace:*",
+		"zod": "^4.6.5"
 	},
 	"devDependencies": {
 		"@earendil-works/pi-coding-agent": "^0.87.1",

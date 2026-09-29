@@ -22,14 +22,14 @@ function flattenComponent(c: any): string {
 	return bits.join('\n')
 }
 
-test('invoke_subagent tool executes tasks and returns structured markdown artifact', async () => {
+test('invoke_subagent returns a batch id while workers continue in the background', async () => {
 	const manager = fakeManager({ guard: false }).manager
 	const { invokeSubagentTool } = createOrchestratorTools(manager)
 
 	const result = await invokeSubagentTool.execute(
 		'1',
 		{
-			subagents: [{ role: 'researcher', prompt: 'Find auth files' }],
+			subagents: [{ role: 'researcher', prompt: 'Find auth files', scope: ['auth/files'] }],
 			parallel: true
 		},
 		new AbortController().signal,
@@ -38,8 +38,36 @@ test('invoke_subagent tool executes tasks and returns structured markdown artifa
 	)
 
 	const firstText = result.content[0]?.type === 'text' ? result.content[0].text : ''
-	assert.match(firstText, /Orchestrator: Dispatched 1 Subagent/)
-	assert.match(firstText, /Find auth files/)
+	assert.match(firstText, /Started subagent batch/)
+	const batchId = (result.details as { batchId: string }).batchId
+	assert.equal(typeof batchId, 'string')
+	const batch = await manager.waitBatch(batchId)
+	assert.equal(batch?.status, 'completed')
+	assert.match(batch?.results[0]?.output ?? '', /Completed successfully/)
+})
+
+test('invoke_subagent rejects duplicate declared scopes before spawning', async () => {
+	const manager = fakeManager({ guard: false }).manager
+	const { invokeSubagentTool } = createOrchestratorTools(manager)
+	const result = await invokeSubagentTool.execute(
+		'1',
+		{
+			subagents: [
+				{ role: 'researcher', prompt: 'Find frontend naming', scope: ['screen:ac12001/naming'] },
+				{ role: 'researcher', prompt: 'Find BE naming', scope: ['screen:ac12001/naming'] }
+			],
+			parallel: true
+		},
+		new AbortController().signal,
+		() => {},
+		{ cwd: process.cwd() } as any
+	)
+	assert.equal((result as { isError?: boolean }).isError, true)
+	assert.match(
+		result.content[0]?.type === 'text' ? result.content[0].text : '',
+		/overlapping scope/
+	)
+	assert.equal(manager.listSubagents().length, 0)
 })
 
 test('manage_subagents tool handles list, status, kill, and clear actions', async () => {
@@ -122,14 +150,16 @@ test('send_subagent_message refuses a finished subagent instead of claiming deli
 	assert.equal((sendRes as { isError?: boolean }).isError, true)
 })
 
-test('invoke_subagent tool executes with require_consensus and returns consensus report', async () => {
+test('background batch retains consensus report for later retrieval', async () => {
 	const manager = fakeManager({ guard: false }).manager
-	const { invokeSubagentTool } = createOrchestratorTools(manager)
+	const { invokeSubagentTool, manageSubagentsTool } = createOrchestratorTools(manager)
 
 	const result = await invokeSubagentTool.execute(
 		'1',
 		{
-			subagents: [{ role: 'coder', prompt: 'Implement JWT refresh rotation' }],
+			subagents: [
+				{ role: 'coder', prompt: 'Implement JWT refresh rotation', scope: ['auth/refresh'] }
+			],
 			require_consensus: true,
 			reviewer_roles: ['reviewer', 'tester']
 		},
@@ -139,9 +169,20 @@ test('invoke_subagent tool executes with require_consensus and returns consensus
 	)
 
 	const firstText = result.content[0]?.type === 'text' ? result.content[0].text : ''
-	assert.match(firstText, /Multi-Agent Consensus Verification Tree/)
-	assert.match(firstText, /Multi-Agent Consensus:/)
-	assert.match(firstText, /Primary Task/)
+	assert.match(firstText, /Started subagent batch/)
+	const batchId = (result.details as { batchId: string }).batchId
+	await manager.waitBatch(batchId)
+	const status = await manageSubagentsTool.execute(
+		'2',
+		{ action: 'batch_status', batch_id: batchId },
+		new AbortController().signal,
+		() => {},
+		{} as any
+	)
+	const statusText = status.content[0]?.type === 'text' ? status.content[0].text : ''
+	assert.match(statusText, /Multi-Agent Consensus:/)
+	assert.match(statusText, /Primary Task|Coder/)
+	assert.match(statusText, /Reviewer/)
 })
 
 test('invoke_subagent renderCall and renderResult render clean TUI components with markdown support', async () => {
@@ -170,7 +211,10 @@ test('invoke_subagent renderCall and renderResult render clean TUI components wi
 	// 2. Result rendering (collapsed)
 	const result = await invokeSubagentTool.execute(
 		'1',
-		{ subagents: [{ role: 'researcher', prompt: 'Find auth files' }], parallel: true },
+		{
+			subagents: [{ role: 'researcher', prompt: 'Find auth files', scope: ['auth/files'] }],
+			parallel: true
+		},
 		new AbortController().signal,
 		() => {},
 		{ cwd: process.cwd() } as any

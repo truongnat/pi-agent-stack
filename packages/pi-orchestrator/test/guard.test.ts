@@ -57,7 +57,7 @@ test('invoke_subagent tool enforces guard check and blocks execution if < 2 prov
 
 	const result = await invokeSubagentTool.execute(
 		'1',
-		{ subagents: [{ role: 'coder', prompt: 'write code' }] },
+		{ subagents: [{ role: 'coder', prompt: 'write code', scope: ['workspace/code'] }] },
 		new AbortController().signal,
 		() => {},
 		{ cwd: process.cwd() } as any
@@ -88,7 +88,9 @@ test('invoke_subagent tool executes successfully when guard is disabled or passe
 
 	const result = await invokeSubagentTool.execute(
 		'1',
-		{ subagents: [{ role: 'researcher', prompt: 'Audit security' }] },
+		{
+			subagents: [{ role: 'researcher', prompt: 'Audit security', scope: ['workspace/security'] }]
+		},
 		new AbortController().signal,
 		() => {},
 		{ cwd: process.cwd() } as any
@@ -97,6 +99,8 @@ test('invoke_subagent tool executes successfully when guard is disabled or passe
 	assert.equal((result as any).isError, undefined)
 	assert.match(
 		result.content[0]?.type === 'text' ? result.content[0].text : '',
-		/Orchestrator: Dispatched 1 Subagent/
+		/Started subagent batch/
 	)
+	const batchId = (result.details as { batchId: string }).batchId
+	assert.equal((await manager.waitBatch(batchId))?.status, 'completed')
 })

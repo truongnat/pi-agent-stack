@@ -66,11 +66,21 @@ void test('log mode measures the pick but never switches the model', async () =>
 	}
 })
 
-void test('a routed switch remembers the user model so agent_end can restore it', async () => {
+void test('automatic model routing keeps the user-selected root model', async () => {
 	const { h, pi, ctx, setModel } = setup('on')
 	await applyModelPolicy(h, pi, ctx, answers, [target])
-	assert.deepEqual(setModel, ['gpt-6-luna'])
-	assert.equal(h.restoreModel?.id, 'claude-opus-5-5')
+	assert.deepEqual(setModel, [])
+})
+
+void test('a Claude Code root stays selected for tool turns', async () => {
+	const { h, pi, ctx, setModel } = setup('on')
+	ctx.model = { ...current, provider: 'claude-code', id: 'claude-sonnet-5' }
+	const toolTurnAnswers = {
+		...answers,
+		kind: { type: 'choice', choice: 'change', confidence: 0.99 }
+	} as Answers
+	await applyModelPolicy(h, pi, ctx, toolTurnAnswers, [target])
+	assert.deepEqual(setModel, [])
 })
 
 void test('bandit routing: only a clearly better, no-more-expensive, proven arm', async () => {

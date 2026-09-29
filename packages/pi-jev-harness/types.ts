@@ -89,8 +89,7 @@ export type Harness = {
 	recent: RecentCall[]
 	sent: Set<string>
 	loopChecked: boolean
-	/** Model / thinking level before JEV's first switch this turn; restored at agent_end. */
-	restoreModel?: ExtensionContext['model'] | undefined
+	/** Thinking level before JEV's first switch this turn; restored at agent_end. */
 	restoreThinking?: ThinkingLevel | undefined
 	/** Session answer to "JEV unavailable, guard with regex only?"; undefined until asked. */
 	regexOnly?: boolean | undefined

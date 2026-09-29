@@ -1,4 +1,5 @@
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent'
+import { fileURLToPath } from 'node:url'
 import { Box, Text } from '@earendil-works/pi-tui'
 import { loadOrchestratorConfig, saveOrchestratorConfig } from './config.ts'
 import { checkOrchestratorGuard } from './guard.ts'
@@ -10,6 +11,10 @@ import { renderMarkdown } from './tui-markdown.ts'
 import { attachDashboard } from './dashboard.ts'
 import { summarizeJsonEvent } from './json-stream.ts'
 
+declare global {
+	var piOrchestratorMcpBridge: { serverPath: string; cwd: string; sessionId: string } | undefined
+}
+
 export function createOrchestratorExtension(pi: ExtensionAPI) {
 	// If running as a spawned subagent worker, disable recursive orchestrator registration
 	if (process.env.PI_SUBAGENT_WORKER === '1') {
@@ -19,8 +24,16 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 	}
 
 	const manager = new SubagentManager()
+	const mcpServerPath = fileURLToPath(new URL('./mcp-server.ts', import.meta.url))
 	let dashboard: ReturnType<typeof attachDashboard> | undefined
 	let dashboardSessionId = ''
+	const publishMcpBridge = (cwd: string) => {
+		globalThis.piOrchestratorMcpBridge = {
+			serverPath: mcpServerPath,
+			cwd,
+			sessionId: dashboardSessionId
+		}
+	}
 
 	pi.on('session_start', (_event, ctx) => {
 		manager.config = loadOrchestratorConfig()
@@ -49,6 +62,7 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 				id: sessionId,
 				title: ctx.sessionManager.getSessionName() || `Pi · ${process.pid}`,
 				cwd: ctx.cwd,
+				model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
 				events,
 				currentActivity: 'Waiting for a prompt'
 			},
@@ -57,12 +71,18 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 			}
 		)
 		dashboardSessionId = dashboard.id
+		publishMcpBridge(ctx.cwd)
 	})
 	pi.on('session_info_changed', (event) => {
 		const name = (event.name || '').trim()
 		if (name && !/^Pi(\s*[·.]\s*|\s*)?\d*$/i.test(name)) dashboard?.update({ title: name })
 	})
-	pi.on('input', (event) => {
+	pi.on('model_select', (event) => {
+		const model = event.model
+		dashboard?.update({ model: model ? `${model.provider}/${model.id}` : undefined })
+	})
+	pi.on('input', (event, ctx) => {
+		publishMcpBridge(ctx.cwd)
 		const summary = event.text.replace(/\s+/g, ' ').trim().slice(0, 80)
 		dashboard?.event('user', { text: event.text.slice(0, 4000) })
 		dashboard?.event('status', { value: 'working' })
@@ -114,6 +134,7 @@ export function createOrchestratorExtension(pi: ExtensionAPI) {
 		dashboard?.close()
 		dashboard = undefined
 		dashboardSessionId = ''
+		delete globalThis.piOrchestratorMcpBridge
 	})
 
 	function updateStatus(ctx: ExtensionContext) {

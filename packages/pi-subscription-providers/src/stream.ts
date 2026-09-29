@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
 	calculateCost,
 	createAssistantMessageEventStream,
@@ -29,6 +32,34 @@ function doneReason(stopReason: StopReason): Exclude<StopReason, 'error' | 'abor
 }
 
 export type LineRunner = typeof runStreamingLines
+
+declare global {
+	var piOrchestratorMcpBridge: { serverPath: string; cwd: string; sessionId: string } | undefined
+}
+
+function createOrchestratorMcpConfig(): { directory: string; path: string } | undefined {
+	const bridge = globalThis.piOrchestratorMcpBridge
+	if (!bridge) return undefined
+	const directory = mkdtempSync(join(tmpdir(), 'pi-orchestrator-mcp-'))
+	const path = join(directory, 'mcp.json')
+	writeFileSync(
+		path,
+		JSON.stringify({
+			mcpServers: {
+				'pi-orchestrator': {
+					command: 'bun',
+					args: ['run', bridge.serverPath],
+					env: {
+						PI_ORCHESTRATOR_MCP_CWD: bridge.cwd,
+						PI_ORCHESTRATOR_MCP_SESSION: bridge.sessionId
+					}
+				}
+			}
+		}),
+		{ mode: 0o600 }
+	)
+	return { directory, path }
+}
 
 function createOutput(model: Model<Api>): AssistantMessage {
 	return {
@@ -530,6 +561,9 @@ function handleClaudeLine(
 const CLAUDE_SYSTEM_PROMPT =
 	'Follow the instructions and conversation in the user message. Tools are unavailable; answer directly.'
 
+const CLAUDE_ORCHESTRATOR_PROMPT =
+	'You are the root model selected by the user. Keep this model as the root; delegate only through the pi-orchestrator MCP tools. Give each task a unique scope key combining target and concern. After starting a batch, inspect it, steer or cancel workers when needed, and retrieve completed results before answering. Do not use or request shell, file, web, or other tools.'
+
 /**
  * Claude Code CLI with the machine's Claude Code login. Tools, MCP, hooks, slash commands,
  * and session history are off: this is a plain answer route (compatibility mode).
@@ -545,11 +579,14 @@ export function streamClaudeCodeCli(
 	const cfg = providerConfig(loadConfig(), 'claude-code')
 	void (async () => {
 		const output = createOutput(model)
+		let mcpConfigDirectory: string | undefined
 		try {
 			if (!readiness.ready || !readiness.command) {
 				throw new Error(`claude-code provider_not_ready: ${readiness.reason}`)
 			}
 			const prompt = buildCliPrompt(context)
+			const mcpConfig = createOrchestratorMcpConfig()
+			mcpConfigDirectory = mcpConfig?.directory
 			const payload = { prompt, model: model.id, provider: 'claude-code', mode: 'compatibility' }
 			const replacement = options?.onPayload ? await options.onPayload(payload, model) : payload
 			const finalPayload =
@@ -572,12 +609,13 @@ export function streamClaudeCodeCli(
 					'--tools',
 					'',
 					'--strict-mcp-config',
+					...(mcpConfig ? ['--mcp-config', mcpConfig.path] : []),
 					'--settings',
 					'{"disableAllHooks":true}',
 					'--no-session-persistence',
 					'--disable-slash-commands',
 					'--system-prompt',
-					CLAUDE_SYSTEM_PROMPT
+					mcpConfig ? CLAUDE_ORCHESTRATOR_PROMPT : CLAUDE_SYSTEM_PROMPT
 				],
 				// Prompt on stdin: no argv size limit, and nothing leaks into `ps`.
 				stdin: finalPayload.prompt ?? prompt,
@@ -604,6 +642,8 @@ export function streamClaudeCodeCli(
 			output.errorMessage = redactError(error)
 			stream.push({ type: 'error', reason: output.stopReason, error: output })
 			stream.end()
+		} finally {
+			if (mcpConfigDirectory) rmSync(mcpConfigDirectory, { recursive: true, force: true })
 		}
 	})()
 	return stream
