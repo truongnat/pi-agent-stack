@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Open the Pi live dashboard, or the offline fallback page when Pi is not running.
+set -euo pipefail
+here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+script="$here/pi-live.mjs"
+if command -v bun >/dev/null 2>&1; then
+	exec bun "$script" "$@"
+fi
+if command -v node >/dev/null 2>&1; then
+	exec node "$script" "$@"
+fi
+echo "need bun or node to open the live dashboard" >&2
+exit 1

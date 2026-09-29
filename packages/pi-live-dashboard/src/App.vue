@@ -132,24 +132,24 @@ function nodePosition(id: string, fallback: { x: number; y: number }) {
 const graphNodes = computed(() => {
   const session = selected.value;
   if (!session) return [];
-  const cardWidth = 208;
-  const gap = 32;
+  const cardWidth = 148;
+  const gap = 28;
   const step = cardWidth + gap;
   const columns = graphColumns.value;
   const graphWidth = columns * cardWidth + (columns - 1) * gap;
-  const supervisorWidth = 224;
+  const supervisorWidth = 132;
   return [
     {
       id: "supervisor",
       type: "supervisor",
       position: nodePosition("supervisor", {
         x: (graphWidth - supervisorWidth) / 2,
-        y: 36,
+        y: 28,
       }),
       style: { width: `${supervisorWidth}px` },
       data: { title: session.title, status: session.status },
       sourcePosition: Position.Bottom,
-      draggable: false,
+      draggable: true,
       selectable: true,
     },
     ...session.agents.map((agent, index) => {
@@ -165,7 +165,7 @@ const graphNodes = computed(() => {
         type: "agent",
         position: nodePosition(agent.id, {
           x: (graphWidth - rowWidth) / 2 + column * step,
-          y: 156 + row * 116,
+          y: 112 + row * 76,
         }),
         style: { width: `${cardWidth}px` },
         data: { agent },
@@ -501,6 +501,8 @@ onUnmounted(() => {
                         selected: selectedIsSupervisor,
                         running: data.status === 'working',
                       }"
+                      :title="sessionTitle(selected)"
+                      :aria-label="`Pi, supervisor, ${statusLabel(data.status)}`"
                     >
                       <Handle
                         type="source"
@@ -508,17 +510,10 @@ onUnmounted(() => {
                         :connectable="false"
                       />
                       <span class="agent-node-mark" aria-hidden="true"
-                        ><Workflow :size="18" :stroke-width="1.75"
+                        ><Workflow :size="16" :stroke-width="1.75" /><i
+                          class="status-pip"
                       /></span>
-                      <span class="agent-node-meta">
-                        <strong>{{ sessionTitle(selected) }}</strong>
-                        <small>Supervisor</small>
-                      </span>
-                      <span
-                        class="agent-node-status"
-                        :class="data.status === 'working' ? 'running' : 'idle'"
-                        ><i />{{ statusLabel(data.status) }}</span
-                      >
+                      <strong class="agent-node-title">Pi</strong>
                     </div>
                   </template>
                   <template #node-agent="{ data }">
@@ -529,6 +524,8 @@ onUnmounted(() => {
                         agentStateClass(data.agent),
                         { selected: selectedNodeId === data.agent.id },
                       ]"
+                      :title="data.agent.name || agentGivenName(data.agent)"
+                      :aria-label="`${agentGivenName(data.agent)}, ${data.agent.role || 'subagent'}, ${statusLabel(data.agent.status)}`"
                     >
                       <Handle
                         type="target"
@@ -538,18 +535,13 @@ onUnmounted(() => {
                       <span class="agent-node-mark" aria-hidden="true"
                         ><component
                           :is="agentIcon(data.agent)"
-                          :size="16"
+                          :size="15"
                           :stroke-width="1.75"
+                        /><i class="status-pip"
                       /></span>
-                      <span class="agent-node-meta">
-                        <strong>{{ agentGivenName(data.agent) }}</strong>
-                        <small>{{ data.agent.role || "subagent" }}</small>
-                      </span>
-                      <span
-                        class="agent-node-status"
-                        :class="agentStateClass(data.agent)"
-                        ><i />{{ statusLabel(data.agent.status) }}</span
-                      >
+                      <strong class="agent-node-title">{{
+                        agentGivenName(data.agent)
+                      }}</strong>
                     </div>
                   </template>
                 </VueFlow>
@@ -1620,12 +1612,12 @@ a {
   background: #12151c;
 }
 .agent-node {
-  display: grid;
+  display: flex;
   width: 100%;
-  grid-template-columns: 36px minmax(0, 1fr) auto;
+  min-width: 0;
   align-items: center;
-  gap: 10px;
-  padding: 10px 10px 10px 10px;
+  gap: 8px;
+  padding: 7px 10px 7px 7px;
   border: 1px solid #2c3340;
   border-radius: 10px;
   background: #141821;
@@ -1662,18 +1654,54 @@ a {
   background: #1b1518;
 }
 .agent-node.supervisor {
+  cursor: grab;
   border-color: #3a534c;
   background: #131c1a;
 }
+.agent-node.supervisor:active {
+  cursor: grabbing;
+}
 .agent-node-mark {
   display: grid;
-  width: 36px;
-  height: 36px;
+  position: relative;
+  width: 28px;
+  height: 28px;
   flex: none;
   place-items: center;
-  border-radius: 9px;
+  border-radius: 8px;
   background: #222833;
   color: #c5ceda;
+}
+.agent-node-mark .status-pip {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #141821;
+  border-radius: 50%;
+  background: #6b7380;
+}
+.agent-node.running .status-pip {
+  background: #edbd73;
+  animation: dot-pulse 1.3s infinite;
+}
+.agent-node.completed .status-pip,
+.agent-node.supervisor:not(.running) .status-pip {
+  background: #81c8b2;
+}
+.agent-node.failed .status-pip {
+  background: #ee9292;
+}
+.agent-node-title {
+  overflow: hidden;
+  min-width: 0;
+  color: #e8edf4;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .agent-node.supervisor .agent-node-mark {
   background: #1a2c27;
@@ -1699,71 +1727,7 @@ a {
   background: #2b1c1c;
   color: #e08a8a;
 }
-.agent-node-meta {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
-}
-.agent-node-meta strong {
-  overflow: hidden;
-  color: #e8edf4;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  text-wrap: balance;
-  white-space: nowrap;
-}
-.agent-node-meta small {
-  overflow: hidden;
-  color: #8b95a6;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-.agent-node-status {
-  display: inline-flex;
-  max-width: 5.6rem;
-  align-items: center;
-  gap: 5px;
-  overflow: hidden;
-  padding: 4px 7px;
-  border-radius: 999px;
-  background: #1c222c;
-  color: #9aa3b2;
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.06em;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-.agent-node-status i {
-  width: 6px;
-  height: 6px;
-  flex: none;
-  border-radius: 50%;
-  background: currentColor;
-}
-.agent-node-status.running {
-  background: #2a2418;
-  color: #e0b56a;
-}
-.agent-node-status.running i {
-  animation: dot-pulse 1.3s infinite;
-}
-.agent-node-status.completed,
-.agent-node-status.idle {
-  background: #17241f;
-  color: #7dba96;
-}
-.agent-node-status.failed {
-  background: #2a1c1e;
-  color: #e08a8a;
-}
+
 .graph-icon {
   display: grid;
   width: 32px;

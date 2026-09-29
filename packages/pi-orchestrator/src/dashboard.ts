@@ -20,6 +20,7 @@ const root = join(homedir(), '.pi-orchestrator')
 const assetsRoot = join(homedir(), '.agents/outputs/pi-agent-stack/artifacts/dashboard')
 const socketPath = join(root, 'dashboard.sock')
 const PORT = Number(process.env.PI_DASHBOARD_PORT || 4317)
+const FALLBACK_PORT = Number(process.env.PI_DASHBOARD_FALLBACK_PORT || 4318)
 type Session = {
 	id: string
 	title: string
@@ -87,7 +88,7 @@ function startHost(): Promise<void> {
 				if (existsSync(socketPath)) {
 					clearInterval(wait)
 					resolve()
-					openDashboardInBrowser(dashboardPublicUrl())
+					void openDashboardInBrowser(dashboardPublicUrl())
 				} else if (Date.now() - startedAt > 3000) {
 					clearInterval(wait)
 					reject(new Error('Dashboard host failed to start'))
@@ -262,17 +263,37 @@ export function shouldOpenDashboardBrowser(
 	return tty === true
 }
 
-export function openDashboardInBrowser(
+export async function fallbackTabIsWatching(
+	port = FALLBACK_PORT,
+	now = Date.now()
+): Promise<boolean> {
+	try {
+		const response = await fetch(`http://127.0.0.1:${port}/status`, {
+			signal: AbortSignal.timeout(400)
+		})
+		if (!response.ok) return false
+		const data = (await response.json()) as { viewers?: number; handoffUntil?: number }
+		if ((data.viewers ?? 0) > 0) return true
+		return Number(data.handoffUntil) > now
+	} catch {
+		return false
+	}
+}
+
+export async function openDashboardInBrowser(
 	url: string,
 	opts?: {
 		env?: NodeJS.ProcessEnv
 		tty?: boolean
 		platform?: NodeJS.Platform
 		spawnFn?: typeof spawn
+		hasFallbackTab?: () => Promise<boolean>
 	}
 ) {
 	if (!shouldOpenDashboardBrowser(opts?.env ?? process.env, opts?.tty ?? process.stdout.isTTY))
 		return
+	const hasFallbackTab = opts?.hasFallbackTab ?? fallbackTabIsWatching
+	if (await hasFallbackTab()) return
 	const platform = opts?.platform ?? process.platform
 	const spawnFn = opts?.spawnFn ?? spawn
 	if (platform === 'darwin') {

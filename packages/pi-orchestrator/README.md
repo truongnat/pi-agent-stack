@@ -23,7 +23,7 @@ Multi-Agent Orchestrator & Subagent Supervisor for the Pi coding agent (`@earend
 - **Control Slash Command**:
   - `/agents`: Interactive dashboard for monitoring and managing active subagents.
   - `/agents status`, `/agents list`, `/agents roster`, `/agents kill <id>`, `/agents kill-all`, `/agents clear`.
-- **Live session dashboard**: The first interactive Pi session starts a local dashboard at `http://127.0.0.1:4317` and opens it in the browser. Other Pi sessions attach automatically. The activity panel shows a live **Currently at** line (latest tool or assistant step). The detached local host exits after the final Pi session closes. Set `PI_DASHBOARD_PORT` to change the port, or `PI_DASHBOARD_OPEN=0` to skip opening the browser.
+- **Live session dashboard**: The first interactive Pi session starts a local dashboard at `http://127.0.0.1:4317` and opens it in the browser. `scripts/install.sh` puts `pi-live` (also `pi-dashboard`) on `PATH` for macOS, Linux, and Windows — run it to reopen the page without remembering the port. If Pi is not running, `pi-live` opens an offline fallback at `http://127.0.0.1:4318` that retries until the dashboard is up. Other Pi sessions attach automatically. The activity panel shows a live **Currently at** line (latest tool or assistant step). The detached local host exits after the final Pi session closes. Set `PI_DASHBOARD_PORT` to change the port, or `PI_DASHBOARD_OPEN=0` to skip opening the browser.
 - `scripts/install.sh` (`bun run setup`) builds `packages/pi-live-dashboard` and writes the bundle to `~/.agents/outputs/pi-agent-stack/artifacts/dashboard`. The orchestrator only serves that bundle and the live session stream.
 
 ## Configuration

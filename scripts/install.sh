@@ -281,6 +281,48 @@ if [[ "${PI_UPDATE_SKILLS:-0}" == 1 ]]; then
 	bunx skills update -g -y >/dev/null || echo "warning: skills update failed" >&2
 fi
 
+# Live dashboard launcher: `pi-live` on PATH (macOS/Linux/Windows).
+BIN_DIR="$HOME/.local/bin"
+mkdir -p "$BIN_DIR"
+cp "$ROOT_DIR/scripts/pi-live" "$BIN_DIR/pi-live"
+cp "$ROOT_DIR/scripts/pi-live.mjs" "$BIN_DIR/pi-live.mjs"
+cp "$ROOT_DIR/scripts/pi-live.cmd" "$BIN_DIR/pi-live.cmd"
+cp "$ROOT_DIR/scripts/pi-live.ps1" "$BIN_DIR/pi-live.ps1"
+chmod +x "$BIN_DIR/pi-live"
+ln -sfn pi-live "$BIN_DIR/pi-dashboard"
+cp "$BIN_DIR/pi-live.cmd" "$BIN_DIR/pi-dashboard.cmd"
+cp "$BIN_DIR/pi-live.ps1" "$BIN_DIR/pi-dashboard.ps1"
+
+append_path_once() {
+	local file="$1"
+	local marker="pi-agent-stack-path"
+	[[ -f "$file" ]] || return 0
+	grep -q "$marker" "$file" && return 0
+	printf '\n# %s:start\nexport PATH="$HOME/.local/bin:$PATH"\n# %s:end\n' "$marker" "$marker" >>"$file"
+}
+case ":$PATH:" in
+*":$BIN_DIR:"*) ;;
+*)
+	export PATH="$BIN_DIR:$PATH"
+	append_path_once "$HOME/.zshrc"
+	append_path_once "$HOME/.zprofile"
+	append_path_once "$HOME/.bashrc"
+	append_path_once "$HOME/.bash_profile"
+	;;
+esac
+
+os_name="$(uname -s 2>/dev/null || true)"
+if [[ "$os_name" == MINGW* || "$os_name" == MSYS* || "$os_name" == CYGWIN* ]] && command -v powershell.exe >/dev/null 2>&1; then
+	powershell.exe -NoProfile -Command '
+		$bin = Join-Path $env:USERPROFILE ".local\bin"
+		$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+		if (-not $userPath) { $userPath = "" }
+		if ($userPath -notlike ("*" + $bin + "*")) {
+			[Environment]::SetEnvironmentVariable("Path", ($bin + ";" + $userPath), "User")
+		}
+	' >/dev/null || echo "warning: could not add ~/.local/bin to the Windows user PATH" >&2
+fi
+
 echo
 echo "Pi agent stack installed."
 echo "  settings: $AGENT_DIR/settings.json"
@@ -305,4 +347,5 @@ else
 	echo "  Stitch key file: missing; copy config/stitch.env.example to ~/.keys/stitch.env or run /stitch key"
 fi
 
+echo "  Live dashboard: pi-live  (http://127.0.0.1:4317, offline fallback on :4318)"
 echo "Run: pi list"

@@ -15,6 +15,7 @@ check_file() {
 }
 
 command -v pi >/dev/null 2>&1 && echo "OK   pi" || { echo "MISS pi"; fail=1; }
+command -v pi-live >/dev/null 2>&1 && echo "OK   pi-live" || echo "WARN pi-live not on PATH; rerun scripts/install.sh"
 command -v node >/dev/null 2>&1 && echo "OK   node $(node --version)" || { echo "MISS node"; fail=1; }
 command -v bun >/dev/null 2>&1 && echo "OK   bun $(bun --version)" || { echo "MISS bun"; fail=1; }
 # Optional: only the xlsx2md CLI needs it.

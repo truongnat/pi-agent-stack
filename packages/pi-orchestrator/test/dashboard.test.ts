@@ -18,29 +18,49 @@ test('shouldOpenDashboardBrowser stays off for print mode, workers, and explicit
 	assert.equal(shouldOpenDashboardBrowser({ PI_DASHBOARD_OPEN: '0' }, true), false)
 })
 
-test('openDashboardInBrowser uses open on macOS and skips when disabled', () => {
+test('openDashboardInBrowser uses open on macOS and skips when disabled', async () => {
+	const spawned: { cmd: string; args: string[] }[] = []
+	const spawnFn = ((cmd: string, args: string[]) => {
+		spawned.push({ cmd, args })
+		return { unref() {} }
+	}) as typeof import('node:child_process').spawn
+	const hasFallbackTab = async () => false
+
+	await openDashboardInBrowser('http://127.0.0.1:4317', {
+		env: { PI_DASHBOARD_OPEN: '0' },
+		tty: true,
+		platform: 'darwin',
+		spawnFn,
+		hasFallbackTab
+	})
+	assert.equal(spawned.length, 0)
+
+	await openDashboardInBrowser('http://127.0.0.1:4317', {
+		env: {},
+		tty: true,
+		platform: 'darwin',
+		spawnFn,
+		hasFallbackTab
+	})
+	assert.deepEqual(spawned, [{ cmd: 'open', args: ['http://127.0.0.1:4317'] }])
+	assert.match(dashboardPublicUrl(), /^http:\/\/127\.0\.0\.1:\d+$/)
+})
+
+test('openDashboardInBrowser keeps the existing fallback tab', async () => {
 	const spawned: { cmd: string; args: string[] }[] = []
 	const spawnFn = ((cmd: string, args: string[]) => {
 		spawned.push({ cmd, args })
 		return { unref() {} }
 	}) as typeof import('node:child_process').spawn
 
-	openDashboardInBrowser('http://127.0.0.1:4317', {
-		env: { PI_DASHBOARD_OPEN: '0' },
-		tty: true,
-		platform: 'darwin',
-		spawnFn
-	})
-	assert.equal(spawned.length, 0)
-
-	openDashboardInBrowser('http://127.0.0.1:4317', {
+	await openDashboardInBrowser('http://127.0.0.1:4317', {
 		env: {},
 		tty: true,
 		platform: 'darwin',
-		spawnFn
+		spawnFn,
+		hasFallbackTab: async () => true
 	})
-	assert.deepEqual(spawned, [{ cmd: 'open', args: ['http://127.0.0.1:4317'] }])
-	assert.match(dashboardPublicUrl(), /^http:\/\/127\.0\.0\.1:\d+$/)
+	assert.equal(spawned.length, 0)
 })
 
 test('publishDashboardAgentUpdate does not throw without an attached session', () => {

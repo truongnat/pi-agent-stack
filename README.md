@@ -83,6 +83,7 @@ pi -p 'Reply with exactly pong.'
 | `/goal <prompt>` | Launch autonomous multi-turn goal execution loop with milestone checks and budget limits. |
 | `/persona [show\|export\|stats]` | Inspect learned developer preferences, style rules, and coding habits. |
 | `/agents [list\|status\|kill]` | Monitor running subagents, DAG execution state, and provider consensus. |
+| `pi-live` | Open the live session dashboard (`http://127.0.0.1:4317`). If Pi is not running, opens an offline retry page instead. Installed as `pi-live` / `pi-dashboard` on macOS, Linux, and Windows. |
 | `/stitch [on\|off\|status\|key]` | Activate/deactivate Google Stitch MCP design tools and configure API keys. |
 | `/jev-harness [on\|off\|status]` | Toggle JEV intelligent routing, strategic briefings, and view savings metrics. |
 | `/rl [on\|off\|passive\|stats]` | Manage RL policy engine and review learned Q-value weights. |
