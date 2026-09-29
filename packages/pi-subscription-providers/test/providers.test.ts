@@ -6,10 +6,17 @@ import { DEFAULT_CONFIG } from '../src/config.ts'
 import {
 	checkAntigravityReadiness,
 	checkClaudeCodeReadiness,
-	checkCursorReadiness
+	checkCursorReadiness,
+	checkOpenCodeReadiness,
+	parseOpenCodeModels
 } from '../src/readiness.ts'
 import { redact } from '../src/redact.ts'
-import { streamAntigravityCli, streamClaudeCodeCli, streamCursorCli } from '../src/stream.ts'
+import {
+	streamAntigravityCli,
+	streamClaudeCodeCli,
+	streamCursorCli,
+	streamOpenCodeCli
+} from '../src/stream.ts'
 import type { Readiness, Runner } from '../src/types.ts'
 
 function fakeContext(): TranscriptContext {
@@ -571,4 +578,107 @@ test('claude-code readiness: logged in vs logged out', async () => {
 	const out = await checkClaudeCodeReadiness(config, runnerFor('{"loggedIn":false}', 1))
 	assert.equal(out.ready, false)
 	assert.match(out.reason, /not logged in/)
+})
+
+test('parseOpenCodeModels keeps the free opencode/ catalog only', () => {
+	const models = parseOpenCodeModels(
+		[
+			'opencode/big-pickle',
+			'opencode/mimo-v2.6-flash-free',
+			'anthropic/claude-sonnet-4',
+			'openai/gpt-5',
+			'google/gemini-3-flash-free'
+		].join('\n')
+	)
+	assert.deepEqual(
+		models.map((m) => m.id),
+		['opencode/big-pickle', 'opencode/mimo-v2.6-flash-free', 'google/gemini-3-flash-free']
+	)
+})
+
+test('opencode readiness lists free models when CLI is present', async () => {
+	const runner: Runner = async ({ args }) => {
+		if (args.includes('models')) {
+			return {
+				code: 0,
+				stdout: 'opencode/big-pickle\nopencode/mimo-v2.6-flash-free\nanthropic/claude-sonnet-4\n',
+				stderr: '',
+				timedOut: false,
+				aborted: false,
+				durationMs: 1
+			}
+		}
+		return { code: 0, stdout: '', stderr: '', timedOut: false, aborted: false, durationMs: 1 }
+	}
+	const config = {
+		...DEFAULT_CONFIG,
+		opencode: { ...DEFAULT_CONFIG.opencode, command: 'sh' }
+	}
+	const readiness = await checkOpenCodeReadiness(config, runner)
+	assert.equal(readiness.ready, true)
+	assert.deepEqual(
+		readiness.models.map((m) => m.id),
+		['opencode/big-pickle', 'opencode/mimo-v2.6-flash-free']
+	)
+})
+
+test('opencode stream parses json events and denies write tools', async () => {
+	const readiness: Readiness = {
+		provider: 'opencode',
+		ready: true,
+		reason: 'ready',
+		command: '/bin/opencode',
+		billingMode: 'subscription',
+		latencyEstimateMs: 1000,
+		marginalInputCost: 0.15,
+		marginalOutputCost: 0.6,
+		models: [{ id: 'opencode/big-pickle', name: 'big pickle', reasoning: false }],
+		checkedAt: Date.now(),
+		toolMode: 'compatibility'
+	}
+	const model = {
+		id: 'opencode/big-pickle',
+		name: 'big pickle',
+		api: 'opencode-cli-compat',
+		provider: 'opencode',
+		baseUrl: 'cli://opencode',
+		reasoning: false,
+		input: ['text'] as ('text' | 'image')[],
+		cost: { input: 0.15, output: 0.6, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 100000,
+		maxTokens: 8192
+	}
+	const lines = [
+		JSON.stringify({
+			type: 'text',
+			part: { type: 'text', text: 'pong' }
+		}),
+		JSON.stringify({
+			type: 'step_finish',
+			part: {
+				reason: 'stop',
+				tokens: { input: 10, output: 2, reasoning: 1, cache: { read: 3, write: 0 } }
+			}
+		})
+	]
+	let seen: { args: string[]; env?: NodeJS.ProcessEnv } | undefined
+	const stream = streamOpenCodeCli(model, fakeContext(), {}, readiness, async (req) => {
+		seen = req.env ? { args: req.args, env: req.env } : { args: req.args }
+		for (const line of lines) req.onLine(line)
+		return { code: 0, timedOut: false, aborted: false, stderr: '' }
+	})
+	const events = []
+	for await (const event of stream) events.push(event)
+	const done = events.find((e) => e.type === 'done')
+	assert.ok(done && done.type === 'done')
+	const text = done.message.content.find((c) => c.type === 'text')
+	assert.equal(text?.type === 'text' ? text.text : '', 'pong')
+	assert.deepEqual(
+		[done.message.usage.input, done.message.usage.output, done.message.usage.cacheRead],
+		[10, 2, 3]
+	)
+	assert.ok(seen?.args.includes('--format') && seen.args.includes('json'))
+	assert.ok(seen?.args.includes('--pure'))
+	assert.ok(!seen?.args.includes('--auto'))
+	assert.match(seen?.env?.OPENCODE_PERMISSION ?? '', /"\*"\s*:\s*"deny"/)
 })

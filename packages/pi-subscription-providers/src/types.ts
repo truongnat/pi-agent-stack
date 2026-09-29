@@ -2,7 +2,7 @@
 
 export type BillingMode = 'api' | 'subscription' | 'unknown'
 
-export type ProviderId = 'cursor' | 'antigravity' | 'claude-code'
+export type ProviderId = 'cursor' | 'antigravity' | 'claude-code' | 'opencode'
 
 export type ProviderConfig = {
 	enabled: boolean
@@ -26,6 +26,7 @@ export type RootConfig = {
 	cursor: ProviderConfig
 	antigravity: ProviderConfig
 	'claude-code': ProviderConfig
+	opencode: ProviderConfig
 }
 
 export type DiscoveredModel = {
@@ -59,6 +60,8 @@ export type StatusSnapshot = {
 	antigravity: Readiness
 	/** Absent in status files written before Claude Code support. */
 	'claude-code'?: Readiness
+	/** Absent in status files written before OpenCode support. */
+	opencode?: Readiness
 }
 
 export type RunResult = {

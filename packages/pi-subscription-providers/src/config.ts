@@ -22,7 +22,8 @@ const DEFAULT_PROVIDER: ProviderConfig = {
 export const DEFAULT_CONFIG: RootConfig = {
 	cursor: { ...DEFAULT_PROVIDER, latencyEstimateMs: 12_000 },
 	antigravity: { ...DEFAULT_PROVIDER, latencyEstimateMs: 6_000 },
-	'claude-code': { ...DEFAULT_PROVIDER, latencyEstimateMs: 8_000 }
+	'claude-code': { ...DEFAULT_PROVIDER, latencyEstimateMs: 8_000 },
+	opencode: { ...DEFAULT_PROVIDER, latencyEstimateMs: 10_000 }
 }
 
 export function loadConfig(path = CONFIG_PATH): RootConfig {
@@ -32,14 +33,16 @@ export function loadConfig(path = CONFIG_PATH): RootConfig {
 		return {
 			cursor: { ...DEFAULT_CONFIG.cursor, ...(raw.cursor ?? {}) },
 			antigravity: { ...DEFAULT_CONFIG.antigravity, ...(raw.antigravity ?? {}) },
-			'claude-code': { ...DEFAULT_CONFIG['claude-code'], ...(raw['claude-code'] ?? {}) }
+			'claude-code': { ...DEFAULT_CONFIG['claude-code'], ...(raw['claude-code'] ?? {}) },
+			opencode: { ...DEFAULT_CONFIG.opencode, ...(raw.opencode ?? {}) }
 		}
 	} catch {
 		// Missing or unreadable config → defaults.
 		return {
 			cursor: { ...DEFAULT_CONFIG.cursor },
 			antigravity: { ...DEFAULT_CONFIG.antigravity },
-			'claude-code': { ...DEFAULT_CONFIG['claude-code'] }
+			'claude-code': { ...DEFAULT_CONFIG['claude-code'] },
+			opencode: { ...DEFAULT_CONFIG.opencode }
 		}
 	}
 }

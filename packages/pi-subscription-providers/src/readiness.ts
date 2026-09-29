@@ -60,6 +60,48 @@ function parseAgyModels(stdout: string): DiscoveredModel[] {
 	return models
 }
 
+export function parseOpenCodeModels(stdout: string): DiscoveredModel[] {
+	return stdout.split(/\r?\n/).flatMap((line) => {
+		const id = line.trim()
+		if (!id || (!id.startsWith('opencode/') && !id.endsWith('-free'))) return []
+		return [{ id, name: id.split('/').pop() ?? id, reasoning: /reason|thinking/i.test(id) }]
+	})
+}
+
+export async function checkOpenCodeReadiness(
+	config: RootConfig = loadConfig(),
+	runner: Runner = defaultRunner
+): Promise<Readiness> {
+	const cfg = providerConfig(config, 'opencode')
+	if (!cfg.enabled)
+		return emptyReadiness('opencode', 'disabled in subscription-providers.json', cfg)
+	const command = cfg.command === 'auto' ? which('opencode') : which(cfg.command)
+	if (!command) return emptyReadiness('opencode', 'opencode CLI not found on PATH', cfg)
+	const result = await runner({
+		command,
+		args: ['models'],
+		timeoutMs: Math.min(cfg.timeoutMs, 30_000),
+		maxOutputChars: 50_000
+	})
+	const models = result.code === 0 ? parseOpenCodeModels(result.stdout) : []
+	if (!models.length)
+		return {
+			...emptyReadiness(
+				'opencode',
+				`model discovery failed (${diagnostic(result.stderr) || 'no free models'})`,
+				cfg
+			),
+			command
+		}
+	return {
+		...emptyReadiness('opencode', `ready (${models.length} free models)`, cfg),
+		ready: true,
+		command,
+		quotaAvailable: true,
+		models
+	}
+}
+
 export async function checkCursorReadiness(
 	config: RootConfig = loadConfig(),
 	runner: Runner = defaultRunner
@@ -325,17 +367,25 @@ export async function refreshStatus(
 		!options.force && claudeCached && now - claudeCached.checkedAt < claudeTtl
 			? Promise.resolve(claudeCached)
 			: checkClaudeCodeReadiness(config, runner)
-	const [cursorFresh, antigravityFresh, claudeFresh] = await Promise.all([
+	const opencodeTtl = providerConfig(config, 'opencode').readinessTtlMs
+	const opencodeCached = existing?.opencode
+	const opencodePromise =
+		!options.force && opencodeCached && now - opencodeCached.checkedAt < opencodeTtl
+			? Promise.resolve(opencodeCached)
+			: checkOpenCodeReadiness(config, runner)
+	const [cursorFresh, antigravityFresh, claudeFresh, opencodeFresh] = await Promise.all([
 		cursorPromise,
 		antigravityPromise,
-		claudePromise
+		claudePromise,
+		opencodePromise
 	])
 
 	const snapshot: StatusSnapshot = {
 		updatedAt: now,
 		cursor: cursorFresh,
 		antigravity: antigravityFresh,
-		'claude-code': claudeFresh
+		'claude-code': claudeFresh,
+		opencode: opencodeFresh
 	}
 	writeStatus(snapshot)
 	return snapshot
@@ -367,15 +417,18 @@ export function compactSummaries(snapshot: StatusSnapshot): {
 	cursor: string
 	antigravity: string
 	'claude-code': string
+	opencode: string
 } {
 	const fmt = (r: Readiness) =>
 		r.ready
 			? `${r.provider}: ready; billing=${r.billingMode}; models=${r.models.length}; latency~${r.latencyEstimateMs}ms; marginal=$${r.marginalInputCost}/$${r.marginalOutputCost} per MTok; tools=${r.toolMode}`
 			: `${r.provider}: unavailable; ${r.reason}`
 	const claude = snapshot['claude-code']
+	const opencode = snapshot.opencode
 	return {
 		cursor: fmt(snapshot.cursor),
 		antigravity: fmt(snapshot.antigravity),
-		'claude-code': claude ? fmt(claude) : 'claude-code: unavailable; not checked yet'
+		'claude-code': claude ? fmt(claude) : 'claude-code: unavailable; not checked yet',
+		opencode: opencode ? fmt(opencode) : 'opencode: unavailable; not checked yet'
 	}
 }

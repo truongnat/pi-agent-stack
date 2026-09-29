@@ -25,7 +25,9 @@ const ALLOW = new Set([
 	// Cursor / Antigravity may need locale and display for some installs
 	'TZ',
 	'NO_COLOR',
-	'FORCE_COLOR'
+	'FORCE_COLOR',
+	'OPENCODE_PERMISSION',
+	'OPENCODE_CONFIG_CONTENT'
 ])
 
 export function allowlistEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {

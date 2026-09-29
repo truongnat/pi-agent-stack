@@ -1,5 +1,5 @@
 /**
- * Pi extension: register Cursor and Antigravity subscription providers.
+ * Pi extension: register subscription-backed CLI providers.
  *
  * Authentication is delegated to the official CLIs. This extension never reads
  * cookies, auth.json, or OAuth token files. Models appear only when readiness
@@ -59,7 +59,12 @@ import {
 	refreshStatus,
 	writeStatus
 } from './readiness.ts'
-import { streamAntigravityCli, streamClaudeCodeCli, streamCursorCli } from './stream.ts'
+import {
+	streamAntigravityCli,
+	streamClaudeCodeCli,
+	streamCursorCli,
+	streamOpenCodeCli
+} from './stream.ts'
 import type { ProviderId, Readiness, RootConfig, StatusSnapshot } from './types.ts'
 import {
 	displayName,
@@ -77,8 +82,9 @@ import {
 const CURSOR_API = 'cursor-cli-compat'
 const ANTIGRAVITY_API = 'antigravity-cli-compat'
 const CLAUDE_CODE_API = 'claude-code-cli-compat'
+const OPENCODE_API = 'opencode-cli-compat'
 
-const CLI_PROVIDERS = ['cursor', 'antigravity', 'claude-code'] as const
+const CLI_PROVIDERS = ['cursor', 'antigravity', 'claude-code', 'opencode'] as const
 
 function autoPersistDefault(patch: Record<string, unknown>): void {
 	const settingsPath = join(homedir(), '.pi', 'agent', 'settings.json')
@@ -262,6 +268,18 @@ function publishProviders(pi: ExtensionAPI, snap: StatusSnapshot): void {
 					options,
 					readinessOrUnavailable('claude-code', snapshot)
 				)
+		})
+
+	if (modelsChanged('opencode', snap))
+		pi.registerProvider('opencode', {
+			name: 'OpenCode (CLI subscription)',
+			baseUrl: 'cli://opencode',
+			apiKey: 'subscription-cli',
+			api: OPENCODE_API,
+			models: modelsFromSnapshot('opencode', snap),
+			refreshModels: (context) => refreshProviderModels('opencode', context),
+			streamSimple: (model, context, options) =>
+				streamOpenCodeCli(model, context, options, readinessOrUnavailable('opencode', snapshot))
 		})
 }
 
@@ -900,7 +918,8 @@ export default function (pi: ExtensionAPI): void {
 				'',
 				`- **Cursor**: ${summaries.cursor}`,
 				`- **Antigravity**: ${summaries.antigravity}`,
-				`- **Claude Code**: ${snapshot?.['claude-code']?.ready ? '🟢 Ready' : '⚪ Standby'}`
+				`- **Claude Code**: ${snapshot?.['claude-code']?.ready ? '🟢 Ready' : '⚪ Standby'}`,
+				`- **OpenCode**: ${snapshot?.opencode?.ready ? '🟢 Ready' : '⚪ Standby'}`
 			].join('\n')
 			if (typeof pi.sendMessage === 'function') {
 				pi.sendMessage({

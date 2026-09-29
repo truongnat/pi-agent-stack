@@ -257,6 +257,79 @@ function handleAgyLine(
 	}
 }
 
+function handleOpenCodeLine(
+	line: string,
+	model: Model<Api>,
+	output: AssistantMessage,
+	stream: AssistantMessageEventStream
+): void {
+	let row: Record<string, unknown>
+	try {
+		row = JSON.parse(line) as Record<string, unknown>
+	} catch {
+		return
+	}
+	const part = row.part as Record<string, unknown> | undefined
+	if (row.type === 'text' && part?.type === 'text' && typeof part.text === 'string')
+		appendText(output, stream, part.text)
+	if (row.type === 'step_finish' && part) {
+		const tokens = part.tokens as Record<string, unknown> | undefined
+		const cache = tokens?.cache as Record<string, unknown> | undefined
+		applyUsage(model, output, {
+			input: Number(tokens?.input ?? 0),
+			output: Number(tokens?.output ?? 0),
+			cacheRead: Number(cache?.read ?? 0),
+			cacheWrite: Number(cache?.write ?? 0)
+		})
+		output.stopReason = 'stop'
+	}
+}
+
+export function streamOpenCodeCli(
+	model: Model<Api>,
+	context: TranscriptContext,
+	options: SimpleStreamOptions | undefined,
+	readiness: Readiness,
+	lineRunner: LineRunner = runStreamingLines
+): AssistantMessageEventStream {
+	const stream = createAssistantMessageEventStream()
+	const cfg = providerConfig(loadConfig(), 'opencode')
+	void (async () => {
+		const output = createOutput(model)
+		try {
+			if (!readiness.ready || !readiness.command)
+				throw new Error(`opencode provider_not_ready: ${readiness.reason}`)
+			const prompt = buildCliPrompt(context)
+			await options?.onResponse?.({ status: 200, headers: {} }, model)
+			stream.push({ type: 'start', partial: output })
+			const result = await lineRunner({
+				command: readiness.command,
+				args: ['run', '--format', 'json', '--pure', '--model', model.id],
+				stdin: prompt,
+				env: { OPENCODE_PERMISSION: JSON.stringify({ '*': 'deny' }) },
+				timeoutMs: cfg.timeoutMs,
+				maxOutputChars: cfg.maxOutputChars,
+				...(options?.signal ? { signal: options.signal } : {}),
+				onLine: (line) => handleOpenCodeLine(line, model, output, stream)
+			})
+			if (result.aborted) throw new Error('Request was aborted')
+			if (result.timedOut) throw new Error(`opencode timed out after ${cfg.timeoutMs}ms`)
+			if (result.code !== 0)
+				throw new Error(diagnostic(result.stderr) || `opencode exit ${result.code}`)
+			closeOpenBlocks(output, stream)
+			if (output.stopReason === 'pending') output.stopReason = 'stop'
+			stream.push({ type: 'done', reason: doneReason(output.stopReason), message: output })
+			stream.end()
+		} catch (error) {
+			output.stopReason = options?.signal?.aborted ? 'aborted' : 'error'
+			output.errorMessage = redactError(error)
+			stream.push({ type: 'error', reason: output.stopReason, error: output })
+			stream.end()
+		}
+	})()
+	return stream
+}
+
 export function streamCursorCli(
 	model: Model<Api>,
 	context: TranscriptContext,

@@ -13,9 +13,10 @@ export async function runStreamingLines(request: {
 	maxOutputChars: number
 	signal?: AbortSignal
 	stdin?: string | Buffer
+	env?: NodeJS.ProcessEnv
 	onLine: LineHandler
 }): Promise<{ code: number | null; timedOut: boolean; aborted: boolean; stderr: string }> {
-	const env = allowlistEnv()
+	const env = allowlistEnv({ ...process.env, ...(request.env ?? {}) })
 	if (request.signal?.aborted) return { code: null, timedOut: false, aborted: true, stderr: '' }
 	return await new Promise((resolve) => {
 		const child = spawn(request.command, request.args, {
