@@ -202,6 +202,7 @@ export function createOrchestratorTools(
 				{
 					role: string
 					name: string
+					model?: string
 					status: string
 					currentActivity?: string
 					previewMarkdown?: string
@@ -214,11 +215,13 @@ export function createOrchestratorTools(
 				const existing = progressMap.get(p.id) || {
 					role: p.role,
 					name: p.name,
+					model: manager.getSubagent(p.id)?.model,
 					status: p.status,
 					currentActivity: p.currentActivity,
 					previewMarkdown: p.previewMarkdown,
 					startedAt: Date.now()
 				}
+				existing.model = manager.getSubagent(p.id)?.model ?? existing.model
 				existing.status = p.status
 				if (p.currentActivity) existing.currentActivity = p.currentActivity
 				if (p.previewMarkdown !== undefined) existing.previewMarkdown = p.previewMarkdown

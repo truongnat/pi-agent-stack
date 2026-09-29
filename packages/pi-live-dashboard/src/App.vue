@@ -195,7 +195,7 @@ function updateViewportWidth() {
 }
 
 function renderMarkdown(value: string) {
-  return DOMPurify.sanitize(marked.parse(value, { async: false }), {
+  return DOMPurify.sanitize(marked.parse(value, { async: false, breaks: true }), {
     USE_PROFILES: { html: true },
   });
 }
@@ -318,6 +318,33 @@ function agentGivenName(agent: Agent) {
   if (!raw) return agent.role || "Agent";
   const short = raw.split(" - ")[0]?.trim();
   return short || raw;
+}
+
+function agentProviderName(agent: Agent) {
+  const provider = agent.model?.split("/", 1)[0]?.trim();
+  if (!provider) return "";
+  const labels: Record<string, string> = {
+    "openai-codex": "OpenAI Codex",
+    "claude-code": "Claude Code",
+    antigravity: "Antigravity",
+  };
+  return (
+    labels[provider.toLowerCase()] ??
+    provider
+      .replace(/[-_]+/g, " ")
+      .replace(/\b\w/g, (letter) => letter.toUpperCase())
+  );
+}
+
+function agentAriaLabel(agent: Agent) {
+  return [
+    agentGivenName(agent),
+    agent.role || "subagent",
+    agentProviderName(agent),
+    statusLabel(agent.status),
+  ]
+    .filter(Boolean)
+    .join(", ");
 }
 
 function roleClass(role?: string) {
@@ -525,13 +552,19 @@ onUnmounted(() => {
                         { selected: selectedNodeId === data.agent.id },
                       ]"
                       :title="data.agent.name || agentGivenName(data.agent)"
-                      :aria-label="`${agentGivenName(data.agent)}, ${data.agent.role || 'subagent'}, ${statusLabel(data.agent.status)}`"
+                      :aria-label="agentAriaLabel(data.agent)"
                     >
                       <Handle
                         type="target"
                         :position="Position.Top"
                         :connectable="false"
                       />
+                      <span
+                        v-if="agentProviderName(data.agent)"
+                        class="agent-provider-badge"
+                        :title="data.agent.model"
+                        >{{ agentProviderName(data.agent) }}</span
+                      >
                       <span class="agent-node-mark" aria-hidden="true"
                         ><component
                           :is="agentIcon(data.agent)"
@@ -1612,6 +1645,7 @@ a {
   background: #12151c;
 }
 .agent-node {
+  position: relative;
   display: flex;
   width: 100%;
   min-width: 0;
@@ -1626,6 +1660,27 @@ a {
   transition-property: border-color, background-color, transform;
   transition-duration: 150ms;
   transition-timing-function: ease-out;
+}
+.agent-node:not(.supervisor) {
+  padding-top: 17px;
+}
+.agent-provider-badge {
+  position: absolute;
+  display: block;
+  top: 3px;
+  right: 6px;
+  max-width: 92px;
+  overflow: hidden;
+  padding: 2px 5px;
+  border: 1px solid #343d4b;
+  border-radius: 999px;
+  background: #1b202a;
+  color: #aeb9c8;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .agent-node:hover {
   border-color: #3d4656;
